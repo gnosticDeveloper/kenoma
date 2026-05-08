@@ -4,27 +4,23 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <groupId>studio.gnosticdeveloper</groupId>
     <artifactId>kenoma</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
-
     <name>kenoma</name>
     <description>Kenoma — Privacy-First B2B SaaS Infrastructure</description>
-
     <modules>
         <module>services</module>
     </modules>
-
     <properties>
         <java.version>25</java.version>
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>4.0.6</spring-boot.version>
+        <lombok.version>1.18.46</lombok.version>
     </properties>
-
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -34,9 +30,26 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>r2dbc-postgresql</artifactId>
+                <version>1.1.1.RELEASE</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>2025.1.1</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+                <scope>provided</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
-
     <build>
         <pluginManagement>
             <plugins>
@@ -63,6 +76,7 @@
                             <path>
                                 <groupId>org.projectlombok</groupId>
                                 <artifactId>lombok</artifactId>
+                                <version>${lombok.version}</version>
                             </path>
                         </annotationProcessorPaths>
                     </configuration>
@@ -70,10 +84,9 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.5.2</version>
+                    <version>3.5.5</version>
                 </plugin>
             </plugins>
         </pluginManagement>
     </build>
-
 </project>
