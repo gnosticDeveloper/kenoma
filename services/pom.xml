@@ -9,7 +9,7 @@
         <groupId>studio.gnosticdeveloper</groupId>
         <artifactId>kenoma</artifactId>
         <version>0.0.1-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath> <!-- Crucial: Points to the root POM you just fixed -->
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>services</artifactId>
