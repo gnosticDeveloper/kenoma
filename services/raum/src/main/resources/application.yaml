@@ -1,3 +1,23 @@
 spring:
   application:
     name: raum
+  cloud:
+    discovery:
+      enabled: false
+    service-registry:
+      auto-registration:
+        enabled: false
+  r2dbc:
+    url: r2dbc:postgresql://${RAUM_DB_HOST:localhost}:${RAUM_DB_PORT:5432}/${RAUM_DB_NAME:raum}
+    username: ${RAUM_DB_USER:postgres}
+    password: ${RAUM_DB_PASSWORD:postgres}
+
+openbao:
+  host: ${OPENBAO_HOST:http://localhost:8200}
+  token: ${OPENBAO_TOKEN:dev-root-token}
+  transit:
+    key-name: jwt-signing-key
+    credential-key-name: credential-encryption-key
+
+server:
+  port: 8080

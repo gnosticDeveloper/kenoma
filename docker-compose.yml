@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:18.1-alpine3.23
+    container_name: raum-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: raum
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d raum"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  raum-db-init:
+    image: postgres:18.1-alpine3.23
+    container_name: raum-db-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./services/raum/src/main/resources/credentials.sql:/schema.sql
+    entrypoint: ["psql", "-h", "postgres", "-U", "postgres", "-d", "raum", "-f", "/schema.sql"]
+
+  openbao:
+    image: openbao/openbao:2.5.2
+    container_name: openbao-dev
+    ports:
+      - "8200:8200"
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: "dev-root-token"
+      BAO_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    command: server -dev
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  openbao-init:
+    image: openbao/openbao:2.5.2
+    container_name: openbao-init
+    depends_on:
+      openbao:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      BAO_ADDR: 'http://openbao:8200'
+      BAO_TOKEN: 'dev-root-token'
+    volumes:
+      - ./scripts/init-openbao.sh:/init-openbao.sh
+    entrypoint: ["/bin/sh", "/init-openbao.sh"]
+    restart: "no"
