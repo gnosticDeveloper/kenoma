@@ -3,16 +3,20 @@ until bao status > /dev/null 2>&1; do
   sleep 1
 done
 
-echo "Enabling transit engine..."
-bao secrets enable transit
+echo "Checking KV v2 secrets engine..."
+if bao secrets list | grep -q '^secret/'; then
+  echo "KV v2 already enabled at secret/, skipping."
+else
+  echo "Enabling KV v2 secrets engine..."
+  bao secrets enable -version=2 -path=secret kv
+fi
 
-echo "Creating JWT signing key..."
-bao write transit/keys/jwt-signing-key type=ecdsa-p256
-
-echo "Creating credential encryption key..."
-bao write transit/keys/credential-encryption-key type=aes256-gcm96
-
-echo "Enabling database secrets engine..."
-bao secrets enable database
+echo "Checking database secrets engine..."
+if bao secrets list | grep -q '^database/'; then
+  echo "Database secrets engine already enabled, skipping."
+else
+  echo "Enabling database secrets engine..."
+  bao secrets enable database
+fi
 
 echo "OpenBao initialized."
