@@ -7,7 +7,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import raum.DTO.CredentialsDTO;
 import reactor.core.publisher.Mono;
 
-import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,90 +14,65 @@ import java.util.UUID;
 public class OpenBaoService {
 
     private final WebClient webClient;
-    private final String encryptionKeyName;
+    private final String kvMount;
 
     public OpenBaoService(
             @Value("${openbao.host}") String host,
             @Value("${openbao.token}") String token,
-            @Value("${openbao.transit.credential-key-name}") String encryptionKeyName) {
+            @Value("${openbao.kv.mount}") String kvMount) {
         this.webClient = WebClient.builder()
                 .baseUrl(host)
                 .defaultHeader("X-Vault-Token", token)
                 .build();
-        this.encryptionKeyName = encryptionKeyName;
+        this.kvMount = kvMount;
     }
 
-    public Mono<byte[]> encrypt(String plaintext) {
-        String encoded = Base64.getEncoder().encodeToString(plaintext.getBytes());
+    public Mono<Void> storeCredentials(UUID id, String username, String password) {
         return webClient.post()
-                .uri("/v1/transit/encrypt/{key}", encryptionKeyName)
-                .bodyValue(Map.of("plaintext", encoded))
+                .uri("/v1/{mount}/data/credentials/{id}", kvMount, id)
+                .bodyValue(Map.of("data", Map.of(
+                        "username", username,
+                        "password", password
+                )))
                 .retrieve()
-                .bodyToMono(Map.class)
-                .map(response -> {
-                    Map<?, ?> data = (Map<?, ?>) response.get("data");
-                    return ((String) data.get("ciphertext")).getBytes();
-                });
-    }
-
-    public Mono<String> decrypt(String ciphertext) {
-        return webClient.post()
-                .uri("/v1/transit/decrypt/{key}", encryptionKeyName)
-                .bodyValue(Map.of("ciphertext", ciphertext))
-                .retrieve()
-                .onStatus(HttpStatusCode::is4xxClientError, response ->
+                .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("OPENBAO 400 ERROR BODY: " + body);
-                            return Mono.error(new RuntimeException("Bad Request: " + body));
+                            System.err.println("storeCredentials FAILED [" + response.statusCode() + "]: " + body);
+                            return Mono.error(new RuntimeException("storeCredentials failed: " + body));
                         })
                 )
-                .bodyToMono(Map.class)
-                .map(response -> {
-                    Map<?, ?> data = (Map<?, ?>) response.get("data");
-                    String encoded = (String) data.get("plaintext");
-                    return new String(Base64.getDecoder().decode(encoded));
-                });
+                .bodyToMono(Void.class);
     }
 
-    public Mono<CredentialsDTO> issueEphemeralCredentials(
-            String adminUser, String adminPassword,
-            String dbHost, int dbPort, String dbName) {
-        String connectionName = "raum-" + UUID.randomUUID();
+    public Mono<Void> registerDatabaseConnection(UUID id, String username, String password,
+                                                 String dbHost, int dbPort, String dbName) {
+        String connectionName = id.toString();
         String roleName = connectionName + "-role";
         String connectionUrl = String.format(
                 "postgresql://{{username}}:{{password}}@%s:%d/%s?sslmode=disable",
                 dbHost, dbPort, dbName);
 
-        return registerDb(connectionName, roleName, connectionUrl, adminUser, adminPassword)
-                .then(createRole(connectionName, roleName, dbName))  // <-- pass dbName
-                .then(issueCredentials(roleName))
-                .flatMap(creds -> deregisterDb(connectionName, roleName).thenReturn(creds))
-                .onErrorResume(e -> deregisterDb(connectionName, roleName).then(Mono.error(e)));
-    }
-
-    private Mono<Void> registerDb(String connectionName, String roleName,
-                                  String connectionUrl, String adminUser, String adminPassword) {
         return webClient.post()
                 .uri("/v1/database/config/{name}", connectionName)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
                         "allowed_roles", roleName,
                         "connection_url", connectionUrl,
-                        "username", adminUser,
-                        "password", adminPassword
+                        "username", username,
+                        "password", password
                 ))
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("registerDb FAILED [" + response.statusCode() + "]: " + body);
-                            return Mono.error(new RuntimeException("registerDb failed: " + body));
+                            System.err.println("registerDatabaseConnection FAILED [" + response.statusCode() + "]: " + body);
+                            return Mono.error(new RuntimeException("registerDatabaseConnection failed: " + body));
                         })
                 )
                 .bodyToMono(Void.class)
-                .doOnSuccess(v -> System.err.println("registerDb OK: " + connectionName))
-                .doOnError(e -> System.err.println("registerDb ERROR: " + e.getMessage()));
+                .then(createRole(connectionName, roleName, dbName));
     }
 
+    // one of these will be created per credential registered
     private Mono<Void> createRole(String connectionName, String roleName, String dbName) {
         return webClient.post()
                 .uri("/v1/database/roles/{role}", roleName)
@@ -115,23 +89,22 @@ public class OpenBaoService {
                             return Mono.error(new RuntimeException("createRole failed: " + body));
                         })
                 )
-                .bodyToMono(Void.class)
-                .doOnSuccess(v -> System.err.println("createRole OK: " + roleName))
-                .doOnError(e -> System.err.println("createRole ERROR: " + e.getMessage()));
+                .bodyToMono(Void.class);
     }
 
-    private Mono<CredentialsDTO> issueCredentials(String roleName) {
+
+    public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id) {
+        String roleName = id + "-role";
         return webClient.get()
                 .uri("/v1/database/creds/{role}", roleName)
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("issueCredentials FAILED [" + response.statusCode() + "]: " + body);
-                            return Mono.error(new RuntimeException("issueCredentials failed: " + body));
+                            System.err.println("issueEphemeralCredentials FAILED [" + response.statusCode() + "]: " + body);
+                            return Mono.error(new RuntimeException("issueEphemeralCredentials failed: " + body));
                         })
                 )
                 .bodyToMono(Map.class)
-                .doOnError(e -> System.err.println("issueCredentials ERROR: " + e.getMessage()))
                 .map(response -> {
                     Map<?, ?> data = (Map<?, ?>) response.get("data");
                     return CredentialsDTO.builder()
@@ -139,16 +112,5 @@ public class OpenBaoService {
                             .password((String) data.get("password"))
                             .build();
                 });
-    }
-
-    private Mono<Void> deregisterDb(String connectionName, String roleName) {
-        return webClient.delete()
-                .uri("/v1/database/roles/{role}", roleName)
-                .retrieve()
-                .bodyToMono(Void.class)
-                .then(webClient.delete()
-                        .uri("/v1/database/config/{name}", connectionName)
-                        .retrieve()
-                        .bodyToMono(Void.class));
     }
 }

@@ -1,10 +1,8 @@
 package raum.models;
-
 import lombok.*;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
-
 import java.time.Instant;
 import java.util.UUID;
 
@@ -14,7 +12,6 @@ import java.util.UUID;
 @AllArgsConstructor
 @Table("credentials")
 public class Credentials {
-
     @Id
     @Column("id")
     private UUID id;
@@ -36,12 +33,6 @@ public class Credentials {
 
     @Column("db_name")
     private String dbName;
-
-    @Column("user_name")
-    private byte[] userName;
-
-    @Column("encrypted_password")
-    private byte[] encryptedPassword;
 
     @Column("modification_lock")
     private boolean modificationLock;
