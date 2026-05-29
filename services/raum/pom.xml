@@ -14,6 +14,13 @@
 	<name>kenoma-raum</name>
 	<description>Raum — [Raum's domain here]</description>
 	<dependencies>
+
+		<dependency>
+			<groupId>studio.gnosticdeveloper</groupId>
+			<artifactId>common</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webflux</artifactId>

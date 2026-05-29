@@ -1,4 +1,4 @@
-package raum.DTO;
+package common.dto;
 
 import lombok.*;
 

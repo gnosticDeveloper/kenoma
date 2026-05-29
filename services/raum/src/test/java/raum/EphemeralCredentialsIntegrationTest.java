@@ -14,8 +14,8 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import raum.DTO.BasicCredentialDTO;
-import raum.DTO.CredentialsDTO;
+import common.dto.BasicCredentialDTO;
+import common.dto.CredentialsDTO;
 
 import java.sql.Connection;
 import java.sql.DriverManager;

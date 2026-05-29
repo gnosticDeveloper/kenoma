@@ -4,21 +4,19 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <parent>
         <groupId>studio.gnosticdeveloper</groupId>
-        <artifactId>kenoma</artifactId>
+        <artifactId>services</artifactId>
         <version>0.0.1-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath>
     </parent>
-
-    <artifactId>services</artifactId>
-    <packaging>pom</packaging>
-    <name>services</name>
-
-    <modules>
-        <module>common</module>
-        <module>raum</module>
-        <module>vassago</module>
-    </modules>
+    <artifactId>common</artifactId>
+    <packaging>jar</packaging>
+    <name>kenoma-common</name>
+    <description>Common — Shared DTOs and utilities for the Kenoma platform</description>
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+    </dependencies>
 </project>

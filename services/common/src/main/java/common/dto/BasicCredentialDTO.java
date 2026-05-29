@@ -1,4 +1,4 @@
-package raum.DTO;
+package common.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -10,6 +10,6 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 public class BasicCredentialDTO {
-    UUID orgId;
-    UUID serviceId; 
+    private UUID orgId;
+    private UUID serviceId;
 }
