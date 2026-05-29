@@ -2,8 +2,8 @@ package raum.services;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import raum.DTO.BasicCredentialDTO;
-import raum.DTO.CredentialsDTO;
+import common.dto.BasicCredentialDTO;
+import common.dto.CredentialsDTO;
 import raum.models.Credentials;
 import raum.openbao.OpenBaoService;
 import raum.repository.CredentialsRepository;
@@ -19,34 +19,31 @@ public class CredentialsService {
     private final CredentialsRepository credentialsRepository;
     private final OpenBaoService openBaoService;
 
-    public Mono<BasicCredentialDTO> saveNewCredentials(Mono<CredentialsDTO> credentialMono) {
-        return credentialMono.flatMap(dto -> {
-            UUID orgId = UUID.randomUUID();
-            UUID serviceId = UUID.randomUUID();
+    public Mono<BasicCredentialDTO> saveNewCredentials(CredentialsDTO dto) {
+        UUID orgId = UUID.randomUUID();
+        UUID serviceId = UUID.randomUUID();
 
-            return credentialsRepository.save(Credentials.builder()
-                            .orgId(orgId)
-                            .serviceId(serviceId)
-                            .dbEngine(dto.getDbEngine())
-                            .dbHost(dto.getDbHost())
-                            .dbPort(dto.getDbPort())
-                            .dbName(dto.getDbName())
-                            .createdAt(Instant.now())
-                            .modifiedAt(Instant.now())
-                            .build())
-                    .flatMap(saved ->
-                            openBaoService.storeCredentials(saved.getId(), dto.getUserName(), dto.getPassword())
-                                    .then(openBaoService.registerDatabaseConnection(
-                                            saved.getId(),
-                                            dto.getUserName(),
-                                            dto.getPassword(),
-                                            dto.getDbHost(),
-                                            dto.getDbPort(),
-                                            dto.getDbName()
-                                    ))
-                                    .thenReturn(new BasicCredentialDTO(saved.getOrgId(), saved.getServiceId()))
-                    );
-        });
+        return credentialsRepository.save(Credentials.builder()
+                        .orgId(orgId)
+                        .serviceId(serviceId)
+                        .dbEngine(dto.getDbEngine())
+                        .dbHost(dto.getDbHost())
+                        .dbPort(dto.getDbPort())
+                        .dbName(dto.getDbName())
+                        .createdAt(Instant.now())
+                        .modifiedAt(Instant.now())
+                        .build())
+                .flatMap(saved -> openBaoService.storeCredentials(saved.getId(), dto.getUserName(), dto.getPassword())
+                        .then(openBaoService.registerDatabaseConnection(
+                                saved.getId(),
+                                dto.getUserName(),
+                                dto.getPassword(),
+                                dto.getDbHost(),
+                                dto.getDbPort(),
+                                dto.getDbName()
+                        ))
+                        .thenReturn(new BasicCredentialDTO(saved.getOrgId(), saved.getServiceId()))
+                );
     }
 
     public Mono<CredentialsDTO> getEphemeralCredentialsByOrgIdAndServiceId(BasicCredentialDTO dto) {

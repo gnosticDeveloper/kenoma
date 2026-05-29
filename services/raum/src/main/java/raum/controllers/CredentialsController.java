@@ -1,8 +1,8 @@
 package raum.controllers;
 
 import org.springframework.web.bind.annotation.*;
-import raum.DTO.BasicCredentialDTO;
-import raum.DTO.CredentialsDTO;
+import common.dto.BasicCredentialDTO;
+import common.dto.CredentialsDTO;
 import raum.services.CredentialsService;
 import reactor.core.publisher.Mono;
 
@@ -28,6 +28,6 @@ class CredentialsController {
 
     @PostMapping
     public Mono<BasicCredentialDTO> saveCredentials(@RequestBody CredentialsDTO credentials) {
-        return credentialsService.saveNewCredentials(Mono.just(credentials));
+        return credentialsService.saveNewCredentials(credentials);
     }
 }
