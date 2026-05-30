@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS credentials (
                              modification_lock  bool DEFAULT false,
                              locked_at          timestamp,
                              created_at         timestamp DEFAULT current_timestamp,
-                             modified_at        timestamp DEFAULT current_timestamp
+                             modified_at        timestamp DEFAULT current_timestamp,
+                             FOREIGN KEY (org_id) references organizations(id),
+                             FOREIGN KEY  (service_id) references  services(id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_org_service ON credentials(org_id, service_id);
