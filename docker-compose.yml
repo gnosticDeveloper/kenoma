@@ -23,8 +23,9 @@ services:
     environment:
       PGPASSWORD: postgres
     volumes:
-      - ./services/raum/src/main/resources/credentials.sql:/schema.sql
-    entrypoint: ["psql", "-h", "postgres", "-U", "postgres", "-d", "raum", "-f", "/schema.sql"]
+      - ./services/raum/src/main/resources/credentials.sql:/credentials.sql
+      - ./services/raum/src/main/resources/organizations.sql:/organizations.sql
+    entrypoint: [ "sh", "-c", "psql -h postgres -U postgres -d raum -f /credentials.sql && psql -h postgres -U postgres -d raum -f /organizations.sql" ]
 
   openbao:
     image: openbao/openbao:2.5.2
