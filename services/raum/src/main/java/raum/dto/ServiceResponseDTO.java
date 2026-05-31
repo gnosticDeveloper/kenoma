@@ -1,18 +1,17 @@
 package raum.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.Builder;
+import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
-
 import java.util.UUID;
 
-@Builder
 @Data
-@NoArgsConstructor
+@Builder
 @AllArgsConstructor
-public class OrgResponseDTO {
+@NoArgsConstructor
+public class ServiceResponseDTO {
     UUID id;
     String name;
-    String contactEmail;
+    String description;
 }

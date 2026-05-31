@@ -1,12 +1,12 @@
 package common.dto;
 
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 @EqualsAndHashCode(callSuper = true)
 @Data
+@SuperBuilder
 @NoArgsConstructor
-@RequiredArgsConstructor
-@Builder
 @AllArgsConstructor
 public class CredentialsDTO extends BasicCredentialDTO {
     @NonNull

@@ -8,24 +8,18 @@ import raum.models.Credentials;
 import raum.openbao.OpenBaoService;
 import raum.repository.CredentialsRepository;
 import reactor.core.publisher.Mono;
-
 import java.time.Instant;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class CredentialsService {
-
     private final CredentialsRepository credentialsRepository;
     private final OpenBaoService openBaoService;
 
     public Mono<BasicCredentialDTO> saveNewCredentials(CredentialsDTO dto) {
-        UUID orgId = UUID.randomUUID();
-        UUID serviceId = UUID.randomUUID();
-
         return credentialsRepository.save(Credentials.builder()
-                        .orgId(orgId)
-                        .serviceId(serviceId)
+                        .orgId(dto.getOrgId())
+                        .serviceId(dto.getServiceId())
                         .dbEngine(dto.getDbEngine())
                         .dbHost(dto.getDbHost())
                         .dbPort(dto.getDbPort())
@@ -42,7 +36,10 @@ public class CredentialsService {
                                 dto.getDbPort(),
                                 dto.getDbName()
                         ))
-                        .thenReturn(new BasicCredentialDTO(saved.getOrgId(), saved.getServiceId()))
+                        .thenReturn(BasicCredentialDTO.builder()
+                                .orgId(saved.getOrgId())
+                                .serviceId(saved.getServiceId())
+                                .build())
                 );
     }
 
@@ -50,14 +47,18 @@ public class CredentialsService {
         return credentialsRepository.findByOrgIdAndServiceId(dto.getOrgId(), dto.getServiceId())
                 .flatMap(credentials ->
                         openBaoService.issueEphemeralCredentials(credentials.getId())
-                                .map(ephemeral -> CredentialsDTO.builder()
-                                        .userName(ephemeral.getUserName())
-                                        .password(ephemeral.getPassword())
-                                        .dbHost(credentials.getDbHost())
-                                        .dbPort(credentials.getDbPort())
-                                        .dbName(credentials.getDbName())
-                                        .dbEngine(credentials.getDbEngine())
-                                        .build())
+                                .map(ephemeral -> {
+                                    CredentialsDTO result = new CredentialsDTO();
+                                    result.setOrgId(credentials.getOrgId());
+                                    result.setServiceId(credentials.getServiceId());
+                                    result.setUserName(ephemeral.getUserName());
+                                    result.setPassword(ephemeral.getPassword());
+                                    result.setDbHost(credentials.getDbHost());
+                                    result.setDbPort(credentials.getDbPort());
+                                    result.setDbName(credentials.getDbName());
+                                    result.setDbEngine(credentials.getDbEngine());
+                                    return result;
+                                })
                 )
                 .switchIfEmpty(Mono.error(new RuntimeException("No credentials found")));
     }

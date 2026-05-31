@@ -16,6 +16,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
+import raum.dto.OrgRequestDTO;
+import raum.dto.OrgResponseDTO;
+import raum.dto.ServiceRequestDTO;
+import raum.dto.ServiceResponseDTO;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -38,7 +42,7 @@ class EphemeralCredentialsIntegrationTest {
             .withDatabaseName("raum")
             .withUsername("postgres")
             .withPassword("postgres")
-            .withInitScript("credentials.sql");
+            .withInitScript("init.sql");
 
     @Container
     static final PostgreSQLContainer customerDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
@@ -93,7 +97,7 @@ class EphemeralCredentialsIntegrationTest {
                 .bodyValue(Map.of("type", "database"))
                 .retrieve()
                 .bodyToMono(Void.class)
-                .onErrorComplete() // idempotent
+                .onErrorComplete()
                 .block();
     }
 
@@ -106,10 +110,34 @@ class EphemeralCredentialsIntegrationTest {
                 .baseUrl("http://localhost:%d".formatted(port))
                 .build();
 
+        OrgResponseDTO org = client.post()
+                .uri("/orgs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new OrgRequestDTO("Test Org", "test@example.com", "Test User"))
+                .retrieve()
+                .bodyToMono(OrgResponseDTO.class)
+                .block();
+
+        assertThat(org).isNotNull();
+        assertThat(org.getId()).isNotNull();
+
+        ServiceResponseDTO service = client.post()
+                .uri("/services")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new ServiceRequestDTO("Test Service", "Integration test service"))
+                .retrieve()
+                .bodyToMono(ServiceResponseDTO.class)
+                .block();
+
+        assertThat(service).isNotNull();
+        assertThat(service.getId()).isNotNull();
+
         BasicCredentialDTO saved = client.post()
                 .uri("/credentials")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(CredentialsDTO.builder()
+                        .orgId(org.getId())
+                        .serviceId(service.getId())
                         .userName("admin")
                         .password("adminpass")
                         .dbHost("customer-postgres")
@@ -122,8 +150,8 @@ class EphemeralCredentialsIntegrationTest {
                 .block();
 
         assertThat(saved).isNotNull();
-        assertThat(saved.getOrgId()).isNotNull();
-        assertThat(saved.getServiceId()).isNotNull();
+        assertThat(saved.getOrgId()).isEqualTo(org.getId());
+        assertThat(saved.getServiceId()).isEqualTo(service.getId());
 
         CredentialsDTO ephemeral = client.post()
                 .uri("/credentials/ephemeral")
