@@ -1,6 +1,7 @@
 package raum.openbao;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -104,13 +105,14 @@ public class OpenBaoService {
                             return Mono.error(new RuntimeException("issueEphemeralCredentials failed: " + body));
                         })
                 )
-                .bodyToMono(Map.class)
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .map(response -> {
-                    Map<?, ?> data = (Map<?, ?>) response.get("data");
-                    return CredentialsDTO.builder()
-                            .userName((String) data.get("username"))
-                            .password((String) data.get("password"))
-                            .build();
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) response.get("data");
+                    CredentialsDTO dto = new CredentialsDTO();
+                    dto.setUserName((String) data.get("username"));
+                    dto.setPassword((String) data.get("password"));
+                    return dto;
                 });
     }
 }
