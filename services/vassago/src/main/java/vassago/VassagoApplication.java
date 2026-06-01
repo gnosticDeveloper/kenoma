@@ -11,5 +11,4 @@ public class VassagoApplication {
     public static void main(String[] args) {
         SpringApplication.run(VassagoApplication.class, args);
     }
-
 }

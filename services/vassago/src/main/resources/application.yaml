@@ -6,3 +6,5 @@ server:
 
 raum:
   base-url: ${RAUM_BASE_URL:http://localhost:8080}
+vassago:
+  service-id: ${VASSAGO_SERVICE_ID}
