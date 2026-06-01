@@ -18,7 +18,6 @@ public class SecurityConfig {
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
         return http
                 .authorizeExchange(exchanges -> exchanges.anyExchange().permitAll())
-                .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .build();
     }
 }
