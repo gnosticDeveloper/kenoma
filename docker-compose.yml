@@ -1,5 +1,5 @@
 services:
-  postgres:
+  raum-postgres:
     image: postgres:18.1-alpine3.23
     container_name: raum-postgres
     environment:
@@ -18,14 +18,13 @@ services:
     image: postgres:18.1-alpine3.23
     container_name: raum-db-init
     depends_on:
-      postgres:
+      raum-postgres:
         condition: service_healthy
     environment:
       PGPASSWORD: postgres
     volumes:
-      - ./services/raum/src/main/resources/credentials.sql:/credentials.sql
-      - ./services/raum/src/main/resources/organizations.sql:/organizations.sql
-    entrypoint: [ "sh", "-c", "psql -h postgres -U postgres -d raum -f /credentials.sql && psql -h postgres -U postgres -d raum -f /organizations.sql" ]
+      - ./services/raum/src/main/resources/init.sql:/init.sql
+    entrypoint: ["sh", "-c", "psql -h raum-postgres -U postgres -d raum -f /init.sql"]
 
   openbao:
     image: openbao/openbao:2.5.2
@@ -50,7 +49,7 @@ services:
     depends_on:
       openbao:
         condition: service_healthy
-      postgres:
+      raum-postgres:
         condition: service_healthy
     environment:
       BAO_ADDR: 'http://openbao:8200'
@@ -59,3 +58,43 @@ services:
       - ./scripts/init-openbao.sh:/init-openbao.sh
     entrypoint: ["/bin/sh", "/init-openbao.sh"]
     restart: "no"
+
+  raum:
+    build:
+      context: .
+      dockerfile: services/raum/Dockerfile
+    container_name: raum
+    depends_on:
+      raum-postgres:
+        condition: service_healthy
+      openbao:
+        condition: service_healthy
+      raum-db-init:
+        condition: service_completed_successfully
+      openbao-init:
+        condition: service_completed_successfully
+    environment:
+      RAUM_DB_HOST: raum-postgres
+      RAUM_DB_PORT: 5432
+      RAUM_DB_NAME: raum
+      RAUM_DB_USER: postgres
+      RAUM_DB_PASSWORD: postgres
+      OPENBAO_HOST: http://openbao:8200
+      OPENBAO_TOKEN: dev-root-token
+      OPENBAO_KV_MOUNT: secret
+    ports:
+      - "8080:8080"
+
+  vassago:
+    build:
+      context: .
+      dockerfile: services/vassago/Dockerfile
+    container_name: vassago
+    depends_on:
+      raum:
+        condition: service_started
+    environment:
+      RAUM_BASE_URL: http://raum:8080
+      VASSAGO_SERVICE_ID: ${VASSAGO_SERVICE_ID}
+    ports:
+      - "8081:8081"
