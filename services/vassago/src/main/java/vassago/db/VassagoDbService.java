@@ -1,28 +1,26 @@
 package vassago.db;
 
-import common.dto.BasicCredentialDTO;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import vassago.clients.RaumClient;
+
 import java.util.UUID;
 
+/**
+ * Entry point for all database access in Vassago.
+ *
+ * <p>Delegates to {@link ConnectionPoolService}. The {@code orgId} is passed in
+ * from the caller for now and will be replaced by JWT context extraction once
+ * the security layer is implemented.
+ */
 @Service
 @RequiredArgsConstructor
 public class VassagoDbService {
-    private final RaumClient raumClient;
-    private final DatabaseConnectionService dbConnectionService;
 
-    @Value("${vassago.service-id}")
-    private String serviceId;
+    private final ConnectionPoolService connectionPoolService;
 
     public Mono<DatabaseClient> getClient(UUID orgId) {
-        BasicCredentialDTO request = new BasicCredentialDTO();
-        request.setOrgId(orgId);
-        request.setServiceId(UUID.fromString(serviceId));
-        return raumClient.getEphemeralCredentials(request)
-                .map(dbConnectionService::createReactiveClient);
+        return connectionPoolService.getClient(orgId);
     }
 }

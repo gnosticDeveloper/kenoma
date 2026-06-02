@@ -8,11 +8,13 @@ import raum.models.Credentials;
 import raum.openbao.OpenBaoService;
 import raum.repository.CredentialsRepository;
 import reactor.core.publisher.Mono;
+
 import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
 public class CredentialsService {
+
     private final CredentialsRepository credentialsRepository;
     private final OpenBaoService openBaoService;
 
@@ -57,6 +59,8 @@ public class CredentialsService {
                                     result.setDbPort(credentials.getDbPort());
                                     result.setDbName(credentials.getDbName());
                                     result.setDbEngine(credentials.getDbEngine());
+                                    result.setLeaseId(ephemeral.getLeaseId());
+                                    result.setLeaseDuration(ephemeral.getLeaseDuration());
                                     return result;
                                 })
                 )

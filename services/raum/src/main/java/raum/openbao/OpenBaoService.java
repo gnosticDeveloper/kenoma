@@ -73,13 +73,15 @@ public class OpenBaoService {
                 .then(createRole(connectionName, roleName, dbName));
     }
 
-    // one of these will be created per credential registered
     private Mono<Void> createRole(String connectionName, String roleName, String dbName) {
         return webClient.post()
                 .uri("/v1/database/roles/{role}", roleName)
                 .bodyValue(Map.of(
                         "db_name", connectionName,
-                        "creation_statements", "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"" + dbName + "\" TO \"{{name}}\";",
+                        "creation_statements", "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; " +
+                                "GRANT CONNECT ON DATABASE \"" + dbName + "\" TO \"{{name}}\"; " +
+                                "GRANT USAGE ON SCHEMA public TO \"{{name}}\"; " +
+                                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
                         "default_ttl", "1h",
                         "max_ttl", "24h"
                 ))
@@ -92,8 +94,13 @@ public class OpenBaoService {
                 )
                 .bodyToMono(Void.class);
     }
-
-
+    /**
+     * Issues ephemeral credentials via OpenBao's database secrets engine.
+     *
+     * <p>The full lease envelope ({@code lease_id}, {@code lease_duration}) is
+     * preserved in the returned DTO so that callers can drive TTL-based pool
+     * eviction precisely without a separate Vault lookup.
+     */
     public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id) {
         String roleName = id + "-role";
         return webClient.get()
@@ -109,9 +116,15 @@ public class OpenBaoService {
                 .map(response -> {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> data = (Map<String, Object>) response.get("data");
+
+                    long leaseDuration = ((Number) response.getOrDefault("lease_duration", 3600L)).longValue();
+                    String leaseId     = (String) response.getOrDefault("lease_id", "");
+
                     CredentialsDTO dto = new CredentialsDTO();
                     dto.setUserName((String) data.get("username"));
                     dto.setPassword((String) data.get("password"));
+                    dto.setLeaseDuration(leaseDuration);
+                    dto.setLeaseId(leaseId);
                     return dto;
                 });
     }

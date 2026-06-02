@@ -18,11 +18,6 @@ import java.util.UUID;
 public class UserController {
     private final UserService userService;
 
-    @PostMapping("/login")
-    public Mono<CredentialsDTO> getEphemeralCredential(@RequestBody BasicCredentialDTO requestDTO) {
-        return userService.test(requestDTO);
-    }
-
     @PostMapping
     public Mono<UserResponseDTO> createUser(@RequestBody UserRequestDTO dto) {
         return userService.createUser(dto);

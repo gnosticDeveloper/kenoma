@@ -26,6 +26,21 @@ services:
       - ./services/raum/src/main/resources/init.sql:/init.sql
     entrypoint: ["sh", "-c", "psql -h raum-postgres -U postgres -d raum -f /init.sql"]
 
+  customer-postgres:
+    image: postgres:18.1-alpine3.23
+    container_name: customer-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpass
+      POSTGRES_DB: customerdb
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d customerdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   openbao:
     image: openbao/openbao:2.5.2
     container_name: openbao-dev
@@ -84,6 +99,39 @@ services:
       OPENBAO_KV_MOUNT: secret
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  kenoma-init:
+    image: postgres:18.1-alpine3.23
+    container_name: kenoma-init
+    depends_on:
+      raum:
+        condition: service_healthy
+      customer-postgres:
+        condition: service_healthy
+    environment:
+      RAUM_BASE_URL: http://raum:8080
+      CUSTOMER_DB_HOST: customer-postgres
+      CUSTOMER_DB_PORT: 5432
+      CUSTOMER_DB_NAME: customerdb
+      CUSTOMER_DB_USER: admin
+      CUSTOMER_DB_PASSWORD: adminpass
+      ORG_NAME: "My Organisation"
+      ORG_EMAIL: admin@example.com
+      ORG_CONTACT: Admin
+      SERVICE_NAME: Vassago
+      SERVICE_DESC: "Authentication and identity service"
+      ENV_OUT: /out/.env
+    volumes:
+      - ./scripts/init-kenoma.sh:/init-kenoma.sh
+      - ./services/vassago/src/main/resources/users.sql:/users.sql
+      - ./.env-out:/out
+    entrypoint: ["/bin/sh", "/init-kenoma.sh"]
+    restart: "no"
 
   vassago:
     build:
@@ -91,10 +139,11 @@ services:
       dockerfile: services/vassago/Dockerfile
     container_name: vassago
     depends_on:
-      raum:
-        condition: service_started
+      kenoma-init:
+        condition: service_completed_successfully
+    env_file:
+      - ./.env-out/.env
     environment:
       RAUM_BASE_URL: http://raum:8080
-      VASSAGO_SERVICE_ID: ${VASSAGO_SERVICE_ID}
     ports:
       - "8081:8081"

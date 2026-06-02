@@ -3,8 +3,12 @@ spring:
     name: vassago
 server:
   port: 8081
-
 raum:
   base-url: ${RAUM_BASE_URL:http://localhost:8080}
 vassago:
   service-id: ${VASSAGO_SERVICE_ID}
+  pool:
+    expiry-buffer-percent: ${VASSAGO_POOL_EXPIRY_BUFFER_PERCENT:10}
+    eviction-interval-seconds: ${VASSAGO_POOL_EVICTION_INTERVAL_SECONDS:60}
+    max-size: ${VASSAGO_POOL_MAX_SIZE:10}
+    initial-size: ${VASSAGO_POOL_INITIAL_SIZE:2}
