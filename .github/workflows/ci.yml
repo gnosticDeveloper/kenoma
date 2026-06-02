@@ -20,7 +20,7 @@ jobs:
           cache: 'maven'
 
       - name: Run unit tests
-        run: ./mvnw test -pl services/common,services/raum,services/vassago -am -Dspring.profiles.active=test
+        run: mvn test -pl services/common,services/raum,services/vassago -am -Dspring.profiles.active=test
         env:
           VASSAGO_SERVICE_ID: 00000000-0000-0000-0000-000000000001
 
