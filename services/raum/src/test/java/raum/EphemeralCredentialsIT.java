@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
-class EphemeralCredentialsIntegrationTest {
+class EphemeralCredentialsIT {
 
     static final Network network = Network.newNetwork();
 
