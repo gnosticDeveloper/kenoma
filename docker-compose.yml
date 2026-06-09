@@ -1,4 +1,5 @@
 services:
+
   raum-postgres:
     image: postgres:18.1-alpine3.23
     container_name: raum-postgres
@@ -67,8 +68,8 @@ services:
       raum-postgres:
         condition: service_healthy
     environment:
-      BAO_ADDR: 'http://openbao:8200'
-      BAO_TOKEN: 'dev-root-token'
+      BAO_ADDR: "http://openbao:8200"
+      BAO_TOKEN: "dev-root-token"
     volumes:
       - ./scripts/init-openbao.sh:/init-openbao.sh
     entrypoint: ["/bin/sh", "/init-openbao.sh"]
@@ -100,19 +101,23 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/actuator/health"]
       interval: 5s
       timeout: 5s
       retries: 12
 
   kenoma-init:
-    image: postgres:18.1-alpine3.23
+    build:
+      context: .
+      dockerfile: scripts/dev/db/Dockerfile
     container_name: kenoma-init
     depends_on:
       raum:
         condition: service_healthy
       customer-postgres:
         condition: service_healthy
+      openbao-init:
+        condition: service_completed_successfully
     environment:
       RAUM_BASE_URL: http://raum:8080
       CUSTOMER_DB_HOST: customer-postgres
@@ -125,6 +130,11 @@ services:
       ORG_CONTACT: Admin
       SERVICE_NAME: Vassago
       SERVICE_DESC: "Authentication and identity service"
+      SEED_USER_NAME: Admin
+      SEED_USER_LAST_NAME: User
+      SEED_USER_EMAIL: admin@example.com
+      SEED_USER_USERNAME: admin
+      SEED_USER_PASSWORD: "Ch4ng3me!Dev#"
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/init-kenoma.sh:/init-kenoma.sh
@@ -147,3 +157,9 @@ services:
       RAUM_BASE_URL: http://raum:8080
     ports:
       - "8081:8081"
+    restart: on-failure:3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8081/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
