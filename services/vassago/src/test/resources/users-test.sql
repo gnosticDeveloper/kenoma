@@ -12,3 +12,15 @@ CREATE TABLE IF NOT EXISTS users (
                                      modified_at        timestamp DEFAULT current_timestamp,
                                      stopped_at         timestamp DEFAULT null
 );
+
+-- Bootstrap admin user for integration tests.
+-- Password: B00tstr@pPass1
+INSERT INTO users (name, last_name, email, username, password, roles)
+VALUES (
+           'Bootstrap',
+           'Admin',
+           'admin@bootstrap.local',
+           'bootstrap_admin',
+           '$2a$10$xI03I5H6IoRGzfpHm4IUGOlQooxsVSVkJM3JMI4QFrJyXvR.6/gw.',
+           '{"vassago":["ADMIN","USER"]}'
+       ) ON CONFLICT (username) DO NOTHING;

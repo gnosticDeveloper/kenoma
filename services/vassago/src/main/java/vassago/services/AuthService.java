@@ -12,6 +12,7 @@ import vassago.dto.LoginRequestDTO;
 import vassago.security.JwtService;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -40,7 +41,7 @@ public class AuthService {
                         return Mono.error(
                                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
                     }
-                    List<String> roles = RolesUtils.deserialize((String) row.get("roles"));
+                    Map<String, List<String>> roles = RolesUtils.deserialize((String) row.get("roles"));
                     return jwtService.issueToken(dto.getOrgId(), dto.getUsername(), roles);
                 });
     }
