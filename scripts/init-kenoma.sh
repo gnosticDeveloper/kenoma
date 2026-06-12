@@ -56,16 +56,12 @@ echo "Credentials registered."
 if [ "${SEED_DB}" = "true" ]; then
   echo "Inserting seed user..."
   SEED_PASSWORD="${SEED_USER_PASSWORD:-Ch4ng3me!Dev#}"
-  SEED_ROLES="${SEED_USER_ROLES:-{\"vassago\":[\"ADMIN\",\"USER\"]}}"
-
+  SEED_ROLES="${SEED_USER_ROLES:-{\"${SERVICE_ID}\":[\"ADMIN\",\"USER\"]}}"
   BCRYPT_HASH=$(python3 -c "
 import bcrypt
 pwd = '${SEED_PASSWORD}'.encode()
 print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '\$2a\$'))
 ")
-
-  # Write seed SQL to a temp file to avoid shell quoting issues with
-  # the bcrypt hash (\$2a\$...) and JSON roles string.
   cat > /tmp/seed-user.sql << SQLEOF
 INSERT INTO users (name, last_name, email, username, password, roles)
 VALUES (
@@ -77,7 +73,6 @@ VALUES (
     '${SEED_ROLES}'
 ) ON CONFLICT (username) DO NOTHING;
 SQLEOF
-
   PGPASSWORD="${CUSTOMER_DB_PASSWORD}" psql \
     -h "${CUSTOMER_DB_HOST}" \
     -p "${CUSTOMER_DB_PORT}" \
