@@ -134,7 +134,7 @@ services:
       SEED_USER_EMAIL: admin@example.com
       SEED_USER_USERNAME: admin
       SEED_USER_PASSWORD: "Ch4ng3me!Dev#"
-      SEED_USER_ROLES: '{"vassago":["ADMIN","USER"]}'
+      SEED_USER_ROLES: '{"${SERVICE_ID}":["VASSAGO_ADMIN","VASSAGO_USER"]}'
       SEED_DB: "true"
       ENV_OUT: /out/.env
     volumes:

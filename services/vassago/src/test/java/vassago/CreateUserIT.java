@@ -20,19 +20,18 @@ import vassago.dto.CreateUserResponseDTO;
 import vassago.dto.LoginRequestDTO;
 import vassago.dto.LoginResponseDTO;
 import vassago.dto.UserRequestDTO;
+import vassago.security.VassagoRole;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 class CreateUserIT {
-
     static final Network network = Network.newNetwork();
 
     @Container
@@ -85,8 +84,6 @@ class CreateUserIT {
 
     static UUID orgId;
     static UUID serviceId;
-
-    // Matches the seed user in users.sql
     static final String BOOTSTRAP_USERNAME = "bootstrap_admin";
     static final String BOOTSTRAP_PASSWORD = "B00tstr@pPass1";
 
@@ -108,22 +105,18 @@ class CreateUserIT {
                 .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
                 .defaultHeader("X-Vault-Token", "dev-root-token")
                 .build();
-
         bao.post().uri("/v1/sys/mounts/secret")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("type", "kv", "options", Map.of("version", "2")))
                 .retrieve().bodyToMono(Void.class).onErrorComplete().block();
-
         bao.post().uri("/v1/sys/mounts/database")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("type", "database"))
                 .retrieve().bodyToMono(Void.class).onErrorComplete().block();
-
         bao.post().uri("/v1/sys/mounts/transit")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("type", "transit"))
                 .retrieve().bodyToMono(Void.class).onErrorComplete().block();
-
         bao.post().uri("/v1/transit/keys/vassago-jwt")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("type", "ecdsa-p256"))
@@ -176,6 +169,19 @@ class CreateUserIT {
                 "-c", "UPDATE credentials SET db_host = 'localhost', db_port = %d WHERE org_id = '%s'"
                         .formatted(mappedPort, orgId)
         );
+
+        String roles = "{\"" + serviceId + "\":[\""
+                + VassagoRole.VASSAGO_ADMIN.name() + "\",\""
+                + VassagoRole.VASSAGO_USER.name() + "\"]}";
+        customerDb.execInContainer(
+                "psql", "-U", "admin", "-d", "customerdb",
+                "-c", """
+                INSERT INTO users (name, last_name, email, username, password, roles)
+                VALUES ('Bootstrap', 'Admin', 'admin@bootstrap.local', 'bootstrap_admin',
+                        '$2a$10$xI03I5H6IoRGzfpHm4IUGOlQooxsVSVkJM3JMI4QFrJyXvR.6/gw.',
+                        '%s');
+                """.formatted(roles)
+        );
     }
 
     private String obtainToken(WebClient client) {
@@ -183,7 +189,6 @@ class CreateUserIT {
         login.setOrgId(orgId);
         login.setUsername(BOOTSTRAP_USERNAME);
         login.setPassword(BOOTSTRAP_PASSWORD);
-
         LoginResponseDTO response = client.post()
                 .uri("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -191,7 +196,6 @@ class CreateUserIT {
                 .retrieve()
                 .bodyToMono(LoginResponseDTO.class)
                 .block();
-
         assertThat(response).isNotNull();
         assertThat(response.token()).isNotBlank();
         return response.token();
@@ -205,16 +209,14 @@ class CreateUserIT {
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(port))
                 .build();
-
         String token = obtainToken(client);
 
         UserRequestDTO request = new UserRequestDTO();
-        request.setOrgId(orgId);
         request.setName("Jane");
         request.setLastName("Doe");
         request.setEmail("jane.doe@example.com");
         request.setUsername("janedoe");
-        request.setRoles(Map.of("vassago", List.of("USER")));
+        request.setRoles(Map.of(serviceId.toString(), List.of("USER")));
 
         CreateUserResponseDTO response = client.post()
                 .uri("/user")
@@ -231,7 +233,7 @@ class CreateUserIT {
         assertThat(response.getLastName()).isEqualTo("Doe");
         assertThat(response.getEmail()).isEqualTo("jane.doe@example.com");
         assertThat(response.getUsername()).isEqualTo("janedoe");
-        assertThat(response.getRoles()).isEqualTo(Map.of("vassago", List.of("USER")));
+        assertThat(response.getRoles()).isEqualTo(Map.of(serviceId.toString(), List.of("USER")));
         assertThat(response.getTemporaryPassword()).isNotBlank();
     }
 
@@ -240,31 +242,27 @@ class CreateUserIT {
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(port))
                 .build();
-
         String token = obtainToken(client);
 
         UserRequestDTO first = new UserRequestDTO();
-        first.setOrgId(orgId);
         first.setName("Alice");
         first.setLastName("Smith");
         first.setEmail("alice@example.com");
         first.setUsername("alicesmith");
-        first.setRoles(Map.of("vassago", List.of("USER")));
+        first.setRoles(Map.of(serviceId.toString(), List.of("USER")));
 
         UserRequestDTO second = new UserRequestDTO();
-        second.setOrgId(orgId);
         second.setName("Bob");
         second.setLastName("Jones");
         second.setEmail("bob@example.com");
         second.setUsername("bobjones");
-        second.setRoles(Map.of("vassago", List.of("USER")));
+        second.setRoles(Map.of(serviceId.toString(), List.of("USER")));
 
         CreateUserResponseDTO r1 = client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .bodyValue(first)
                 .retrieve().bodyToMono(CreateUserResponseDTO.class).block();
-
         CreateUserResponseDTO r2 = client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)

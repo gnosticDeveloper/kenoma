@@ -14,7 +14,7 @@ import vassago.dto.CreateUserResponseDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
 import vassago.security.VassagoAuthentication;
-
+import vassago.security.VassagoRole;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
@@ -22,15 +22,13 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-
     private final VassagoDbService vassagoDbService;
     private final PasswordEncoder encoder;
+    private final UUID serviceId;
 
     public Mono<CreateUserResponseDTO> createUser(UserRequestDTO dto) {
-        return ReactiveSecurityContextHolder.getContext()
-                .mapNotNull(ctx -> (VassagoAuthentication) ctx.getAuthentication())
+        return getCaller()
                 .flatMap(caller -> {
                     Map<String, List<String>> callerRoles = caller.getRoles();
                     Map<String, List<String>> requestedRoles = dto.getRoles();
@@ -46,9 +44,17 @@ public class UserService {
                         }
                     }
 
-                    String temporaryPassword = generateTemporaryPassword();
+                    for (String role : requestedRoles.getOrDefault(serviceId.toString(), List.of())) {
+                        try {
+                            VassagoRole.valueOf(role);
+                        } catch (IllegalArgumentException e) {
+                            return Mono.error(new ResponseStatusException(
+                                    HttpStatus.BAD_REQUEST, "Unknown Vassago role: " + role));
+                        }
+                    }
 
-                    return vassagoDbService.getClient(dto.getOrgId())
+                    String temporaryPassword = generateTemporaryPassword();
+                    return vassagoDbService.getClient(caller.getOrgId())
                             .flatMap(client -> client.sql("""
                                     INSERT INTO users (name, last_name, email, username, password, roles)
                                     VALUES (:name, :lastName, :email, :username, :password, :roles)
@@ -67,69 +73,114 @@ public class UserService {
                 });
     }
 
-    public Mono<UserResponseDTO> getUserById(UUID orgId, UUID id) {
-        return vassagoDbService.getClient(orgId)
-                .flatMap(client -> client.sql("""
-                        SELECT id, name, last_name, email, username, roles
-                        FROM users WHERE id = :id AND stopped_at IS NULL
-                        """)
-                        .bind("id", id)
-                        .fetch()
-                        .one()
-                        .map(this::toResponseDTO)
-                        .switchIfEmpty(Mono.error(new RuntimeException("User not found")))
+    public Mono<UserResponseDTO> getUserById(UUID id) {
+        return getCaller()
+                .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
+                        .flatMap(client -> client.sql("""
+                                SELECT id, name, last_name, email, username, roles
+                                FROM users WHERE id = :id AND stopped_at IS NULL
+                                """)
+                                .bind("id", id)
+                                .fetch()
+                                .one()
+                                .map(this::toResponseDTO)
+                                .switchIfEmpty(Mono.error(new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND, "User not found")))
+                        )
                 );
     }
 
-    public Flux<UserResponseDTO> getUsersByOrgId(UUID orgId) {
-        return vassagoDbService.getClient(orgId)
-                .flatMapMany(client -> client.sql("""
-                        SELECT id, name, last_name, email, username, roles
-                        FROM users WHERE stopped_at IS NULL
-                        """)
-                        .fetch()
-                        .all()
-                        .map(this::toResponseDTO)
+    public Flux<UserResponseDTO> getUsersByOrgId() {
+        return getCaller()
+                .flatMapMany(caller -> vassagoDbService.getClient(caller.getOrgId())
+                        .flatMapMany(client -> client.sql("""
+                                SELECT id, name, last_name, email, username, roles
+                                FROM users WHERE stopped_at IS NULL
+                                """)
+                                .fetch()
+                                .all()
+                                .map(this::toResponseDTO)
+                        )
                 );
     }
 
-    public Mono<UserResponseDTO> updateUser(UUID orgId, UUID id, UserRequestDTO dto) {
-        final String updateQuery="""
-                        UPDATE users SET name = :name, last_name = :lastName, email = :email,
-                        username = :username, roles = :roles, modified_at = :modifiedAt
-                        WHERE id = :id AND stopped_at IS NULL
-                        RETURNING id, name, last_name, email, username, roles
-                        """;
-        return vassagoDbService.getClient(orgId)
-                .flatMap(client -> client.sql(updateQuery)
-                        .bind("name", dto.getName())
-                        .bind("lastName", dto.getLastName())
-                        .bind("email", dto.getEmail())
-                        .bind("username", dto.getUsername())
-                        .bind("roles", RolesUtils.serialize(dto.getRoles()))
-                        .bind("modifiedAt", Instant.now())
-                        .bind("id", id)
-                        .fetch()
-                        .one()
-                        .map(this::toResponseDTO)
-                        .switchIfEmpty(Mono.error(new RuntimeException("User not found")))
-                );
+    public Mono<UserResponseDTO> updateUser(UUID id, UserRequestDTO dto) {
+        return getCaller()
+                .flatMap(caller -> {
+                    boolean isAdmin = caller.getRoles()
+                            .values().stream()
+                            .flatMap(List::stream)
+                            .anyMatch(r -> r.equals(VassagoRole.VASSAGO_ADMIN.name()));
+
+                    for (String role : dto.getRoles().getOrDefault(serviceId.toString(), List.of())) {
+                        try {
+                            VassagoRole.valueOf(role);
+                        } catch (IllegalArgumentException e) {
+                            return Mono.error(new ResponseStatusException(
+                                    HttpStatus.BAD_REQUEST, "Unknown Vassago role: " + role));
+                        }
+                    }
+
+                    return vassagoDbService.getClient(caller.getOrgId())
+                            .flatMap(client -> client.sql("""
+                                    SELECT username FROM users
+                                    WHERE id = :id AND stopped_at IS NULL
+                                    """)
+                                    .bind("id", id)
+                                    .fetch()
+                                    .one()
+                                    .switchIfEmpty(Mono.error(new ResponseStatusException(
+                                            HttpStatus.NOT_FOUND, "User not found")))
+                                    .flatMap(row -> {
+                                        String targetUsername = (String) row.get("username");
+                                        if (!isAdmin && !caller.getName().equals(targetUsername)) {
+                                            return Mono.error(new ResponseStatusException(
+                                                    HttpStatus.FORBIDDEN, "Cannot edit another user"));
+                                        }
+                                        return client.sql("""
+                                                UPDATE users SET name = :name, last_name = :lastName,
+                                                email = :email, username = :username,
+                                                roles = :roles, modified_at = :modifiedAt
+                                                WHERE id = :id AND stopped_at IS NULL
+                                                RETURNING id, name, last_name, email, username, roles
+                                                """)
+                                                .bind("name", dto.getName())
+                                                .bind("lastName", dto.getLastName())
+                                                .bind("email", dto.getEmail())
+                                                .bind("username", dto.getUsername())
+                                                .bind("roles", RolesUtils.serialize(dto.getRoles()))
+                                                .bind("modifiedAt", Instant.now())
+                                                .bind("id", id)
+                                                .fetch()
+                                                .one()
+                                                .map(this::toResponseDTO);
+                                    })
+                            );
+                });
     }
 
-    public Mono<Void> deleteUser(UUID orgId, UUID id) {
-        return vassagoDbService.getClient(orgId)
-                .flatMap(client -> client.sql("""
-                        UPDATE users SET stopped_at = :stoppedAt
-                        WHERE id = :id AND stopped_at IS NULL
-                        """)
-                        .bind("stoppedAt", Instant.now())
-                        .bind("id", id)
-                        .fetch()
-                        .rowsUpdated()
-                        .flatMap(rows -> rows == 0
-                                ? Mono.error(new RuntimeException("User not found"))
-                                : Mono.empty())
+    public Mono<Void> deleteUser(UUID id) {
+        return getCaller()
+                .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
+                        .flatMap(client -> client.sql("""
+                                UPDATE users SET stopped_at = :stoppedAt
+                                WHERE id = :id AND stopped_at IS NULL
+                                """)
+                                .bind("stoppedAt", Instant.now())
+                                .bind("id", id)
+                                .fetch()
+                                .rowsUpdated()
+                                .flatMap(rows -> rows == 0
+                                        ? Mono.error(new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND, "User not found"))
+                                        : Mono.empty())
+                        )
                 ).then();
+    }
+
+    private Mono<VassagoAuthentication> getCaller() {
+        return ReactiveSecurityContextHolder.getContext()
+                .mapNotNull(ctx -> (VassagoAuthentication) ctx.getAuthentication());
     }
 
     private static String generateTemporaryPassword() {

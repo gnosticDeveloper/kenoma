@@ -2,6 +2,7 @@ package vassago.controllers;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -18,28 +19,33 @@ public class UserController {
     private final UserService userService;
 
     @PostMapping
+    @PreAuthorize("hasAuthority('VASSAGO_CREATE_USER')")
     public Mono<CreateUserResponseDTO> createUser(@RequestBody UserRequestDTO dto) {
         return userService.createUser(dto);
     }
 
-    @GetMapping("/{orgId}/{id}")
-    public Mono<UserResponseDTO> getUserById(@PathVariable UUID orgId, @PathVariable UUID id) {
-        return userService.getUserById(orgId, id);
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('VASSAGO_VIEW_USER')")
+    public Mono<UserResponseDTO> getUserById(@PathVariable UUID id) {
+        return userService.getUserById(id);
     }
 
-    @GetMapping("/org/{orgId}")
-    public Flux<UserResponseDTO> getUsersByOrgId(@PathVariable UUID orgId) {
-        return userService.getUsersByOrgId(orgId);
+    @GetMapping
+    @PreAuthorize("hasAuthority('VASSAGO_VIEW_USER')")
+    public Flux<UserResponseDTO> getUsersByOrgId() {
+        return userService.getUsersByOrgId();
     }
 
-    @PutMapping("/{orgId}/{id}")
-    public Mono<UserResponseDTO> updateUser(@PathVariable UUID orgId, @PathVariable UUID id, @RequestBody UserRequestDTO dto) {
-        return userService.updateUser(orgId, id, dto);
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('VASSAGO_EDIT_USER')")
+    public Mono<UserResponseDTO> updateUser(@PathVariable UUID id, @RequestBody UserRequestDTO dto) {
+        return userService.updateUser(id, dto);
     }
 
-    @DeleteMapping("/{orgId}/{id}")
+    @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> deleteUser(@PathVariable UUID orgId, @PathVariable UUID id) {
-        return userService.deleteUser(orgId, id);
+    @PreAuthorize("hasAuthority('VASSAGO_OFFBOARD_USER')")
+    public Mono<Void> deleteUser(@PathVariable UUID id) {
+        return userService.deleteUser(id);
     }
 }
