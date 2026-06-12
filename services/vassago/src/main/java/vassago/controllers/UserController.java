@@ -1,12 +1,11 @@
 package vassago.controllers;
 
-import common.dto.BasicCredentialDTO;
-import common.dto.CredentialsDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import vassago.dto.CreateUserResponseDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
 import vassago.services.UserService;
@@ -19,7 +18,7 @@ public class UserController {
     private final UserService userService;
 
     @PostMapping
-    public Mono<UserResponseDTO> createUser(@RequestBody UserRequestDTO dto) {
+    public Mono<CreateUserResponseDTO> createUser(@RequestBody UserRequestDTO dto) {
         return userService.createUser(dto);
     }
 

@@ -1,5 +1,4 @@
 services:
-
   raum-postgres:
     image: postgres:18.1-alpine3.23
     container_name: raum-postgres
@@ -135,6 +134,8 @@ services:
       SEED_USER_EMAIL: admin@example.com
       SEED_USER_USERNAME: admin
       SEED_USER_PASSWORD: "Ch4ng3me!Dev#"
+      SEED_USER_ROLES: '{"vassago":["ADMIN","USER"]}'
+      SEED_DB: "true"
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/init-kenoma.sh:/init-kenoma.sh
@@ -151,10 +152,13 @@ services:
     depends_on:
       kenoma-init:
         condition: service_completed_successfully
-    env_file:
-      - ./.env-out/.env
     environment:
       RAUM_BASE_URL: http://raum:8080
+      OPENBAO_BASE_URL: http://openbao:8200
+      OPENBAO_TOKEN: dev-root-token
+    volumes:
+      - ./.env-out:/env-out
+    entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
       - "8081:8081"
     restart: on-failure:3

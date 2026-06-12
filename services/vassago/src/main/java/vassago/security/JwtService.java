@@ -44,7 +44,7 @@ public class JwtService {
         this.ttlSeconds = ttlSeconds;
     }
 
-    public Mono<String> issueToken(UUID orgId, String username, List<String> roles) {
+    public Mono<String> issueToken(UUID orgId, String username, Map<String, List<String>> roles) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(ttlSeconds);
 
@@ -56,7 +56,6 @@ public class JwtService {
                 .encodeToString(claimsJson.getBytes(StandardCharsets.UTF_8));
 
         String signingInput = header + "." + payload;
-
         String encodedInput = Base64.getEncoder()
                 .encodeToString(signingInput.getBytes(StandardCharsets.UTF_8));
 
@@ -73,7 +72,6 @@ public class JwtService {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> data = (Map<String, Object>) response.get("data");
                     String vaultSig = (String) data.get("signature");
-                    // vault:v1:<base64url-sig> — strip the "vault:v1:" prefix
                     String rawSig = vaultSig.substring(vaultSig.lastIndexOf(":") + 1);
                     return signingInput + "." + rawSig;
                 });
@@ -110,13 +108,16 @@ public class JwtService {
                 .doOnNext(cachedPublicKey::set);
     }
 
-    private String buildClaimsJson(UUID orgId, String username, List<String> roles,
+    private String buildClaimsJson(UUID orgId, String username, Map<String, List<String>> roles,
                                    Instant now, Instant exp) {
         try {
+            // Serialize roles map to JSON string so it roundtrips cleanly as a
+            // single claim value rather than a nested object that jjwt may mangle.
+            String rolesJson = OBJECT_MAPPER.writeValueAsString(roles);
             Map<String, Object> claims = Map.of(
                     "sub", username,
                     "orgId", orgId.toString(),
-                    "roles", roles,
+                    "roles", rolesJson,
                     "iat", now.getEpochSecond(),
                     "exp", exp.getEpochSecond()
             );
