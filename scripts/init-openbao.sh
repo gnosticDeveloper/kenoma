@@ -19,4 +19,13 @@ else
   bao secrets enable database
 fi
 
+echo "Checking Transit secrets engine..."
+if bao secrets list | grep -q '^transit/'; then
+  echo "Transit secrets engine already enabled, skipping."
+else
+  echo "Enabling Transit secrets engine..."
+  bao secrets enable transit
+fi
+bao write -f transit/keys/vassago-jwt type=ecdsa-p256
+
 echo "OpenBao initialized."
