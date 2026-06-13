@@ -9,20 +9,24 @@ import reactor.core.publisher.Mono;
 
 @Component
 public class RaumClient {
+    private final WebClient webClient;
+    private final String openbaoToken;
 
-        private final WebClient webClient;
+    public RaumClient(
+            @Value("${raum.base-url}") String raumBaseUrl,
+            @Value("${vassago.openbao.token}") String openbaoToken) {
+        this.webClient = WebClient.builder()
+                .baseUrl(raumBaseUrl)
+                .build();
+        this.openbaoToken = openbaoToken;
+    }
 
-        public RaumClient(@Value("${raum.base-url}") String raumBaseUrl) {
-            this.webClient = WebClient.builder()
-                    .baseUrl(raumBaseUrl)
-                    .build();
-        }
-
-        public Mono<CredentialsDTO> getEphemeralCredentials(BasicCredentialDTO request) {
-            return webClient.post()
-                    .uri("/credentials/ephemeral")
-                    .bodyValue(request)
-                    .retrieve()
-                    .bodyToMono(CredentialsDTO.class);
-        }
+    public Mono<CredentialsDTO> getEphemeralCredentials(BasicCredentialDTO request) {
+        return webClient.post()
+                .uri("/credentials/ephemeral")
+                .header("X-Vault-Token", openbaoToken)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class);
+    }
 }

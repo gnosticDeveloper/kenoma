@@ -30,6 +30,7 @@ public class JwtAuthFilter implements WebFilter {
         String token = authHeader.substring(BEARER_PREFIX.length());
         return jwtService.validateToken(token)
                 .flatMap(claims -> {
+                    System.out.println("[JWT] orgId=" + claims.get("orgId") + " roles=" + claims.get("roles"));
                     String username = claims.getSubject();
                     UUID orgId = UUID.fromString(claims.get("orgId", String.class));
                     @SuppressWarnings("unchecked")
@@ -40,6 +41,9 @@ public class JwtAuthFilter implements WebFilter {
                             .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
                 })
                 .onErrorResume(e -> {
+                    if (e instanceof org.springframework.web.server.ResponseStatusException) {
+                        return Mono.error(e);
+                    }
                     exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                     return exchange.getResponse().setComplete();
                 });

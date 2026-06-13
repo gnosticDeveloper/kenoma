@@ -30,6 +30,8 @@ public class UserService {
     public Mono<CreateUserResponseDTO> createUser(UserRequestDTO dto) {
         return getCaller()
                 .flatMap(caller -> {
+                    System.out.println("[USERSERVICE] caller roles: " + caller.getRoles());
+                    System.out.println("[USERSERVICE] requested roles: " + dto.getRoles());
                     Map<String, List<String>> callerRoles = caller.getRoles();
                     Map<String, List<String>> requestedRoles = dto.getRoles();
 

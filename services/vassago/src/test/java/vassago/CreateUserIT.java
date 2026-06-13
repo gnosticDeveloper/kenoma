@@ -5,10 +5,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationContextInitializer;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.support.TestPropertySourceUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
@@ -21,7 +23,6 @@ import vassago.dto.LoginRequestDTO;
 import vassago.dto.LoginResponseDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.security.VassagoRole;
-
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
@@ -31,7 +32,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
+@ContextConfiguration(initializers = CreateUserIT.Initializer.class)
 class CreateUserIT {
+
     static final Network network = Network.newNetwork();
 
     @Container
@@ -66,6 +69,45 @@ class CreateUserIT {
 
     @Container
     @SuppressWarnings("resource")
+    static final GenericContainer<?> openBaoInit = new GenericContainer<>("curlimages/curl:8.5.0")
+            .withNetwork(network)
+            .dependsOn(openBao)
+            .withCommand("sh", "-c", """
+                curl -sf -X POST http://openbao:8200/v1/sys/mounts/secret \
+                  -H 'X-Vault-Token: dev-root-token' \
+                  -H 'Content-Type: application/json' \
+                  -d '{"type":"kv","options":{"version":"2"}}' || true ;
+                curl -sf -X POST http://openbao:8200/v1/sys/mounts/database \
+                  -H 'X-Vault-Token: dev-root-token' \
+                  -H 'Content-Type: application/json' \
+                  -d '{"type":"database"}' || true ;
+                curl -sf -X POST http://openbao:8200/v1/sys/mounts/transit \
+                  -H 'X-Vault-Token: dev-root-token' \
+                  -H 'Content-Type: application/json' \
+                  -d '{"type":"transit"}' || true ;
+                curl -sf -X POST http://openbao:8200/v1/transit/keys/vassago-jwt \
+                  -H 'X-Vault-Token: dev-root-token' \
+                  -H 'Content-Type: application/json' \
+                  -d '{"type":"ecdsa-p256"}' ;
+                curl -sf -X POST http://openbao:8200/v1/sys/auth/approle \
+                  -H 'X-Vault-Token: dev-root-token' \
+                  -H 'Content-Type: application/json' \
+                  -d '{"type":"approle"}' || true ;
+                curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/vassago-policy \
+                  -H 'X-Vault-Token: dev-root-token' \
+                  -H 'Content-Type: application/json' \
+                  -d '{"policy":"path \\"database/creds/*\\" { capabilities = [\\"read\\"] } path \\"transit/sign/vassago-jwt\\" { capabilities = [\\"update\\"] } path \\"transit/keys/vassago-jwt\\" { capabilities = [\\"read\\"] }"}' ;
+                curl -sf -X POST http://openbao:8200/v1/auth/approle/role/vassago \
+                  -H 'X-Vault-Token: dev-root-token' \
+                  -H 'Content-Type: application/json' \
+                  -d '{"token_policies":"vassago-policy","token_ttl":"1h","token_max_ttl":"24h"}' ;
+                echo OPENBAO_INIT_DONE
+            """)
+            .waitingFor(Wait.forLogMessage(".*OPENBAO_INIT_DONE.*", 1)
+                    .withStartupTimeout(Duration.ofSeconds(30)));
+
+    @Container
+    @SuppressWarnings("resource")
     static final GenericContainer<?> raum = new GenericContainer<>("kenoma-raum:latest")
             .withNetwork(network)
             .withNetworkAliases("raum")
@@ -80,48 +122,74 @@ class CreateUserIT {
             .withEnv("OPENBAO_KV_MOUNT", "secret")
             .waitingFor(Wait.forHttp("/actuator/health").forPort(8080)
                     .withStartupTimeout(Duration.ofSeconds(60)))
-            .dependsOn(raumDb, openBao);
+            .dependsOn(raumDb, openBao, openBaoInit);
 
     static UUID orgId;
-    static UUID serviceId;
+    static final UUID SERVICE_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     static final String BOOTSTRAP_USERNAME = "bootstrap_admin";
     static final String BOOTSTRAP_PASSWORD = "B00tstr@pPass1";
 
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        registry.add("raum.base-url",
-                () -> "http://localhost:%d".formatted(raum.getMappedPort(8080)));
-        registry.add("vassago.service-id",
-                () -> serviceId.toString());
-        registry.add("openbao.base-url",
-                () -> "http://localhost:%d".formatted(openBao.getMappedPort(8200)));
-        registry.add("openbao.token", () -> "dev-root-token");
-        registry.add("vassago.jwt.transit-key-name", () -> "vassago-jwt");
+    static class Initializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
+        @Override
+        public void initialize(ConfigurableApplicationContext ctx) {
+            System.out.println("[INITIALIZER] AppRole login...");
+            WebClient bao = WebClient.builder()
+                    .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
+                    .defaultHeader("X-Vault-Token", "dev-root-token")
+                    .build();
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> roleIdResponse = bao.get()
+                    .uri("/v1/auth/approle/role/vassago/role-id")
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            assertThat(roleIdResponse).isNotNull();
+            @SuppressWarnings("unchecked")
+            String roleId = (String) ((Map<String, Object>) roleIdResponse.get("data")).get("role_id");
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> secretIdResponse = bao.post()
+                    .uri("/v1/auth/approle/role/vassago/secret-id")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of())
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            assertThat(secretIdResponse).isNotNull();
+            @SuppressWarnings("unchecked")
+            String secretId = (String) ((Map<String, Object>) secretIdResponse.get("data")).get("secret_id");
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> loginResponse = WebClient.builder()
+                    .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
+                    .build()
+                    .post()
+                    .uri("/v1/auth/approle/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of("role_id", roleId, "secret_id", secretId))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            assertThat(loginResponse).isNotNull();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> auth = (Map<String, Object>) loginResponse.get("auth");
+            String vassagoToken = (String) auth.get("client_token");
+            assertThat(vassagoToken).isNotBlank();
+            System.out.println("[INITIALIZER] Token obtained successfully.");
+
+            TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
+                    "raum.base-url=http://localhost:%d".formatted(raum.getMappedPort(8080)),
+                    "vassago.service-id=" + SERVICE_ID,
+                    "openbao.base-url=http://localhost:%d".formatted(openBao.getMappedPort(8200)),
+                    "vassago.jwt.transit-key-name=vassago-jwt",
+                    "vassago.openbao.token=" + vassagoToken
+            );
+        }
     }
 
     @BeforeAll
     static void bootstrap() throws IOException, InterruptedException {
-        WebClient bao = WebClient.builder()
-                .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
-                .defaultHeader("X-Vault-Token", "dev-root-token")
-                .build();
-        bao.post().uri("/v1/sys/mounts/secret")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("type", "kv", "options", Map.of("version", "2")))
-                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
-        bao.post().uri("/v1/sys/mounts/database")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("type", "database"))
-                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
-        bao.post().uri("/v1/sys/mounts/transit")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("type", "transit"))
-                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
-        bao.post().uri("/v1/transit/keys/vassago-jwt")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("type", "ecdsa-p256"))
-                .retrieve().bodyToMono(Void.class).block();
-
         WebClient raumClient = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(raum.getMappedPort(8080)))
                 .build();
@@ -147,13 +215,20 @@ class CreateUserIT {
                 ))
                 .retrieve().bodyToMono(Map.class).block();
         assertThat(service).isNotNull();
-        serviceId = UUID.fromString((String) service.get("id"));
+        UUID generatedServiceId = UUID.fromString((String) service.get("id"));
+
+        // Force service id to fixed UUID so Vassago's service-id bean matches
+        raumDb.execInContainer(
+                "psql", "-U", "postgres", "-d", "raum",
+                "-c", "UPDATE services SET id = '%s' WHERE id = '%s'"
+                        .formatted(SERVICE_ID, generatedServiceId)
+        );
 
         raumClient.post().uri("/credentials")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(CredentialsDTO.builder()
                         .orgId(orgId)
-                        .serviceId(serviceId)
+                        .serviceId(SERVICE_ID)
                         .userName("admin")
                         .password("adminpass")
                         .dbHost("customer-postgres")
@@ -170,7 +245,7 @@ class CreateUserIT {
                         .formatted(mappedPort, orgId)
         );
 
-        String roles = "{\"" + serviceId + "\":[\""
+        String roles = "{\"" + SERVICE_ID + "\":[\""
                 + VassagoRole.VASSAGO_ADMIN.name() + "\",\""
                 + VassagoRole.VASSAGO_USER.name() + "\"]}";
         customerDb.execInContainer(
@@ -216,7 +291,7 @@ class CreateUserIT {
         request.setLastName("Doe");
         request.setEmail("jane.doe@example.com");
         request.setUsername("janedoe");
-        request.setRoles(Map.of(serviceId.toString(), List.of("USER")));
+        request.setRoles(Map.of(SERVICE_ID.toString(), List.of("VASSAGO_USER")));
 
         CreateUserResponseDTO response = client.post()
                 .uri("/user")
@@ -226,14 +301,13 @@ class CreateUserIT {
                 .retrieve()
                 .bodyToMono(CreateUserResponseDTO.class)
                 .block();
-
         assertThat(response).isNotNull();
         assertThat(response.getId()).isNotNull();
         assertThat(response.getName()).isEqualTo("Jane");
         assertThat(response.getLastName()).isEqualTo("Doe");
         assertThat(response.getEmail()).isEqualTo("jane.doe@example.com");
         assertThat(response.getUsername()).isEqualTo("janedoe");
-        assertThat(response.getRoles()).isEqualTo(Map.of(serviceId.toString(), List.of("USER")));
+        assertThat(response.getRoles()).isEqualTo(Map.of(SERVICE_ID.toString(), List.of("VASSAGO_USER")));
         assertThat(response.getTemporaryPassword()).isNotBlank();
     }
 
@@ -249,20 +323,21 @@ class CreateUserIT {
         first.setLastName("Smith");
         first.setEmail("alice@example.com");
         first.setUsername("alicesmith");
-        first.setRoles(Map.of(serviceId.toString(), List.of("USER")));
+        first.setRoles(Map.of(SERVICE_ID.toString(), List.of("VASSAGO_USER")));
 
         UserRequestDTO second = new UserRequestDTO();
         second.setName("Bob");
         second.setLastName("Jones");
         second.setEmail("bob@example.com");
         second.setUsername("bobjones");
-        second.setRoles(Map.of(serviceId.toString(), List.of("USER")));
+        second.setRoles(Map.of(SERVICE_ID.toString(), List.of("VASSAGO_USER")));
 
         CreateUserResponseDTO r1 = client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .bodyValue(first)
                 .retrieve().bodyToMono(CreateUserResponseDTO.class).block();
+
         CreateUserResponseDTO r2 = client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)

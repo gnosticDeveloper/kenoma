@@ -7,25 +7,41 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import common.dto.CredentialsDTO;
 import reactor.core.publisher.Mono;
-
 import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class OpenBaoService {
-
     private final WebClient webClient;
     private final String kvMount;
+    private final String host;
 
     public OpenBaoService(
             @Value("${openbao.host}") String host,
             @Value("${openbao.token}") String token,
             @Value("${openbao.kv.mount}") String kvMount) {
+        this.host = host;
         this.webClient = WebClient.builder()
                 .baseUrl(host)
                 .defaultHeader("X-Vault-Token", token)
                 .build();
         this.kvMount = kvMount;
+    }
+
+    public Mono<Boolean> validateToken(String token) {
+        return WebClient.builder()
+                .baseUrl(host)
+                .defaultHeader("X-Vault-Token", token)
+                .build()
+                .get()
+                .uri("/v1/auth/token/lookup-self")
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class)
+                                .flatMap(body -> Mono.error(new RuntimeException("Token validation failed: " + body))))
+                .bodyToMono(Void.class)
+                .thenReturn(true)
+                .onErrorReturn(false);
     }
 
     public Mono<Void> storeCredentials(UUID id, String username, String password) {
@@ -94,13 +110,7 @@ public class OpenBaoService {
                 )
                 .bodyToMono(Void.class);
     }
-    /**
-     * Issues ephemeral credentials via OpenBao's database secrets engine.
-     *
-     * <p>The full lease envelope ({@code lease_id}, {@code lease_duration}) is
-     * preserved in the returned DTO so that callers can drive TTL-based pool
-     * eviction precisely without a separate Vault lookup.
-     */
+
     public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id) {
         String roleName = id + "-role";
         return webClient.get()
@@ -116,10 +126,8 @@ public class OpenBaoService {
                 .map(response -> {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> data = (Map<String, Object>) response.get("data");
-
                     long leaseDuration = ((Number) response.getOrDefault("lease_duration", 3600L)).longValue();
-                    String leaseId     = (String) response.getOrDefault("lease_id", "");
-
+                    String leaseId = (String) response.getOrDefault("lease_id", "");
                     CredentialsDTO dto = new CredentialsDTO();
                     dto.setUserName((String) data.get("username"));
                     dto.setPassword((String) data.get("password"));
