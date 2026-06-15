@@ -30,7 +30,6 @@ public class JwtAuthFilter implements WebFilter {
         String token = authHeader.substring(BEARER_PREFIX.length());
         return jwtService.validateToken(token)
                 .flatMap(claims -> {
-                    System.out.println("[JWT] orgId=" + claims.get("orgId") + " roles=" + claims.get("roles"));
                     String username = claims.getSubject();
                     UUID orgId = UUID.fromString(claims.get("orgId", String.class));
                     @SuppressWarnings("unchecked")
