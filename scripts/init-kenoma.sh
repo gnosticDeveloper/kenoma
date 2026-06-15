@@ -53,43 +53,30 @@ post "${RAUM_BASE_URL}/credentials" \
   "{\"orgId\":\"${ORG_ID}\",\"serviceId\":\"${SERVICE_ID}\",\"userName\":\"${CUSTOMER_DB_USER}\",\"password\":\"${CUSTOMER_DB_PASSWORD}\",\"dbHost\":\"${CUSTOMER_DB_HOST}\",\"dbPort\":${CUSTOMER_DB_PORT},\"dbName\":\"${CUSTOMER_DB_NAME}\",\"dbEngine\":\"postgres\"}"
 echo "Credentials registered."
 
-if [ "${SEED_DB}" = "true" ]; then
-  echo "Inserting seed user..."
-  SEED_PASSWORD="${SEED_USER_PASSWORD:-Ch4ng3me!Dev#}"
-  SEED_ROLES="${SEED_USER_ROLES:-{\"${SERVICE_ID}\":[\"ADMIN\",\"USER\"]}}"
-  BCRYPT_HASH=$(python3 -c "
-import bcrypt
-pwd = '${SEED_PASSWORD}'.encode()
-print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '\$2a\$'))
-")
-  cat > /tmp/seed-user.sql << SQLEOF
-INSERT INTO users (name, last_name, email, username, password, roles)
-VALUES (
-    '${SEED_USER_NAME:-Admin}',
-    '${SEED_USER_LAST_NAME:-User}',
-    '${SEED_USER_EMAIL:-admin@example.com}',
-    '${SEED_USER_USERNAME:-admin}',
-    '${BCRYPT_HASH}',
-    '${SEED_ROLES}'
-) ON CONFLICT (username) DO NOTHING;
-SQLEOF
-  PGPASSWORD="${CUSTOMER_DB_PASSWORD}" psql \
-    -h "${CUSTOMER_DB_HOST}" \
-    -p "${CUSTOMER_DB_PORT}" \
-    -U "${CUSTOMER_DB_USER}" \
-    -d "${CUSTOMER_DB_NAME}" \
-    -f /tmp/seed-user.sql
-  echo "Seed user inserted."
-else
-  echo "SEED_DB not set to true, skipping seed user insertion."
+echo "Reading AppRole credentials..."
+if [ ! -f /approle-out/approle.env ]; then
+  echo "ERROR: AppRole credentials not found at /approle-out/approle.env"
+  exit 1
 fi
+. /approle-out/approle.env
+
+echo "Logging in with AppRole..."
+LOGIN_RESPONSE=$(wget -q -O - \
+  --header="Content-Type: application/json" \
+  --post-data="{\"role_id\":\"${VASSAGO_APPROLE_ROLE_ID}\",\"secret_id\":\"${VASSAGO_APPROLE_SECRET_ID}\"}" \
+  "${OPENBAO_BASE_URL}/v1/auth/approle/login")
+VASSAGO_TOKEN=$(echo "$LOGIN_RESPONSE" | grep -o '"client_token":"[^"]*"' | cut -d'"' -f4)
+if [ -z "$VASSAGO_TOKEN" ]; then
+  echo "ERROR: Failed to obtain AppRole token. Response: ${LOGIN_RESPONSE}"
+  exit 1
+fi
+echo "AppRole login successful."
 
 mkdir -p "$(dirname "${ENV_OUT}")"
 cat > "${ENV_OUT}" << ENVEOF
 VASSAGO_SERVICE_ID=${SERVICE_ID}
-OPENBAO_BASE_URL=http://openbao:8200
-OPENBAO_TOKEN=dev-root-token
+OPENBAO_BASE_URL=${OPENBAO_BASE_URL}
+VASSAGO_OPENBAO_TOKEN=${VASSAGO_TOKEN}
 ENVEOF
-echo "Wrote env file to ${ENV_OUT}:"
-cat "${ENV_OUT}"
+echo "Wrote env file to ${ENV_OUT}."
 echo "Kenoma initialisation complete."

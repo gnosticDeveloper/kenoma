@@ -20,12 +20,10 @@ import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
 import raum.dto.ServiceRequestDTO;
 import raum.dto.ServiceResponseDTO;
-
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
@@ -61,7 +59,10 @@ class EphemeralCredentialsIT {
             .withEnv("BAO_DEV_ROOT_TOKEN_ID", "dev-root-token")
             .withEnv("BAO_DEV_LISTEN_ADDRESS", "0.0.0.0:8200")
             .withCommand("server", "-dev")
-            .waitingFor(Wait.forHttp("/v1/sys/health").forPort(8200).withStartupTimeout(Duration.ofSeconds(30)));
+            .waitingFor(Wait.forHttp("/v1/sys/health").forPort(8200)
+                    .withStartupTimeout(Duration.ofSeconds(30)));
+
+    static String vassagoToken;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -82,23 +83,84 @@ class EphemeralCredentialsIT {
                 .defaultHeader("X-Vault-Token", "dev-root-token")
                 .build();
 
-        client.post()
-                .uri("/v1/sys/mounts/secret")
+        // Enable engines
+        client.post().uri("/v1/sys/mounts/secret")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("type", "kv", "options", Map.of("version", "2")))
-                .retrieve()
-                .bodyToMono(Void.class)
-                .onErrorComplete()
-                .block();
+                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
 
-        client.post()
-                .uri("/v1/sys/mounts/database")
+        client.post().uri("/v1/sys/mounts/database")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("type", "database"))
+                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
+
+        // Enable AppRole
+        client.post().uri("/v1/sys/auth/approle")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("type", "approle"))
+                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
+
+        // Write policy
+        client.post().uri("/v1/sys/policies/acl/vassago-policy")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("policy", """
+                        path "database/creds/*" {
+                          capabilities = ["read"]
+                        }
+                        """))
+                .retrieve().bodyToMono(Void.class).block();
+
+        // Create role
+        client.post().uri("/v1/auth/approle/role/vassago")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "token_policies", "vassago-policy",
+                        "token_ttl", "1h",
+                        "token_max_ttl", "24h"
+                ))
+                .retrieve().bodyToMono(Void.class).block();
+
+        // Get role_id
+        @SuppressWarnings("unchecked")
+        Map<String, Object> roleIdResponse = client.get()
+                .uri("/v1/auth/approle/role/vassago/role-id")
                 .retrieve()
-                .bodyToMono(Void.class)
-                .onErrorComplete()
+                .bodyToMono(Map.class)
                 .block();
+        assertThat(roleIdResponse).isNotNull();
+        @SuppressWarnings("unchecked")
+        String roleId = (String) ((Map<String, Object>) roleIdResponse.get("data")).get("role_id");
+
+        // Get secret_id
+        @SuppressWarnings("unchecked")
+        Map<String, Object> secretIdResponse = client.post()
+                .uri("/v1/auth/approle/role/vassago/secret-id")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of())
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block();
+        assertThat(secretIdResponse).isNotNull();
+        @SuppressWarnings("unchecked")
+        String secretId = (String) ((Map<String, Object>) secretIdResponse.get("data")).get("secret_id");
+
+        // Login
+        @SuppressWarnings("unchecked")
+        Map<String, Object> loginResponse = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
+                .build()
+                .post()
+                .uri("/v1/auth/approle/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("role_id", roleId, "secret_id", secretId))
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block();
+        assertThat(loginResponse).isNotNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> auth = (Map<String, Object>) loginResponse.get("auth");
+        vassagoToken = (String) auth.get("client_token");
+        assertThat(vassagoToken).isNotBlank();
     }
 
     @LocalServerPort
@@ -117,7 +179,6 @@ class EphemeralCredentialsIT {
                 .retrieve()
                 .bodyToMono(OrgResponseDTO.class)
                 .block();
-
         assertThat(org).isNotNull();
         assertThat(org.getId()).isNotNull();
 
@@ -128,7 +189,6 @@ class EphemeralCredentialsIT {
                 .retrieve()
                 .bodyToMono(ServiceResponseDTO.class)
                 .block();
-
         assertThat(service).isNotNull();
         assertThat(service.getId()).isNotNull();
 
@@ -148,7 +208,6 @@ class EphemeralCredentialsIT {
                 .retrieve()
                 .bodyToMono(BasicCredentialDTO.class)
                 .block();
-
         assertThat(saved).isNotNull();
         assertThat(saved.getOrgId()).isEqualTo(org.getId());
         assertThat(saved.getServiceId()).isEqualTo(service.getId());
@@ -156,11 +215,11 @@ class EphemeralCredentialsIT {
         CredentialsDTO ephemeral = client.post()
                 .uri("/credentials/ephemeral")
                 .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Vault-Token", vassagoToken)
                 .bodyValue(saved)
                 .retrieve()
                 .bodyToMono(CredentialsDTO.class)
                 .block();
-
         assertThat(ephemeral).isNotNull();
         assertThat(ephemeral.getUserName()).isNotBlank();
         assertThat(ephemeral.getPassword()).isNotBlank();
@@ -169,7 +228,6 @@ class EphemeralCredentialsIT {
 
         String jdbcUrl = "jdbc:postgresql://localhost:%d/customerdb"
                 .formatted(customerDb.getMappedPort(5432));
-
         assertThatNoException().isThrownBy(() -> {
             try (Connection conn = DriverManager.getConnection(
                     jdbcUrl, ephemeral.getUserName(), ephemeral.getPassword())) {

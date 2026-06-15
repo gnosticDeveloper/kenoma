@@ -71,6 +71,7 @@ services:
       BAO_TOKEN: "dev-root-token"
     volumes:
       - ./scripts/init-openbao.sh:/init-openbao.sh
+      - approle-out:/approle-out
     entrypoint: ["/bin/sh", "/init-openbao.sh"]
     restart: "no"
 
@@ -119,6 +120,7 @@ services:
         condition: service_completed_successfully
     environment:
       RAUM_BASE_URL: http://raum:8080
+      OPENBAO_BASE_URL: http://openbao:8200
       CUSTOMER_DB_HOST: customer-postgres
       CUSTOMER_DB_PORT: 5432
       CUSTOMER_DB_NAME: customerdb
@@ -129,19 +131,42 @@ services:
       ORG_CONTACT: Admin
       SERVICE_NAME: Vassago
       SERVICE_DESC: "Authentication and identity service"
-      SEED_USER_NAME: Admin
-      SEED_USER_LAST_NAME: User
-      SEED_USER_EMAIL: admin@example.com
-      SEED_USER_USERNAME: admin
-      SEED_USER_PASSWORD: "Ch4ng3me!Dev#"
-      SEED_USER_ROLES: '{"${SERVICE_ID}":["VASSAGO_ADMIN","VASSAGO_USER"]}'
-      SEED_DB: "true"
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/init-kenoma.sh:/init-kenoma.sh
       - ./services/vassago/src/main/resources/users.sql:/users.sql
       - ./.env-out:/out
+      - approle-out:/approle-out
     entrypoint: ["/bin/sh", "/init-kenoma.sh"]
+    restart: "no"
+
+  kenoma-seed:
+    profiles: ["seed"]
+    build:
+      context: .
+      dockerfile: scripts/dev/db/Dockerfile
+    container_name: kenoma-seed
+    depends_on:
+      kenoma-init:
+        condition: service_completed_successfully
+      customer-postgres:
+        condition: service_healthy
+    environment:
+      CUSTOMER_DB_HOST: customer-postgres
+      CUSTOMER_DB_PORT: 5432
+      CUSTOMER_DB_NAME: customerdb
+      CUSTOMER_DB_USER: admin
+      CUSTOMER_DB_PASSWORD: adminpass
+      SEED_USER_NAME: Admin
+      SEED_USER_LAST_NAME: User
+      SEED_USER_EMAIL: admin@example.com
+      SEED_USER_USERNAME: admin
+      SEED_USER_PASSWORD: "Ch4ng3me!Dev#"
+    volumes:
+      - ./scripts/seed-kenoma.sh:/seed-kenoma.sh
+      - ./.env-out:/env-out
+      - approle-out:/approle-out
+    entrypoint: ["/bin/sh", "/seed-kenoma.sh"]
     restart: "no"
 
   vassago:
@@ -155,7 +180,6 @@ services:
     environment:
       RAUM_BASE_URL: http://raum:8080
       OPENBAO_BASE_URL: http://openbao:8200
-      OPENBAO_TOKEN: dev-root-token
     volumes:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
@@ -167,3 +191,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+
+volumes:
+  approle-out:

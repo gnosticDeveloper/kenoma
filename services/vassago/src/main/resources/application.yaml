@@ -7,6 +7,8 @@ raum:
   base-url: ${RAUM_BASE_URL:http://localhost:8080}
 vassago:
   service-id: ${VASSAGO_SERVICE_ID}
+  openbao:
+    token: ${VASSAGO_OPENBAO_TOKEN}
   pool:
     expiry-buffer-percent: ${VASSAGO_POOL_EXPIRY_BUFFER_PERCENT:10}
     eviction-interval-seconds: ${VASSAGO_POOL_EVICTION_INTERVAL_SECONDS:60}
@@ -17,4 +19,3 @@ vassago:
     ttl-seconds: ${VASSAGO_JWT_TTL_SECONDS:3600}
 openbao:
   base-url: ${OPENBAO_BASE_URL:http://localhost:8200}
-  token: ${OPENBAO_TOKEN}

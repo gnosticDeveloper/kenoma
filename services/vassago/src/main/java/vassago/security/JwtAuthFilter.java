@@ -40,6 +40,9 @@ public class JwtAuthFilter implements WebFilter {
                             .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
                 })
                 .onErrorResume(e -> {
+                    if (e instanceof org.springframework.web.server.ResponseStatusException) {
+                        return Mono.error(e);
+                    }
                     exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                     return exchange.getResponse().setComplete();
                 });

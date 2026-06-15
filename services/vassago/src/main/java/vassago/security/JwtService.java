@@ -33,7 +33,7 @@ public class JwtService {
 
     public JwtService(
             @Value("${openbao.base-url}") String openBaoBaseUrl,
-            @Value("${openbao.token}") String openBaoToken,
+            @Value("${vassago.openbao.token}") String openBaoToken,
             @Value("${vassago.jwt.transit-key-name}") String transitKeyName,
             @Value("${vassago.jwt.ttl-seconds:3600}") long ttlSeconds) {
         this.openBaoClient = WebClient.builder()
