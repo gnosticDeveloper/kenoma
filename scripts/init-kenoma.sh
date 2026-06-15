@@ -1,4 +1,5 @@
 set -e
+
 wait_for() {
   echo "Waiting for $1..."
   until wget --spider -q "$2" > /dev/null 2>&1; do
@@ -6,13 +7,16 @@ wait_for() {
   done
   echo "$1 is ready."
 }
+
 post() {
   wget -q -O - \
     --header="Content-Type: application/json" \
     --post-data="$2" \
     "$1"
 }
+
 wait_for "Raum" "${RAUM_BASE_URL}/actuator/health"
+
 echo "Registering organisation..."
 ORG_RESPONSE=$(post "${RAUM_BASE_URL}/orgs" \
   "{\"name\":\"${ORG_NAME}\",\"contactEmail\":\"${ORG_EMAIL}\",\"contactName\":\"${ORG_CONTACT}\"}")
@@ -23,6 +27,7 @@ if [ -z "$ORG_ID" ]; then
   exit 1
 fi
 echo "Org registered with id: ${ORG_ID}"
+
 echo "Registering Vassago service..."
 SERVICE_RESPONSE=$(post "${RAUM_BASE_URL}/services" \
   "{\"name\":\"${SERVICE_NAME}\",\"description\":\"${SERVICE_DESC}\"}")
@@ -33,6 +38,7 @@ if [ -z "$SERVICE_ID" ]; then
   exit 1
 fi
 echo "Service registered with id: ${SERVICE_ID}"
+
 echo "Provisioning org database schema..."
 PGPASSWORD="${CUSTOMER_DB_PASSWORD}" psql \
   -h "${CUSTOMER_DB_HOST}" \
@@ -41,46 +47,19 @@ PGPASSWORD="${CUSTOMER_DB_PASSWORD}" psql \
   -d "${CUSTOMER_DB_NAME}" \
   -f /users.sql
 echo "Org database schema provisioned."
+
 echo "Registering credentials with Raum..."
 post "${RAUM_BASE_URL}/credentials" \
   "{\"orgId\":\"${ORG_ID}\",\"serviceId\":\"${SERVICE_ID}\",\"userName\":\"${CUSTOMER_DB_USER}\",\"password\":\"${CUSTOMER_DB_PASSWORD}\",\"dbHost\":\"${CUSTOMER_DB_HOST}\",\"dbPort\":${CUSTOMER_DB_PORT},\"dbName\":\"${CUSTOMER_DB_NAME}\",\"dbEngine\":\"postgres\"}"
 echo "Credentials registered."
-if [ "${SEED_DB}" = "true" ]; then
-  echo "Inserting seed user..."
-  SEED_PASSWORD="${SEED_USER_PASSWORD:-Ch4ng3me!Dev#}"
-  SEED_ROLES="${SEED_USER_ROLES:-{\"${SERVICE_ID}\":[\"ADMIN\",\"USER\"]}}"
-  BCRYPT_HASH=$(python3 -c "
-import bcrypt
-pwd = '${SEED_PASSWORD}'.encode()
-print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '\$2a\$'))
-")
-  cat > /tmp/seed-user.sql << SQLEOF
-INSERT INTO users (name, last_name, email, username, password, roles)
-VALUES (
-    '${SEED_USER_NAME:-Admin}',
-    '${SEED_USER_LAST_NAME:-User}',
-    '${SEED_USER_EMAIL:-admin@example.com}',
-    '${SEED_USER_USERNAME:-admin}',
-    '${BCRYPT_HASH}',
-    '${SEED_ROLES}'
-) ON CONFLICT (username) DO NOTHING;
-SQLEOF
-  PGPASSWORD="${CUSTOMER_DB_PASSWORD}" psql \
-    -h "${CUSTOMER_DB_HOST}" \
-    -p "${CUSTOMER_DB_PORT}" \
-    -U "${CUSTOMER_DB_USER}" \
-    -d "${CUSTOMER_DB_NAME}" \
-    -f /tmp/seed-user.sql
-  echo "Seed user inserted."
-else
-  echo "SEED_DB not set to true, skipping seed user insertion."
-fi
+
 echo "Reading AppRole credentials..."
 if [ ! -f /approle-out/approle.env ]; then
   echo "ERROR: AppRole credentials not found at /approle-out/approle.env"
   exit 1
 fi
 . /approle-out/approle.env
+
 echo "Logging in with AppRole..."
 LOGIN_RESPONSE=$(wget -q -O - \
   --header="Content-Type: application/json" \
@@ -92,6 +71,7 @@ if [ -z "$VASSAGO_TOKEN" ]; then
   exit 1
 fi
 echo "AppRole login successful."
+
 mkdir -p "$(dirname "${ENV_OUT}")"
 cat > "${ENV_OUT}" << ENVEOF
 VASSAGO_SERVICE_ID=${SERVICE_ID}
