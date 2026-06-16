@@ -251,10 +251,10 @@ class CreateUserIT {
         customerDb.execInContainer(
                 "psql", "-U", "admin", "-d", "customerdb",
                 "-c", """
-                INSERT INTO users (name, last_name, email, username, password, roles)
+                INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
                 VALUES ('Bootstrap', 'Admin', 'admin@bootstrap.local', 'bootstrap_admin',
                         '$2a$10$xI03I5H6IoRGzfpHm4IUGOlQooxsVSVkJM3JMI4QFrJyXvR.6/gw.',
-                        '%s');
+                        '%s', true);
                 """.formatted(roles)
         );
     }

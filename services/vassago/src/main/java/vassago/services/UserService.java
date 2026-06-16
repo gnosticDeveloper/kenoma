@@ -11,6 +11,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import vassago.db.VassagoDbService;
 import vassago.dto.CreateUserResponseDTO;
+import vassago.dto.PasswordChangeRequestDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
 import vassago.security.VassagoAuthentication;
@@ -78,7 +79,7 @@ public class UserService {
                 .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
                         .flatMap(client -> client.sql("""
                                 SELECT id, name, last_name, email, username, roles
-                                FROM users WHERE id = :id AND stopped_at IS NULL
+                                FROM users WHERE id = :id AND stopped_at IS NULL AND is_ready
                                 """)
                                 .bind("id", id)
                                 .fetch()
@@ -157,6 +158,33 @@ public class UserService {
                                     })
                             );
                 });
+    }
+
+    public Mono<Void> changePassword(PasswordChangeRequestDTO dto) {
+        return vassagoDbService.getClient(dto.getOrgId())
+                .flatMap(client -> client.sql("""
+                SELECT password FROM users
+                WHERE username = :username AND stopped_at IS NULL
+                """)
+                        .bind("username", dto.getUsername())
+                        .fetch()
+                        .one()
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found")))
+                        .flatMap(row -> {
+                            if (!encoder.matches(dto.getOldPassword(), (String) row.get("password"))) {
+                                return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+                            }
+                            return client.sql("""
+                            UPDATE users SET password = :password, is_ready = true
+                            WHERE username = :username AND stopped_at IS NULL
+                            """)
+                                    .bind("password", encoder.encode(dto.getNewPassword()))
+                                    .bind("username", dto.getUsername())
+                                    .fetch()
+                                    .rowsUpdated()
+                                    .then();
+                        })
+                );
     }
 
     public Mono<Void> deleteUser(UUID id) {

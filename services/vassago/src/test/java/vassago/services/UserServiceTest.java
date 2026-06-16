@@ -15,12 +15,15 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import vassago.db.VassagoDbService;
 import vassago.dto.CreateUserResponseDTO;
+import vassago.dto.PasswordChangeRequestDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.security.VassagoAuthentication;
 import vassago.security.VassagoRole;
+
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -28,6 +31,7 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
+
     @Mock
     private VassagoDbService vassagoDbService;
     @Mock
@@ -47,6 +51,7 @@ class UserServiceTest {
     private static final Map<String, List<String>> ADMIN_ROLES = Map.of(
             SERVICE_ID.toString(), List.of(VassagoRole.VASSAGO_ADMIN.name(), VassagoRole.VASSAGO_USER.name())
     );
+
     private static final Map<String, List<String>> USER_ROLES = Map.of(
             SERVICE_ID.toString(), List.of(VassagoRole.VASSAGO_USER.name())
     );
@@ -65,7 +70,7 @@ class UserServiceTest {
                 .assertNext(response -> {
                     assertThat(response).isInstanceOf(CreateUserResponseDTO.class);
                     assertThat(response.getName()).isEqualTo("Jane");
-                    assertThat(((CreateUserResponseDTO) response).getTemporaryPassword()).isNotBlank();
+                    assertThat((response).getTemporaryPassword()).isNotBlank();
                 })
                 .verifyComplete();
     }
@@ -221,6 +226,58 @@ class UserServiceTest {
         verifyNoInteractions(vassagoDbService);
     }
 
+    // --- changePassword tests ---
+
+    @Test
+    void changePassword_happyPath() {
+        String storedHash = "$2a$10$hashedOldPassword";
+        DatabaseClient client = mockClientReturningPasswordChange(
+                Map.of("password", storedHash), true
+        );
+        when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
+        when(encoder.matches("oldPass1!", storedHash)).thenReturn(true);
+        when(encoder.encode("newPass1!")).thenReturn("$2a$10$hashedNewPassword");
+
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO(ORG_ID, "janedoe", "oldPass1!", "newPass1!");
+
+        StepVerifier.create(userService.changePassword(dto))
+                .verifyComplete();
+    }
+
+    @Test
+    void changePassword_wrongOldPassword_returns401() {
+        String storedHash = "$2a$10$hashedOldPassword";
+        DatabaseClient client = mockClientReturning(Map.of("password", storedHash));
+        when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
+        when(encoder.matches("wrongPass!", storedHash)).thenReturn(false);
+
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO(ORG_ID, "janedoe", "wrongPass!", "newPass1!");
+
+        StepVerifier.create(userService.changePassword(dto))
+                .expectErrorMatches(e ->
+                        e instanceof org.springframework.web.server.ResponseStatusException &&
+                                ((org.springframework.web.server.ResponseStatusException) e)
+                                        .getStatusCode().value() == 401)
+                .verify();
+    }
+
+    @Test
+    void changePassword_unknownUser_returns404() {
+        DatabaseClient client = mockClientReturningEmpty();
+        when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
+
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO(ORG_ID, "ghost", "oldPass1!", "newPass1!");
+
+        StepVerifier.create(userService.changePassword(dto))
+                .expectErrorMatches(e ->
+                        e instanceof org.springframework.web.server.ResponseStatusException &&
+                                ((org.springframework.web.server.ResponseStatusException) e)
+                                        .getStatusCode().value() == 404)
+                .verify();
+    }
+
+    // --- helpers ---
+
     private UserRequestDTO validRequest(Map<String, List<String>> roles) {
         UserRequestDTO dto = new UserRequestDTO();
         dto.setName("Jane");
@@ -266,6 +323,18 @@ class UserServiceTest {
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
+    private DatabaseClient mockClientReturningEmpty() {
+        DatabaseClient client = mock(DatabaseClient.class);
+        DatabaseClient.GenericExecuteSpec execSpec = mock(DatabaseClient.GenericExecuteSpec.class);
+        FetchSpec fetchSpec = mock(FetchSpec.class);
+        when(client.sql(anyString())).thenReturn(execSpec);
+        when(execSpec.bind(anyString(), any())).thenReturn(execSpec);
+        when(execSpec.fetch()).thenReturn(fetchSpec);
+        when(fetchSpec.one()).thenReturn(Mono.empty());
+        return client;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private DatabaseClient mockClientReturningSelectOnly(Map<String, Object> selectRow) {
         DatabaseClient client = mock(DatabaseClient.class);
         DatabaseClient.GenericExecuteSpec execSpec = mock(DatabaseClient.GenericExecuteSpec.class);
@@ -285,7 +354,6 @@ class UserServiceTest {
         DatabaseClient.GenericExecuteSpec updateSpec = mock(DatabaseClient.GenericExecuteSpec.class);
         FetchSpec selectFetch = mock(FetchSpec.class);
         FetchSpec updateFetch = mock(FetchSpec.class);
-
         when(client.sql(anyString()))
                 .thenReturn(selectSpec)
                 .thenReturn(updateSpec);
@@ -295,7 +363,26 @@ class UserServiceTest {
         when(updateSpec.bind(anyString(), any())).thenReturn(updateSpec);
         when(updateSpec.fetch()).thenReturn(updateFetch);
         when(updateFetch.one()).thenReturn(Mono.just(updateRow));
+        return client;
+    }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private DatabaseClient mockClientReturningPasswordChange(Map<String, Object> selectRow,
+                                                             boolean updateSucceeds) {
+        DatabaseClient client = mock(DatabaseClient.class);
+        DatabaseClient.GenericExecuteSpec selectSpec = mock(DatabaseClient.GenericExecuteSpec.class);
+        DatabaseClient.GenericExecuteSpec updateSpec = mock(DatabaseClient.GenericExecuteSpec.class);
+        FetchSpec selectFetch = mock(FetchSpec.class);
+        FetchSpec updateFetch = mock(FetchSpec.class);
+        when(client.sql(anyString()))
+                .thenReturn(selectSpec)
+                .thenReturn(updateSpec);
+        when(selectSpec.bind(anyString(), any())).thenReturn(selectSpec);
+        when(selectSpec.fetch()).thenReturn(selectFetch);
+        when(selectFetch.one()).thenReturn(Mono.just(selectRow));
+        when(updateSpec.bind(anyString(), any())).thenReturn(updateSpec);
+        when(updateSpec.fetch()).thenReturn(updateFetch);
+        when(updateFetch.rowsUpdated()).thenReturn(Mono.just(updateSucceeds ? 1L : 0L));
         return client;
     }
 }

@@ -55,4 +55,7 @@ public class User {
 
     @Column("stopped_at")
     private Instant stoppedAt;
+
+    @Column("is_ready")
+    private boolean isReady;
 }

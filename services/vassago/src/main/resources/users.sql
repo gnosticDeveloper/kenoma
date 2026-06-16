@@ -10,5 +10,6 @@ CREATE TABLE IF NOT EXISTS users (
                                      locked_at          timestamp,
                                      created_at         timestamp DEFAULT current_timestamp,
                                      modified_at        timestamp DEFAULT current_timestamp,
-                                     stopped_at         timestamp DEFAULT null
+                                     stopped_at         timestamp DEFAULT null,
+                                     is_ready           bool default false
 );

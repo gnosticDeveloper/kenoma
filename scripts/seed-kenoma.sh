@@ -25,14 +25,15 @@ print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '
 ")
 
 cat > /tmp/seed-user.sql << SQLEOF
-INSERT INTO users (name, last_name, email, username, password, roles)
+INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
 VALUES (
     '${SEED_USER_NAME:-Admin}',
     '${SEED_USER_LAST_NAME:-User}',
     '${SEED_USER_EMAIL:-admin@example.com}',
     '${SEED_USER_USERNAME:-admin}',
     '${BCRYPT_HASH}',
-    '${SEED_ROLES}'
+    '${SEED_ROLES}',
+    true
 ) ON CONFLICT (username) DO NOTHING;
 SQLEOF
 

@@ -27,7 +27,7 @@ public class AuthService {
                 .flatMap(client -> client.sql("""
                         SELECT username, password, roles
                         FROM users
-                        WHERE username = :username AND stopped_at IS NULL
+                        WHERE username = :username AND stopped_at IS NULL AND is_ready
                         """)
                         .bind("username", dto.getUsername())
                         .fetch()
