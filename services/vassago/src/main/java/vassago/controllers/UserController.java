@@ -51,6 +51,7 @@ public class UserController {
     }
 
     @PatchMapping("/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> changePassword(@RequestBody PasswordChangeRequestDTO dto) {
         return userService.changePassword(dto);
     }
