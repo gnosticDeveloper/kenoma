@@ -14,9 +14,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import vassago.db.VassagoDbService;
-import vassago.dto.CreateUserResponseDTO;
 import vassago.dto.PasswordChangeRequestDTO;
 import vassago.dto.UserRequestDTO;
+import vassago.dto.UserResponseDTO;
 import vassago.security.VassagoAuthentication;
 import vassago.security.VassagoRole;
 
@@ -36,6 +36,8 @@ class UserServiceTest {
     private VassagoDbService vassagoDbService;
     @Mock
     private PasswordEncoder encoder;
+    @Mock
+    private MailgunService mailgunService;
 
     private static final UUID ORG_ID     = UUID.randomUUID();
     private static final UUID USER_ID    = UUID.randomUUID();
@@ -45,7 +47,7 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(vassagoDbService, encoder, SERVICE_ID);
+        userService = new UserService(vassagoDbService, encoder, SERVICE_ID, mailgunService);
     }
 
     private static final Map<String, List<String>> ADMIN_ROLES = Map.of(
@@ -59,18 +61,19 @@ class UserServiceTest {
     @Test
     void createUser_callerCanAssignSubsetOfOwnRoles() {
         UserRequestDTO dto = validRequest(USER_ROLES);
-        DatabaseClient client = mockClientReturning(rowFor(USER_ID, USER_ROLES));
+        DatabaseClient client = mockClientReturningSelectThenInsert(rowFor(USER_ID, USER_ROLES));
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
         when(encoder.encode(anyString())).thenReturn("hashed");
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(
                         userService.createUser(dto)
                                 .contextWrite(withCaller(ADMIN_ROLES))
                 )
                 .assertNext(response -> {
-                    assertThat(response).isInstanceOf(CreateUserResponseDTO.class);
+                    assertThat(response).isInstanceOf(UserResponseDTO.class);
                     assertThat(response.getName()).isEqualTo("Jane");
-                    assertThat((response).getTemporaryPassword()).isNotBlank();
                 })
                 .verifyComplete();
     }
@@ -78,9 +81,11 @@ class UserServiceTest {
     @Test
     void createUser_callerCanAssignExactOwnRoles() {
         UserRequestDTO dto = validRequest(ADMIN_ROLES);
-        DatabaseClient client = mockClientReturning(rowFor(USER_ID, ADMIN_ROLES));
+        DatabaseClient client = mockClientReturningSelectThenInsert(rowFor(USER_ID, ADMIN_ROLES));
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
         when(encoder.encode(anyString())).thenReturn("hashed");
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(
                         userService.createUser(dto)
@@ -238,9 +243,12 @@ class UserServiceTest {
         when(encoder.matches("oldPass1!", storedHash)).thenReturn(true);
         when(encoder.encode("newPass1!")).thenReturn("$2a$10$hashedNewPassword");
 
-        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO(ORG_ID, "janedoe", "oldPass1!", "newPass1!");
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("oldPass1!", "newPass1!");
 
-        StepVerifier.create(userService.changePassword(dto))
+        StepVerifier.create(
+                        userService.changePassword(dto)
+                                .contextWrite(withCallerUsername("janedoe", USER_ROLES))
+                )
                 .verifyComplete();
     }
 
@@ -251,9 +259,12 @@ class UserServiceTest {
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
         when(encoder.matches("wrongPass!", storedHash)).thenReturn(false);
 
-        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO(ORG_ID, "janedoe", "wrongPass!", "newPass1!");
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("wrongPass!", "newPass1!");
 
-        StepVerifier.create(userService.changePassword(dto))
+        StepVerifier.create(
+                        userService.changePassword(dto)
+                                .contextWrite(withCallerUsername("janedoe", USER_ROLES))
+                )
                 .expectErrorMatches(e ->
                         e instanceof org.springframework.web.server.ResponseStatusException &&
                                 ((org.springframework.web.server.ResponseStatusException) e)
@@ -266,9 +277,12 @@ class UserServiceTest {
         DatabaseClient client = mockClientReturningEmpty();
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
 
-        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO(ORG_ID, "ghost", "oldPass1!", "newPass1!");
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("oldPass1!", "newPass1!");
 
-        StepVerifier.create(userService.changePassword(dto))
+        StepVerifier.create(
+                        userService.changePassword(dto)
+                                .contextWrite(withCallerUsername("ghost", USER_ROLES))
+                )
                 .expectErrorMatches(e ->
                         e instanceof org.springframework.web.server.ResponseStatusException &&
                                 ((org.springframework.web.server.ResponseStatusException) e)
@@ -347,22 +361,41 @@ class UserServiceTest {
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private DatabaseClient mockClientReturningSequential(Map<String, Object> selectRow,
-                                                         Map<String, Object> updateRow) {
+    private DatabaseClient mockClientReturningSequential(Map<String, Object> firstRow,
+                                                         Map<String, Object> secondRow) {
+        DatabaseClient client = mock(DatabaseClient.class);
+        DatabaseClient.GenericExecuteSpec firstSpec = mock(DatabaseClient.GenericExecuteSpec.class);
+        DatabaseClient.GenericExecuteSpec secondSpec = mock(DatabaseClient.GenericExecuteSpec.class);
+        FetchSpec firstFetch = mock(FetchSpec.class);
+        FetchSpec secondFetch = mock(FetchSpec.class);
+        when(client.sql(anyString()))
+                .thenReturn(firstSpec)
+                .thenReturn(secondSpec);
+        when(firstSpec.bind(anyString(), any())).thenReturn(firstSpec);
+        when(firstSpec.fetch()).thenReturn(firstFetch);
+        when(firstFetch.one()).thenReturn(Mono.just(firstRow));
+        when(secondSpec.bind(anyString(), any())).thenReturn(secondSpec);
+        when(secondSpec.fetch()).thenReturn(secondFetch);
+        when(secondFetch.one()).thenReturn(Mono.just(secondRow));
+        return client;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private DatabaseClient mockClientReturningSelectThenInsert(Map<String, Object> selectRow) {
         DatabaseClient client = mock(DatabaseClient.class);
         DatabaseClient.GenericExecuteSpec selectSpec = mock(DatabaseClient.GenericExecuteSpec.class);
-        DatabaseClient.GenericExecuteSpec updateSpec = mock(DatabaseClient.GenericExecuteSpec.class);
+        DatabaseClient.GenericExecuteSpec insertSpec = mock(DatabaseClient.GenericExecuteSpec.class);
         FetchSpec selectFetch = mock(FetchSpec.class);
-        FetchSpec updateFetch = mock(FetchSpec.class);
+        FetchSpec insertFetch = mock(FetchSpec.class);
         when(client.sql(anyString()))
                 .thenReturn(selectSpec)
-                .thenReturn(updateSpec);
+                .thenReturn(insertSpec);
         when(selectSpec.bind(anyString(), any())).thenReturn(selectSpec);
         when(selectSpec.fetch()).thenReturn(selectFetch);
         when(selectFetch.one()).thenReturn(Mono.just(selectRow));
-        when(updateSpec.bind(anyString(), any())).thenReturn(updateSpec);
-        when(updateSpec.fetch()).thenReturn(updateFetch);
-        when(updateFetch.one()).thenReturn(Mono.just(updateRow));
+        when(insertSpec.bind(anyString(), any())).thenReturn(insertSpec);
+        when(insertSpec.fetch()).thenReturn(insertFetch);
+        when(insertFetch.rowsUpdated()).thenReturn(Mono.just(1L));
         return client;
     }
 

@@ -6,10 +6,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import vassago.dto.CreateUserResponseDTO;
 import vassago.dto.PasswordChangeRequestDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
+import vassago.dto.VerifyTokenRequestDTO;
 import vassago.services.UserService;
 import java.util.UUID;
 
@@ -21,7 +21,7 @@ public class UserController {
 
     @PostMapping
     @PreAuthorize("hasAuthority('VASSAGO_CREATE_USER')")
-    public Mono<CreateUserResponseDTO> createUser(@RequestBody UserRequestDTO dto) {
+    public Mono<UserResponseDTO> createUser(@RequestBody UserRequestDTO dto) {
         return userService.createUser(dto);
     }
 
@@ -48,6 +48,12 @@ public class UserController {
     @PreAuthorize("hasAuthority('VASSAGO_OFFBOARD_USER')")
     public Mono<Void> deleteUser(@PathVariable UUID id) {
         return userService.deleteUser(id);
+    }
+
+    @PostMapping("/verify")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> verifyToken(@RequestBody VerifyTokenRequestDTO dto) {
+        return userService.verifyToken(dto);
     }
 
     @PatchMapping("/password")

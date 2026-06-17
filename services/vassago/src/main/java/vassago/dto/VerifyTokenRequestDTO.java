@@ -5,12 +5,16 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 
+import java.util.UUID;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class PasswordChangeRequestDTO {
+public class VerifyTokenRequestDTO {
     @NonNull
-    String oldPassword;
+    UUID orgId;
+    @NonNull
+    String token;
     @NonNull
     String newPassword;
 }

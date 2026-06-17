@@ -97,7 +97,7 @@ services:
       RAUM_DB_NAME: raum
       RAUM_DB_USER: postgres
       RAUM_DB_PASSWORD: postgres
-      OPERATIONAL_DB_HOST: customer-postgres
+      OPERATIONAL_DB_HOST: operational-postgres
       OPERATIONAL_DB_PORT: 5432
       OPERATIONAL_DB_NAME: operationaldb
       OPERATIONAL_DB_USER: admin
@@ -124,6 +124,7 @@ services:
     depends_on:
       raum-postgres:
         condition: service_healthy
+
       openbao:
         condition: service_healthy
       raum-db-init:
@@ -163,6 +164,10 @@ services:
     environment:
       RAUM_BASE_URL: http://raum:8080
       OPENBAO_BASE_URL: http://openbao:8200
+      MAILGUN_API_KEY: ${MAILGUN_API_KEY}
+      MAILGUN_DOMAIN: ${MAILGUN_DOMAIN}
+      MAILGUN_FROM: ${MAILGUN_FROM:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
     volumes:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
@@ -184,10 +189,10 @@ services:
     depends_on:
       kenoma-pre-init:
         condition: service_completed_successfully
-      customer-postgres:
+      operational-postgres:
         condition: service_healthy
     environment:
-      OPERATIONAL_DB_HOST: customer-postgres
+      OPERATIONAL_DB_HOST: operational-postgres
       OPERATIONAL_DB_PORT: 5432
       OPERATIONAL_DB_NAME: operationaldb
       OPERATIONAL_DB_USER: admin
