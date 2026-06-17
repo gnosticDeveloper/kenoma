@@ -35,5 +35,7 @@ build/
 .sdkmanrc
 .mvn
 codebase.json
+.env
 .env-out/
 repomix.config.json
+.claude

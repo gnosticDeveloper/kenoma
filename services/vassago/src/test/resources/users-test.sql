@@ -13,3 +13,11 @@ CREATE TABLE IF NOT EXISTS users (
                                      stopped_at         timestamp DEFAULT null,
                                      is_ready           bool DEFAULT false
 );
+
+CREATE TABLE IF NOT EXISTS pending_verifications (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     uuid NOT NULL REFERENCES users(id),
+    token_hash  varchar(64) NOT NULL,
+    expires_at  timestamp NOT NULL,
+    used        boolean NOT NULL DEFAULT false
+);

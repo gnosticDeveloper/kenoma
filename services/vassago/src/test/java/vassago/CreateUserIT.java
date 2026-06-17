@@ -3,12 +3,14 @@ package vassago;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.support.TestPropertySourceUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.testcontainers.containers.GenericContainer;
@@ -17,11 +19,13 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import vassago.dto.CreateUserResponseDTO;
+import reactor.core.publisher.Mono;
 import vassago.dto.LoginRequestDTO;
 import vassago.dto.LoginResponseDTO;
 import vassago.dto.UserRequestDTO;
+import vassago.dto.UserResponseDTO;
 import vassago.security.VassagoRole;
+import vassago.services.MailgunService;
 
 import java.time.Duration;
 import java.util.List;
@@ -29,11 +33,23 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 @ContextConfiguration(initializers = CreateUserIT.Initializer.class)
+@TestPropertySource(properties = {
+        "mailgun.api-key=test-key",
+        "mailgun.domain=test.example.com",
+        "mailgun.from=noreply@test.example.com",
+        "app.base-url=http://localhost:3000"
+})
 class CreateUserIT {
+
+    @MockitoBean
+    MailgunService mailgunService;
 
     static final Network network = Network.newNetwork();
 
@@ -281,6 +297,9 @@ class CreateUserIT {
 
     @Test
     void createUser_persistsToOrgDatabase() {
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+                .thenReturn(Mono.empty());
+
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(port))
                 .build();
@@ -293,13 +312,13 @@ class CreateUserIT {
         request.setUsername("janedoe");
         request.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
 
-        CreateUserResponseDTO response = client.post()
+        UserResponseDTO response = client.post()
                 .uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .bodyValue(request)
                 .retrieve()
-                .bodyToMono(CreateUserResponseDTO.class)
+                .bodyToMono(UserResponseDTO.class)
                 .block();
 
         assertThat(response).isNotNull();
@@ -309,11 +328,13 @@ class CreateUserIT {
         assertThat(response.getEmail()).isEqualTo("jane.doe@example.com");
         assertThat(response.getUsername()).isEqualTo("janedoe");
         assertThat(response.getRoles()).isEqualTo(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
-        assertThat(response.getTemporaryPassword()).isNotBlank();
     }
 
     @Test
     void createUser_poolReusesConnectionOnSecondRequest() {
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+                .thenReturn(Mono.empty());
+
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(port))
                 .build();
@@ -333,17 +354,17 @@ class CreateUserIT {
         second.setUsername("bobjones");
         second.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
 
-        CreateUserResponseDTO r1 = client.post().uri("/user")
+        UserResponseDTO r1 = client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .bodyValue(first)
-                .retrieve().bodyToMono(CreateUserResponseDTO.class).block();
+                .retrieve().bodyToMono(UserResponseDTO.class).block();
 
-        CreateUserResponseDTO r2 = client.post().uri("/user")
+        UserResponseDTO r2 = client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .bodyValue(second)
-                .retrieve().bodyToMono(CreateUserResponseDTO.class).block();
+                .retrieve().bodyToMono(UserResponseDTO.class).block();
 
         assertThat(r1).isNotNull();
         assertThat(r2).isNotNull();

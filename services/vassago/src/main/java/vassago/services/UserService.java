@@ -10,14 +10,19 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import vassago.db.VassagoDbService;
-import vassago.dto.CreateUserResponseDTO;
 import vassago.dto.PasswordChangeRequestDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
+import vassago.dto.VerifyTokenRequestDTO;
 import vassago.security.VassagoAuthentication;
 import vassago.security.VassagoRole;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @Service
@@ -27,8 +32,9 @@ public class UserService {
     private final VassagoDbService vassagoDbService;
     private final PasswordEncoder encoder;
     private final UUID serviceId;
+    private final MailgunService mailgunService;
 
-    public Mono<CreateUserResponseDTO> createUser(UserRequestDTO dto) {
+    public Mono<UserResponseDTO> createUser(UserRequestDTO dto) {
         return getCaller()
                 .flatMap(caller -> {
                     Map<String, List<String>> callerRoles = caller.getRoles();
@@ -54,7 +60,11 @@ public class UserService {
                         }
                     }
 
-                    String temporaryPassword = generateTemporaryPassword();
+                    String placeholderPassword = encoder.encode(generateToken());
+                    String verificationToken = generateToken();
+                    String tokenHash = hashToken(verificationToken);
+                    Instant expiresAt = Instant.now().plus(24, ChronoUnit.HOURS);
+
                     return vassagoDbService.getClient(caller.getOrgId())
                             .flatMap(client -> client.sql("""
                                     INSERT INTO users (name, last_name, email, username, password, roles)
@@ -65,13 +75,62 @@ public class UserService {
                                     .bind("lastName", dto.getLastName())
                                     .bind("email", dto.getEmail())
                                     .bind("username", dto.getUsername())
-                                    .bind("password", Objects.requireNonNull(encoder.encode(temporaryPassword)))
+                                    .bind("password", placeholderPassword)
                                     .bind("roles", RolesUtils.serialize(requestedRoles))
                                     .fetch()
                                     .one()
-                                    .map(row -> toCreateResponseDTO(row, temporaryPassword))
+                                    .flatMap(row -> {
+                                        UUID userId = (UUID) row.get("id");
+                                        return client.sql("""
+                                                INSERT INTO pending_verifications (user_id, token_hash, expires_at)
+                                                VALUES (:userId, :tokenHash, :expiresAt)
+                                                """)
+                                                .bind("userId", userId)
+                                                .bind("tokenHash", tokenHash)
+                                                .bind("expiresAt", expiresAt)
+                                                .fetch()
+                                                .rowsUpdated()
+                                                .then(mailgunService.sendVerificationEmail(
+                                                        dto.getEmail(), caller.getOrgId(), verificationToken))
+                                                .thenReturn(toCreateResponseDTO(row));
+                                    })
                             );
                 });
+    }
+
+    public Mono<Void> verifyToken(VerifyTokenRequestDTO dto) {
+        String tokenHash = hashToken(dto.getToken());
+        return vassagoDbService.getClient(dto.getOrgId())
+                .flatMap(client -> client.sql("""
+                        SELECT id, user_id FROM pending_verifications
+                        WHERE token_hash = :tokenHash AND used = false AND expires_at > current_timestamp
+                        """)
+                        .bind("tokenHash", tokenHash)
+                        .fetch()
+                        .one()
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(
+                                HttpStatus.NOT_FOUND, "Invalid or expired verification token")))
+                        .flatMap(row -> {
+                            UUID verificationId = (UUID) row.get("id");
+                            UUID userId = (UUID) row.get("user_id");
+                            String newPasswordHash = encoder.encode(dto.getNewPassword());
+                            return client.sql("""
+                                    UPDATE users SET password = :password, is_ready = true
+                                    WHERE id = :userId AND stopped_at IS NULL
+                                    """)
+                                    .bind("password", newPasswordHash)
+                                    .bind("userId", userId)
+                                    .fetch()
+                                    .rowsUpdated()
+                                    .then(client.sql("""
+                                            UPDATE pending_verifications SET used = true WHERE id = :id
+                                            """)
+                                            .bind("id", verificationId)
+                                            .fetch()
+                                            .rowsUpdated())
+                                    .then();
+                        })
+                );
     }
 
     public Mono<UserResponseDTO> getUserById(UUID id) {
@@ -161,29 +220,33 @@ public class UserService {
     }
 
     public Mono<Void> changePassword(PasswordChangeRequestDTO dto) {
-        return vassagoDbService.getClient(dto.getOrgId())
-                .flatMap(client -> client.sql("""
-                SELECT password FROM users
-                WHERE username = :username AND stopped_at IS NULL
-                """)
-                        .bind("username", dto.getUsername())
-                        .fetch()
-                        .one()
-                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found")))
-                        .flatMap(row -> {
-                            if (!encoder.matches(dto.getOldPassword(), (String) row.get("password"))) {
-                                return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
-                            }
-                            return client.sql("""
-                            UPDATE users SET password = :password, is_ready = true
-                            WHERE username = :username AND stopped_at IS NULL
-                            """)
-                                    .bind("password", encoder.encode(dto.getNewPassword()))
-                                    .bind("username", dto.getUsername())
-                                    .fetch()
-                                    .rowsUpdated()
-                                    .then();
-                        })
+        return getCaller()
+                .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
+                        .flatMap(client -> client.sql("""
+                                SELECT password FROM users
+                                WHERE username = :username AND stopped_at IS NULL
+                                """)
+                                .bind("username", caller.getName())
+                                .fetch()
+                                .one()
+                                .switchIfEmpty(Mono.error(new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND, "User not found")))
+                                .flatMap(row -> {
+                                    if (!encoder.matches(dto.getOldPassword(), (String) row.get("password"))) {
+                                        return Mono.error(new ResponseStatusException(
+                                                HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+                                    }
+                                    return client.sql("""
+                                            UPDATE users SET password = :password
+                                            WHERE username = :username AND stopped_at IS NULL
+                                            """)
+                                            .bind("password", encoder.encode(dto.getNewPassword()))
+                                            .bind("username", caller.getName())
+                                            .fetch()
+                                            .rowsUpdated()
+                                            .then();
+                                })
+                        )
                 );
     }
 
@@ -211,10 +274,22 @@ public class UserService {
                 .mapNotNull(ctx -> (VassagoAuthentication) ctx.getAuthentication());
     }
 
-    private static String generateTemporaryPassword() {
-        byte[] bytes = new byte[18];
+    private static String generateToken() {
+        byte[] bytes = new byte[32];
         SECURE_RANDOM.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static String hashToken(String token) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(64);
+            for (byte b : hash) hex.append(String.format("%02x", b));
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private UserResponseDTO toResponseDTO(Map<String, Object> row) {
@@ -228,15 +303,14 @@ public class UserService {
                 .build();
     }
 
-    private CreateUserResponseDTO toCreateResponseDTO(Map<String, Object> row, String temporaryPassword) {
-        return CreateUserResponseDTO.builder()
+    private UserResponseDTO toCreateResponseDTO(Map<String, Object> row) {
+        return UserResponseDTO.builder()
                 .id((UUID) row.get("id"))
                 .name((String) row.get("name"))
                 .lastName((String) row.get("last_name"))
                 .email((String) row.get("email"))
                 .username((String) row.get("username"))
                 .roles(RolesUtils.deserialize((String) row.get("roles")))
-                .temporaryPassword(temporaryPassword)
                 .build();
     }
 }
