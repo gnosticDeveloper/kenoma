@@ -36,3 +36,4 @@ build/
 .mvn
 codebase.json
 .env-out/
+repomix.config.json

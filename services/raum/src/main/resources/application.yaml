@@ -19,3 +19,7 @@ openbao:
     mount: ${OPENBAO_KV_MOUNT:secret}
 server:
   port: 8080
+raum:
+  service-id: ${RAUM_SERVICE_ID}
+  jwt:
+    transit-key-name: ${RAUM_JWT_TRANSIT_KEY_NAME:vassago-jwt}
