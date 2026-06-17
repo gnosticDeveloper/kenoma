@@ -36,3 +36,25 @@ CREATE TABLE IF NOT EXISTS credentials (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_org_service ON credentials(org_id, service_id);
+
+INSERT INTO services (name, description)
+VALUES
+    ('Raum', 'Credential and organisation registry'),
+    ('Vassago', 'Authentication and identity service')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO organizations (name, contact_name, contact_email)
+VALUES ('Platform', 'Platform Operator', 'platform@internal')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO credentials (org_id, service_id, db_engine, db_host, db_port, db_name)
+SELECT
+    o.id,
+    s.id,
+    'postgres',
+    'operational-postgres',
+    5432,
+    'operationaldb'
+FROM organizations o, services s
+WHERE o.name = 'Platform' AND s.name = 'Vassago'
+ON CONFLICT DO NOTHING;

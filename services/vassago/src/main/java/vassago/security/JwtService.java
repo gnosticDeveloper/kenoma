@@ -1,6 +1,7 @@
 package vassago.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import common.security.JwtValidator;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,15 +10,12 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
-import java.security.KeyFactory;
 import java.security.PublicKey;
-import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class JwtService {
@@ -27,9 +25,7 @@ public class JwtService {
     private final WebClient openBaoClient;
     private final String transitKeyName;
     private final long ttlSeconds;
-
-    // TODO: refresh cache on key rotation (e.g. via scheduled re-fetch or version check)
-    private final AtomicReference<PublicKey> cachedPublicKey = new AtomicReference<>();
+    private final JwtValidator jwtValidator;
 
     public JwtService(
             @Value("${openbao.base-url}") String openBaoBaseUrl,
@@ -42,6 +38,7 @@ public class JwtService {
                 .build();
         this.transitKeyName = transitKeyName;
         this.ttlSeconds = ttlSeconds;
+        this.jwtValidator = new JwtValidator(openBaoBaseUrl, openBaoToken, transitKeyName);
     }
 
     public Mono<String> issueToken(UUID orgId, String username, Map<String, List<String>> roles) {
@@ -78,41 +75,17 @@ public class JwtService {
     }
 
     public Mono<Claims> validateToken(String token) {
-        return getPublicKey()
-                .map(publicKey -> Jwts.parser()
-                        .verifyWith(publicKey)
-                        .build()
-                        .parseSignedClaims(token)
-                        .getPayload());
+        return jwtValidator.validateToken(token);
     }
 
+    // TODO: refresh cache on key rotation (e.g. via scheduled re-fetch or version check)
     public Mono<PublicKey> getPublicKey() {
-        PublicKey cached = cachedPublicKey.get();
-        if (cached != null) {
-            return Mono.just(cached);
-        }
-        return openBaoClient.get()
-                .uri("/v1/transit/keys/{key}", transitKeyName)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .map(response -> {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> data = (Map<String, Object>) response.get("data");
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> keys = (Map<String, Object>) data.get("keys");
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> latestKey = (Map<String, Object>) keys.get("1");
-                    String pemPublicKey = (String) latestKey.get("public_key");
-                    return parsePublicKey(pemPublicKey);
-                })
-                .doOnNext(cachedPublicKey::set);
+        return jwtValidator.getPublicKey();
     }
 
     private String buildClaimsJson(UUID orgId, String username, Map<String, List<String>> roles,
                                    Instant now, Instant exp) {
         try {
-            // Serialize roles map to JSON string so it roundtrips cleanly as a
-            // single claim value rather than a nested object that jjwt may mangle.
             String rolesJson = OBJECT_MAPPER.writeValueAsString(roles);
             Map<String, Object> claims = Map.of(
                     "sub", username,
@@ -124,20 +97,6 @@ public class JwtService {
             return OBJECT_MAPPER.writeValueAsString(claims);
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize JWT claims", e);
-        }
-    }
-
-    private PublicKey parsePublicKey(String pem) {
-        try {
-            String stripped = pem
-                    .replace("-----BEGIN PUBLIC KEY-----", "")
-                    .replace("-----END PUBLIC KEY-----", "")
-                    .replaceAll("\\s", "");
-            byte[] decoded = Base64.getDecoder().decode(stripped);
-            return KeyFactory.getInstance("EC")
-                    .generatePublic(new X509EncodedKeySpec(decoded));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to parse OpenBao public key", e);
         }
     }
 }

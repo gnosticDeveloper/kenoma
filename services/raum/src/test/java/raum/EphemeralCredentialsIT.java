@@ -1,12 +1,16 @@
 package raum;
 
+import common.dto.BasicCredentialDTO;
+import common.dto.CredentialsDTO;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationContextInitializer;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.support.TestPropertySourceUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
@@ -14,21 +18,19 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import common.dto.BasicCredentialDTO;
-import common.dto.CredentialsDTO;
-import raum.dto.OrgRequestDTO;
-import raum.dto.OrgResponseDTO;
-import raum.dto.ServiceRequestDTO;
-import raum.dto.ServiceResponseDTO;
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.Map;
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
+@ContextConfiguration(initializers = EphemeralCredentialsIT.Initializer.class)
 class EphemeralCredentialsIT {
 
     static final Network network = Network.newNetwork();
@@ -43,10 +45,10 @@ class EphemeralCredentialsIT {
             .withInitScript("init.sql");
 
     @Container
-    static final PostgreSQLContainer customerDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
+    static final PostgreSQLContainer operationalDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
             .withNetwork(network)
-            .withNetworkAliases("customer-postgres")
-            .withDatabaseName("customerdb")
+            .withNetworkAliases("operational-postgres")
+            .withDatabaseName("operationaldb")
             .withUsername("admin")
             .withPassword("adminpass");
 
@@ -62,105 +64,171 @@ class EphemeralCredentialsIT {
             .waitingFor(Wait.forHttp("/v1/sys/health").forPort(8200)
                     .withStartupTimeout(Duration.ofSeconds(30)));
 
-    static String vassagoToken;
+    @Container
+    @SuppressWarnings("resource")
+    static final GenericContainer<?> openBaoInit = new GenericContainer<>("curlimages/curl:8.5.0")
+            .withNetwork(network)
+            .dependsOn(openBao)
+            .withCommand("sh", "-c", """
+                    curl -sf -X POST http://openbao:8200/v1/sys/mounts/secret \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"type":"kv","options":{"version":"2"}}' || true ;
+                    curl -sf -X POST http://openbao:8200/v1/sys/mounts/database \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"type":"database"}' || true ;
+                    curl -sf -X POST http://openbao:8200/v1/sys/mounts/transit \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"type":"transit"}' || true ;
+                    curl -sf -X POST http://openbao:8200/v1/transit/keys/vassago-jwt \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"type":"ecdsa-p256"}' || true ;
+                    curl -sf -X POST http://openbao:8200/v1/sys/auth/approle \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"type":"approle"}' || true ;
+                    curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/vassago-policy \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"policy":"path \\"database/creds/*\\" { capabilities = [\\"read\\"] } path \\"transit/sign/vassago-jwt\\" { capabilities = [\\"update\\"] } path \\"transit/keys/vassago-jwt\\" { capabilities = [\\"read\\"] }"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/auth/approle/role/vassago \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"token_policies":"vassago-policy","token_ttl":"1h","token_max_ttl":"24h"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/raum-policy \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"policy":"path \\"transit/keys/vassago-jwt\\" { capabilities = [\\"read\\"] }"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/auth/approle/role/raum \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"token_policies":"raum-policy","token_ttl":"1h","token_max_ttl":"24h"}' ;
+                    echo OPENBAO_INIT_DONE
+                    """)
+            .waitingFor(Wait.forLogMessage(".*OPENBAO_INIT_DONE.*", 1)
+                    .withStartupTimeout(Duration.ofSeconds(30)));
 
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.r2dbc.url", () ->
-                "r2dbc:postgresql://localhost:%d/raum".formatted(raumDb.getMappedPort(5432)));
-        registry.add("spring.r2dbc.username", raumDb::getUsername);
-        registry.add("spring.r2dbc.password", raumDb::getPassword);
-        registry.add("openbao.host", () ->
-                "http://localhost:%d".formatted(openBao.getMappedPort(8200)));
-        registry.add("openbao.token", () -> "dev-root-token");
-        registry.add("openbao.kv.mount", () -> "secret");
+    static String vassagoToken;
+    static String raumToken;
+    static UUID credentialId;
+    static UUID orgId;
+    static UUID serviceId;
+
+    static class Initializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
+        @Override
+        public void initialize(ConfigurableApplicationContext ctx) {
+            vassagoToken = loginAppRole(openBao.getMappedPort(8200), "vassago");
+            raumToken = loginAppRole(openBao.getMappedPort(8200), "raum");
+            assertThat(vassagoToken).isNotBlank();
+            assertThat(raumToken).isNotBlank();
+
+            String raumServiceId;
+            try {
+                raumServiceId = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                                "-t", "-A", "-c", "SELECT id FROM services WHERE name = 'Raum' LIMIT 1;")
+                        .getStdout().trim();
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to read Raum service ID", e);
+            }
+
+            TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
+                    "spring.r2dbc.url=r2dbc:postgresql://localhost:%d/raum".formatted(raumDb.getMappedPort(5432)),
+                    "spring.r2dbc.username=postgres",
+                    "spring.r2dbc.password=postgres",
+                    "openbao.host=http://localhost:%d".formatted(openBao.getMappedPort(8200)),
+                    "openbao.token=dev-root-token",
+                    "openbao.kv.mount=secret",
+                    "RAUM_SERVICE_ID=" + raumServiceId,
+                    "RAUM_OPENBAO_TOKEN=" + raumToken,
+                    "RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt"
+            );
+        }
     }
 
     @BeforeAll
-    static void initOpenBao() {
+    static void setup() throws Exception {
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
                 .defaultHeader("X-Vault-Token", "dev-root-token")
                 .build();
 
-        // Enable engines
-        client.post().uri("/v1/sys/mounts/secret")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("type", "kv", "options", Map.of("version", "2")))
-                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
+        credentialId = UUID.fromString(raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                        "-t", "-A", "-c", "SELECT id FROM credentials LIMIT 1;")
+                .getStdout().trim());
+        orgId = UUID.fromString(raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                        "-t", "-A", "-c", "SELECT org_id FROM credentials WHERE id = '" + credentialId + "';")
+                .getStdout().trim());
+        serviceId = UUID.fromString(raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                        "-t", "-A", "-c", "SELECT service_id FROM credentials WHERE id = '" + credentialId + "';")
+                .getStdout().trim());
 
-        client.post().uri("/v1/sys/mounts/database")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("type", "database"))
-                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
+        raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                "-c", "UPDATE credentials SET db_port = %d WHERE id = '%s';"
+                        .formatted(operationalDb.getMappedPort(5432), credentialId));
 
-        // Enable AppRole
-        client.post().uri("/v1/sys/auth/approle")
+        client.post().uri("/v1/secret/data/credentials/{id}", credentialId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("type", "approle"))
-                .retrieve().bodyToMono(Void.class).onErrorComplete().block();
-
-        // Write policy
-        client.post().uri("/v1/sys/policies/acl/vassago-policy")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("policy", """
-                        path "database/creds/*" {
-                          capabilities = ["read"]
-                        }
-                        """))
+                .bodyValue(Map.of("data", Map.of("username", "admin", "password", "adminpass")))
                 .retrieve().bodyToMono(Void.class).block();
 
-        // Create role
-        client.post().uri("/v1/auth/approle/role/vassago")
+        client.post().uri("/v1/database/config/{id}", credentialId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
-                        "token_policies", "vassago-policy",
-                        "token_ttl", "1h",
-                        "token_max_ttl", "24h"
+                        "plugin_name", "postgresql-database-plugin",
+                        "allowed_roles", credentialId + "-role",
+                        "connection_url", "postgresql://{{username}}:{{password}}@operational-postgres:5432/operationaldb?sslmode=disable",
+                        "username", "admin",
+                        "password", "adminpass"
                 ))
                 .retrieve().bodyToMono(Void.class).block();
 
-        // Get role_id
-        @SuppressWarnings("unchecked")
+        client.post().uri("/v1/database/roles/{role}", credentialId + "-role")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "db_name", credentialId.toString(),
+                        "creation_statements", """
+                                CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+                                GRANT CONNECT ON DATABASE "operationaldb" TO "{{name}}";
+                                GRANT USAGE ON SCHEMA public TO "{{name}}";
+                                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
+                                """,
+                        "default_ttl", "1h",
+                        "max_ttl", "24h"
+                ))
+                .retrieve().bodyToMono(Void.class).block();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String loginAppRole(int baoPort, String roleName) {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(baoPort))
+                .defaultHeader("X-Vault-Token", "dev-root-token")
+                .build();
+
         Map<String, Object> roleIdResponse = client.get()
-                .uri("/v1/auth/approle/role/vassago/role-id")
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
+                .uri("/v1/auth/approle/role/{role}/role-id", roleName)
+                .retrieve().bodyToMono(Map.class).block();
         assertThat(roleIdResponse).isNotNull();
-        @SuppressWarnings("unchecked")
         String roleId = (String) ((Map<String, Object>) roleIdResponse.get("data")).get("role_id");
 
-        // Get secret_id
-        @SuppressWarnings("unchecked")
         Map<String, Object> secretIdResponse = client.post()
-                .uri("/v1/auth/approle/role/vassago/secret-id")
+                .uri("/v1/auth/approle/role/{role}/secret-id", roleName)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of())
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
+                .retrieve().bodyToMono(Map.class).block();
         assertThat(secretIdResponse).isNotNull();
-        @SuppressWarnings("unchecked")
         String secretId = (String) ((Map<String, Object>) secretIdResponse.get("data")).get("secret_id");
 
-        // Login
-        @SuppressWarnings("unchecked")
-        Map<String, Object> loginResponse = WebClient.builder()
-                .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
-                .build()
-                .post()
+        Map<String, Object> loginResponse = client.post()
                 .uri("/v1/auth/approle/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("role_id", roleId, "secret_id", secretId))
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
+                .retrieve().bodyToMono(Map.class).block();
         assertThat(loginResponse).isNotNull();
-        @SuppressWarnings("unchecked")
-        Map<String, Object> auth = (Map<String, Object>) loginResponse.get("auth");
-        vassagoToken = (String) auth.get("client_token");
-        assertThat(vassagoToken).isNotBlank();
+        return (String) ((Map<String, Object>) loginResponse.get("auth")).get("client_token");
     }
 
     @LocalServerPort
@@ -172,62 +240,26 @@ class EphemeralCredentialsIT {
                 .baseUrl("http://localhost:%d".formatted(port))
                 .build();
 
-        OrgResponseDTO org = client.post()
-                .uri("/orgs")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(new OrgRequestDTO("Test Org", "test@example.com", "Test User"))
-                .retrieve()
-                .bodyToMono(OrgResponseDTO.class)
-                .block();
-        assertThat(org).isNotNull();
-        assertThat(org.getId()).isNotNull();
-
-        ServiceResponseDTO service = client.post()
-                .uri("/services")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(new ServiceRequestDTO("Test Service", "Integration test service"))
-                .retrieve()
-                .bodyToMono(ServiceResponseDTO.class)
-                .block();
-        assertThat(service).isNotNull();
-        assertThat(service.getId()).isNotNull();
-
-        BasicCredentialDTO saved = client.post()
-                .uri("/credentials")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(CredentialsDTO.builder()
-                        .orgId(org.getId())
-                        .serviceId(service.getId())
-                        .userName("admin")
-                        .password("adminpass")
-                        .dbHost("customer-postgres")
-                        .dbPort(5432)
-                        .dbName("customerdb")
-                        .dbEngine("postgres")
-                        .build())
-                .retrieve()
-                .bodyToMono(BasicCredentialDTO.class)
-                .block();
-        assertThat(saved).isNotNull();
-        assertThat(saved.getOrgId()).isEqualTo(org.getId());
-        assertThat(saved.getServiceId()).isEqualTo(service.getId());
-
         CredentialsDTO ephemeral = client.post()
                 .uri("/credentials/ephemeral")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("X-Vault-Token", vassagoToken)
-                .bodyValue(saved)
+                .bodyValue(BasicCredentialDTO.builder()
+                        .orgId(orgId)
+                        .serviceId(serviceId)
+                        .build())
                 .retrieve()
                 .bodyToMono(CredentialsDTO.class)
                 .block();
+
         assertThat(ephemeral).isNotNull();
         assertThat(ephemeral.getUserName()).isNotBlank();
         assertThat(ephemeral.getPassword()).isNotBlank();
-        assertThat(ephemeral.getDbHost()).isEqualTo("customer-postgres");
-        assertThat(ephemeral.getDbName()).isEqualTo("customerdb");
+        assertThat(ephemeral.getDbHost()).isEqualTo("operational-postgres");
+        assertThat(ephemeral.getDbName()).isEqualTo("operationaldb");
 
-        String jdbcUrl = "jdbc:postgresql://localhost:%d/customerdb"
-                .formatted(customerDb.getMappedPort(5432));
+        String jdbcUrl = "jdbc:postgresql://localhost:%d/operationaldb"
+                .formatted(operationalDb.getMappedPort(5432));
         assertThatNoException().isThrownBy(() -> {
             try (Connection conn = DriverManager.getConnection(
                     jdbcUrl, ephemeral.getUserName(), ephemeral.getPassword())) {

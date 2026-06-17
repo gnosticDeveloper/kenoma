@@ -1,7 +1,9 @@
 package raum.services;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
 import raum.models.Credentials;
@@ -10,6 +12,7 @@ import raum.repository.CredentialsRepository;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -17,8 +20,13 @@ public class CredentialsService {
 
     private final CredentialsRepository credentialsRepository;
     private final OpenBaoService openBaoService;
+    private final UUID serviceId;
 
     public Mono<BasicCredentialDTO> saveNewCredentials(CredentialsDTO dto) {
+        if (dto.getServiceId().equals(serviceId)) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "Credentials cannot be registered for Raum"));
+        }
         return credentialsRepository.save(Credentials.builder()
                         .orgId(dto.getOrgId())
                         .serviceId(dto.getServiceId())

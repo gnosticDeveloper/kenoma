@@ -26,17 +26,17 @@ services:
       - ./services/raum/src/main/resources/init.sql:/init.sql
     entrypoint: ["sh", "-c", "psql -h raum-postgres -U postgres -d raum -f /init.sql"]
 
-  customer-postgres:
+  operational-postgres:
     image: postgres:18.1-alpine3.23
-    container_name: customer-postgres
+    container_name: operational-postgres
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: adminpass
-      POSTGRES_DB: customerdb
+      POSTGRES_DB: operationaldb
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d customerdb"]
+      test: ["CMD-SHELL", "pg_isready -U admin -d operationaldb"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -75,6 +75,47 @@ services:
     entrypoint: ["/bin/sh", "/init-openbao.sh"]
     restart: "no"
 
+  kenoma-pre-init:
+    build:
+      context: .
+      dockerfile: scripts/dev/db/Dockerfile
+    container_name: kenoma-pre-init
+    depends_on:
+      raum-postgres:
+        condition: service_healthy
+      operational-postgres:
+        condition: service_healthy
+      raum-db-init:
+        condition: service_completed_successfully
+      openbao-init:
+        condition: service_completed_successfully
+    environment:
+      OPENBAO_BASE_URL: http://openbao:8200
+      OPENBAO_ROOT_TOKEN: dev-root-token
+      RAUM_DB_HOST: raum-postgres
+      RAUM_DB_PORT: 5432
+      RAUM_DB_NAME: raum
+      RAUM_DB_USER: postgres
+      RAUM_DB_PASSWORD: postgres
+      OPERATIONAL_DB_HOST: customer-postgres
+      OPERATIONAL_DB_PORT: 5432
+      OPERATIONAL_DB_NAME: operationaldb
+      OPERATIONAL_DB_USER: admin
+      OPERATIONAL_DB_PASSWORD: adminpass
+      OPERATOR_NAME: Platform
+      OPERATOR_LAST_NAME: Operator
+      OPERATOR_EMAIL: operator@internal
+      OPERATOR_USERNAME: platform_operator
+      OPERATOR_PASSWORD: "Ch4ng3me!Ops#"
+      ENV_OUT: /out/.env
+    volumes:
+      - ./scripts/kenoma-pre-init.sh:/kenoma-pre-init.sh
+      - ./services/vassago/src/main/resources/users.sql:/users.sql
+      - ./.env-out:/out
+      - approle-out:/approle-out
+    entrypoint: ["/bin/sh", "/kenoma-pre-init.sh"]
+    restart: "no"
+
   raum:
     build:
       context: .
@@ -89,6 +130,8 @@ services:
         condition: service_completed_successfully
       openbao-init:
         condition: service_completed_successfully
+      kenoma-pre-init:
+        condition: service_completed_successfully
     environment:
       RAUM_DB_HOST: raum-postgres
       RAUM_DB_PORT: 5432
@@ -98,6 +141,9 @@ services:
       OPENBAO_HOST: http://openbao:8200
       OPENBAO_TOKEN: dev-root-token
       OPENBAO_KV_MOUNT: secret
+    volumes:
+      - ./.env-out:/env-out
+    entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
       - "8080:8080"
     healthcheck:
@@ -106,76 +152,13 @@ services:
       timeout: 5s
       retries: 12
 
-  kenoma-init:
-    build:
-      context: .
-      dockerfile: scripts/dev/db/Dockerfile
-    container_name: kenoma-init
-    depends_on:
-      raum:
-        condition: service_healthy
-      customer-postgres:
-        condition: service_healthy
-      openbao-init:
-        condition: service_completed_successfully
-    environment:
-      RAUM_BASE_URL: http://raum:8080
-      OPENBAO_BASE_URL: http://openbao:8200
-      CUSTOMER_DB_HOST: customer-postgres
-      CUSTOMER_DB_PORT: 5432
-      CUSTOMER_DB_NAME: customerdb
-      CUSTOMER_DB_USER: admin
-      CUSTOMER_DB_PASSWORD: adminpass
-      ORG_NAME: "My Organisation"
-      ORG_EMAIL: admin@example.com
-      ORG_CONTACT: Admin
-      SERVICE_NAME: Vassago
-      SERVICE_DESC: "Authentication and identity service"
-      ENV_OUT: /out/.env
-    volumes:
-      - ./scripts/init-kenoma.sh:/init-kenoma.sh
-      - ./services/vassago/src/main/resources/users.sql:/users.sql
-      - ./.env-out:/out
-      - approle-out:/approle-out
-    entrypoint: ["/bin/sh", "/init-kenoma.sh"]
-    restart: "no"
-
-  kenoma-seed:
-    profiles: ["seed"]
-    build:
-      context: .
-      dockerfile: scripts/dev/db/Dockerfile
-    container_name: kenoma-seed
-    depends_on:
-      kenoma-init:
-        condition: service_completed_successfully
-      customer-postgres:
-        condition: service_healthy
-    environment:
-      CUSTOMER_DB_HOST: customer-postgres
-      CUSTOMER_DB_PORT: 5432
-      CUSTOMER_DB_NAME: customerdb
-      CUSTOMER_DB_USER: admin
-      CUSTOMER_DB_PASSWORD: adminpass
-      SEED_USER_NAME: Admin
-      SEED_USER_LAST_NAME: User
-      SEED_USER_EMAIL: admin@example.com
-      SEED_USER_USERNAME: admin
-      SEED_USER_PASSWORD: "Ch4ng3me!Dev#"
-    volumes:
-      - ./scripts/seed-kenoma.sh:/seed-kenoma.sh
-      - ./.env-out:/env-out
-      - approle-out:/approle-out
-    entrypoint: ["/bin/sh", "/seed-kenoma.sh"]
-    restart: "no"
-
   vassago:
     build:
       context: .
       dockerfile: services/vassago/Dockerfile
     container_name: vassago
     depends_on:
-      kenoma-init:
+      kenoma-pre-init:
         condition: service_completed_successfully
     environment:
       RAUM_BASE_URL: http://raum:8080
@@ -191,6 +174,35 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+
+  kenoma-seed:
+    profiles: ["seed"]
+    build:
+      context: .
+      dockerfile: scripts/dev/db/Dockerfile
+    container_name: kenoma-seed
+    depends_on:
+      kenoma-pre-init:
+        condition: service_completed_successfully
+      customer-postgres:
+        condition: service_healthy
+    environment:
+      OPERATIONAL_DB_HOST: customer-postgres
+      OPERATIONAL_DB_PORT: 5432
+      OPERATIONAL_DB_NAME: operationaldb
+      OPERATIONAL_DB_USER: admin
+      OPERATIONAL_DB_PASSWORD: adminpass
+      SEED_USER_NAME: Admin
+      SEED_USER_LAST_NAME: User
+      SEED_USER_EMAIL: admin@example.com
+      SEED_USER_USERNAME: admin
+      SEED_USER_PASSWORD: "Ch4ng3me!Dev#"
+    volumes:
+      - ./scripts/seed-kenoma.sh:/seed-kenoma.sh
+      - ./.env-out:/env-out
+      - approle-out:/approle-out
+    entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && /bin/sh /seed-kenoma.sh"]
+    restart: "no"
 
 volumes:
   approle-out:
