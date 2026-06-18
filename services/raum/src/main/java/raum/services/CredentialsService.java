@@ -1,9 +1,9 @@
 package raum.services;
 
+import common.exception.ForbiddenException;
+import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
 import raum.models.Credentials;
@@ -24,8 +24,7 @@ public class CredentialsService {
 
     public Mono<BasicCredentialDTO> saveNewCredentials(CredentialsDTO dto) {
         if (dto.getServiceId().equals(serviceId)) {
-            return Mono.error(new ResponseStatusException(
-                    HttpStatus.FORBIDDEN, "Credentials cannot be registered for Raum"));
+            return Mono.error(new ForbiddenException("Credentials cannot be registered for Raum"));
         }
         return credentialsRepository.save(Credentials.builder()
                         .orgId(dto.getOrgId())
@@ -72,7 +71,7 @@ public class CredentialsService {
                                     return result;
                                 })
                 )
-                .switchIfEmpty(Mono.error(new RuntimeException("No credentials found")));
+                .switchIfEmpty(Mono.error(new NotFoundException("No credentials found")));
     }
 
     public Mono<Boolean> testDB() {

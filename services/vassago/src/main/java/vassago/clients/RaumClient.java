@@ -2,7 +2,9 @@ package vassago.clients;
 
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
+import common.exception.NotFoundException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -27,6 +29,8 @@ public class RaumClient {
                 .header("X-Vault-Token", openbaoToken)
                 .bodyValue(request)
                 .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, response ->
+                        Mono.error(new NotFoundException("No database credentials found for the requested organization")))
                 .bodyToMono(CredentialsDTO.class);
     }
 }

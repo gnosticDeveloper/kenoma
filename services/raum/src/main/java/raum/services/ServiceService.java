@@ -1,5 +1,6 @@
 package raum.services;
 
+import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import raum.dto.ServiceRequestDTO;
@@ -39,7 +40,7 @@ public class ServiceService {
                         .description(s.getDescription())
                         .build()
                 )
-                .switchIfEmpty(Mono.error(new RuntimeException("Service not found")));
+                .switchIfEmpty(Mono.error(new NotFoundException("Service not found")));
     }
 
     public Flux<ServiceResponseDTO> getAll() {
@@ -66,7 +67,7 @@ public class ServiceService {
                         .description(s.getDescription())
                         .build()
                 )
-                .switchIfEmpty(Mono.error(new RuntimeException("Service not found")));
+                .switchIfEmpty(Mono.error(new NotFoundException("Service not found")));
     }
 
     public Mono<Void> delete(UUID id) {
@@ -75,7 +76,7 @@ public class ServiceService {
                     s.setStoppedAt(Instant.now());
                     return repository.save(s);
                 })
-                .switchIfEmpty(Mono.error(new RuntimeException("Service not found")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Service not found")))
                 .then();
     }
 }

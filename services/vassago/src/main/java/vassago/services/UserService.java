@@ -2,11 +2,13 @@ package vassago.services;
 
 import common.utils.RolesUtils;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
+import common.exception.BadRequestException;
+import common.exception.ForbiddenException;
+import common.exception.NotFoundException;
+import common.exception.UnauthorizedException;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import vassago.db.VassagoDbService;
@@ -45,8 +47,7 @@ public class UserService {
                         List<String> requested = entry.getValue();
                         List<String> callerServiceRoles = callerRoles.getOrDefault(service, List.of());
                         if (!new HashSet<>(callerServiceRoles).containsAll(requested)) {
-                            return Mono.error(new ResponseStatusException(
-                                    HttpStatus.FORBIDDEN,
+                            return Mono.error(new ForbiddenException(
                                     "Cannot assign roles not held by the calling user for service: " + service));
                         }
                     }
@@ -55,8 +56,7 @@ public class UserService {
                         try {
                             VassagoRole.valueOf(role);
                         } catch (IllegalArgumentException e) {
-                            return Mono.error(new ResponseStatusException(
-                                    HttpStatus.BAD_REQUEST, "Unknown Vassago role: " + role));
+                            return Mono.error(new BadRequestException("Unknown Vassago role: " + role));
                         }
                     }
 
@@ -108,8 +108,7 @@ public class UserService {
                         .bind("tokenHash", tokenHash)
                         .fetch()
                         .one()
-                        .switchIfEmpty(Mono.error(new ResponseStatusException(
-                                HttpStatus.NOT_FOUND, "Invalid or expired verification token")))
+                        .switchIfEmpty(Mono.error(new NotFoundException("Invalid or expired verification token")))
                         .flatMap(row -> {
                             UUID verificationId = (UUID) row.get("id");
                             UUID userId = (UUID) row.get("user_id");
@@ -144,8 +143,7 @@ public class UserService {
                                 .fetch()
                                 .one()
                                 .map(this::toResponseDTO)
-                                .switchIfEmpty(Mono.error(new ResponseStatusException(
-                                        HttpStatus.NOT_FOUND, "User not found")))
+                                .switchIfEmpty(Mono.error(new NotFoundException("User not found")))
                         )
                 );
     }
@@ -176,8 +174,7 @@ public class UserService {
                         try {
                             VassagoRole.valueOf(role);
                         } catch (IllegalArgumentException e) {
-                            return Mono.error(new ResponseStatusException(
-                                    HttpStatus.BAD_REQUEST, "Unknown Vassago role: " + role));
+                            return Mono.error(new BadRequestException("Unknown Vassago role: " + role));
                         }
                     }
 
@@ -189,13 +186,11 @@ public class UserService {
                                     .bind("id", id)
                                     .fetch()
                                     .one()
-                                    .switchIfEmpty(Mono.error(new ResponseStatusException(
-                                            HttpStatus.NOT_FOUND, "User not found")))
+                                    .switchIfEmpty(Mono.error(new NotFoundException("User not found")))
                                     .flatMap(row -> {
                                         String targetUsername = (String) row.get("username");
                                         if (!isAdmin && !caller.getName().equals(targetUsername)) {
-                                            return Mono.error(new ResponseStatusException(
-                                                    HttpStatus.FORBIDDEN, "Cannot edit another user"));
+                                            return Mono.error(new ForbiddenException("Cannot edit another user"));
                                         }
                                         return client.sql("""
                                                 UPDATE users SET name = :name, last_name = :lastName,
@@ -229,12 +224,10 @@ public class UserService {
                                 .bind("username", caller.getName())
                                 .fetch()
                                 .one()
-                                .switchIfEmpty(Mono.error(new ResponseStatusException(
-                                        HttpStatus.NOT_FOUND, "User not found")))
+                                .switchIfEmpty(Mono.error(new NotFoundException("User not found")))
                                 .flatMap(row -> {
                                     if (!encoder.matches(dto.getOldPassword(), (String) row.get("password"))) {
-                                        return Mono.error(new ResponseStatusException(
-                                                HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+                                        return Mono.error(new UnauthorizedException("Invalid credentials"));
                                     }
                                     return client.sql("""
                                             UPDATE users SET password = :password
@@ -262,8 +255,7 @@ public class UserService {
                                 .fetch()
                                 .rowsUpdated()
                                 .flatMap(rows -> rows == 0
-                                        ? Mono.error(new ResponseStatusException(
-                                        HttpStatus.NOT_FOUND, "User not found"))
+                                        ? Mono.error(new NotFoundException("User not found"))
                                         : Mono.empty())
                         )
                 ).then();
