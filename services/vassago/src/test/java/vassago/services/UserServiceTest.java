@@ -226,13 +226,14 @@ class UserServiceTest {
     void changePassword_happyPath() {
         String storedHash = "$2a$10$hashedOldPassword";
         DatabaseClient client = mockClientReturningPasswordChange(
-                Map.of("password", storedHash), true
+                Map.of("id", USER_ID, "password", storedHash, "email", "jane@example.com")
         );
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
         when(encoder.matches("oldPass1!", storedHash)).thenReturn(true);
-        when(encoder.encode("newPass1!")).thenReturn("$2a$10$hashedNewPassword");
+        when(mailgunService.sendPasswordResetEmail(anyString(), any(UUID.class), anyString()))
+                .thenReturn(Mono.empty());
 
-        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("oldPass1!", "newPass1!");
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("oldPass1!");
 
         StepVerifier.create(
                         userService.changePassword(dto)
@@ -244,11 +245,13 @@ class UserServiceTest {
     @Test
     void changePassword_wrongOldPassword_returns401() {
         String storedHash = "$2a$10$hashedOldPassword";
-        DatabaseClient client = mockClientReturning(Map.of("password", storedHash));
+        DatabaseClient client = mockClientReturning(
+                Map.of("id", USER_ID, "password", storedHash, "email", "jane@example.com")
+        );
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
         when(encoder.matches("wrongPass!", storedHash)).thenReturn(false);
 
-        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("wrongPass!", "newPass1!");
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("wrongPass!");
 
         StepVerifier.create(
                         userService.changePassword(dto)
@@ -263,7 +266,7 @@ class UserServiceTest {
         DatabaseClient client = mockClientReturningEmpty();
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
 
-        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("oldPass1!", "newPass1!");
+        PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("oldPass1!");
 
         StepVerifier.create(
                         userService.changePassword(dto)
@@ -383,22 +386,21 @@ class UserServiceTest {
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private DatabaseClient mockClientReturningPasswordChange(Map<String, Object> selectRow,
-                                                             boolean updateSucceeds) {
+    private DatabaseClient mockClientReturningPasswordChange(Map<String, Object> selectRow) {
         DatabaseClient client = mock(DatabaseClient.class);
         DatabaseClient.GenericExecuteSpec selectSpec = mock(DatabaseClient.GenericExecuteSpec.class);
-        DatabaseClient.GenericExecuteSpec updateSpec = mock(DatabaseClient.GenericExecuteSpec.class);
+        DatabaseClient.GenericExecuteSpec insertSpec = mock(DatabaseClient.GenericExecuteSpec.class);
         FetchSpec selectFetch = mock(FetchSpec.class);
-        FetchSpec updateFetch = mock(FetchSpec.class);
+        FetchSpec insertFetch = mock(FetchSpec.class);
         when(client.sql(anyString()))
                 .thenReturn(selectSpec)
-                .thenReturn(updateSpec);
+                .thenReturn(insertSpec);
         when(selectSpec.bind(anyString(), any())).thenReturn(selectSpec);
         when(selectSpec.fetch()).thenReturn(selectFetch);
         when(selectFetch.one()).thenReturn(Mono.just(selectRow));
-        when(updateSpec.bind(anyString(), any())).thenReturn(updateSpec);
-        when(updateSpec.fetch()).thenReturn(updateFetch);
-        when(updateFetch.rowsUpdated()).thenReturn(Mono.just(updateSucceeds ? 1L : 0L));
+        when(insertSpec.bind(anyString(), any())).thenReturn(insertSpec);
+        when(insertSpec.fetch()).thenReturn(insertFetch);
+        when(insertFetch.rowsUpdated()).thenReturn(Mono.just(1L));
         return client;
     }
 }

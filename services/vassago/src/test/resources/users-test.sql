@@ -19,5 +19,6 @@ CREATE TABLE IF NOT EXISTS pending_verifications (
     user_id     uuid NOT NULL REFERENCES users(id),
     token_hash  varchar(64) NOT NULL,
     expires_at  timestamp NOT NULL,
-    used        boolean NOT NULL DEFAULT false
+    used        boolean NOT NULL DEFAULT false,
+    type        varchar(32) NOT NULL DEFAULT 'ACCOUNT_SETUP'
 );
