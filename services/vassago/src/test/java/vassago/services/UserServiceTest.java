@@ -1,5 +1,9 @@
 package vassago.services;
 
+import common.exception.BadRequestException;
+import common.exception.ForbiddenException;
+import common.exception.NotFoundException;
+import common.exception.UnauthorizedException;
 import common.utils.RolesUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -103,10 +107,7 @@ class UserServiceTest {
                         userService.createUser(dto)
                                 .contextWrite(withCaller(USER_ROLES))
                 )
-                .expectErrorMatches(e ->
-                        e instanceof org.springframework.web.server.ResponseStatusException &&
-                                ((org.springframework.web.server.ResponseStatusException) e)
-                                        .getStatusCode().value() == 403)
+                .expectErrorMatches(e -> e instanceof ForbiddenException)
                 .verify();
         verifyNoInteractions(vassagoDbService);
     }
@@ -122,10 +123,7 @@ class UserServiceTest {
                         userService.createUser(dto)
                                 .contextWrite(withCaller(USER_ROLES))
                 )
-                .expectErrorMatches(e ->
-                        e instanceof org.springframework.web.server.ResponseStatusException &&
-                                ((org.springframework.web.server.ResponseStatusException) e)
-                                        .getStatusCode().value() == 403)
+                .expectErrorMatches(e -> e instanceof ForbiddenException)
                 .verify();
         verifyNoInteractions(vassagoDbService);
     }
@@ -143,10 +141,7 @@ class UserServiceTest {
                                         SERVICE_ID.toString(), List.of("VASSAGO_SUPERUSER")
                                 )))
                 )
-                .expectErrorMatches(e ->
-                        e instanceof org.springframework.web.server.ResponseStatusException &&
-                                ((org.springframework.web.server.ResponseStatusException) e)
-                                        .getStatusCode().value() == 400)
+                .expectErrorMatches(e -> e instanceof BadRequestException)
                 .verify();
         verifyNoInteractions(vassagoDbService);
     }
@@ -206,10 +201,7 @@ class UserServiceTest {
                         userService.updateUser(USER_ID, validRequest(USER_ROLES))
                                 .contextWrite(withCallerUsername("janedoe", USER_ROLES))
                 )
-                .expectErrorMatches(e ->
-                        e instanceof org.springframework.web.server.ResponseStatusException &&
-                                ((org.springframework.web.server.ResponseStatusException) e)
-                                        .getStatusCode().value() == 403)
+                .expectErrorMatches(e -> e instanceof ForbiddenException)
                 .verify();
     }
 
@@ -223,10 +215,7 @@ class UserServiceTest {
                         userService.updateUser(USER_ID, validRequest(unknownRoles))
                                 .contextWrite(withCaller(ADMIN_ROLES))
                 )
-                .expectErrorMatches(e ->
-                        e instanceof org.springframework.web.server.ResponseStatusException &&
-                                ((org.springframework.web.server.ResponseStatusException) e)
-                                        .getStatusCode().value() == 400)
+                .expectErrorMatches(e -> e instanceof BadRequestException)
                 .verify();
         verifyNoInteractions(vassagoDbService);
     }
@@ -265,10 +254,7 @@ class UserServiceTest {
                         userService.changePassword(dto)
                                 .contextWrite(withCallerUsername("janedoe", USER_ROLES))
                 )
-                .expectErrorMatches(e ->
-                        e instanceof org.springframework.web.server.ResponseStatusException &&
-                                ((org.springframework.web.server.ResponseStatusException) e)
-                                        .getStatusCode().value() == 401)
+                .expectErrorMatches(e -> e instanceof UnauthorizedException)
                 .verify();
     }
 
@@ -283,10 +269,7 @@ class UserServiceTest {
                         userService.changePassword(dto)
                                 .contextWrite(withCallerUsername("ghost", USER_ROLES))
                 )
-                .expectErrorMatches(e ->
-                        e instanceof org.springframework.web.server.ResponseStatusException &&
-                                ((org.springframework.web.server.ResponseStatusException) e)
-                                        .getStatusCode().value() == 404)
+                .expectErrorMatches(e -> e instanceof NotFoundException)
                 .verify();
     }
 

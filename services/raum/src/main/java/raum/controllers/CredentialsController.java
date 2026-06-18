@@ -1,8 +1,7 @@
 package raum.controllers;
 
-import org.springframework.http.HttpStatus;
+import common.exception.UnauthorizedException;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
 import raum.openbao.OpenBaoService;
@@ -27,7 +26,7 @@ class CredentialsController {
         return openBaoService.validateToken(token)
                 .flatMap(valid -> valid
                         ? credentialsService.getEphemeralCredentialsByOrgIdAndServiceId(requestDTO)
-                        : Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token")));
+                        : Mono.error(new UnauthorizedException("Invalid token")));
     }
 
     @GetMapping("/test-db")

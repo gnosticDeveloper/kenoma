@@ -1,5 +1,6 @@
 package raum.services;
 
+import common.exception.NotFoundException;
 import org.springframework.stereotype.Service;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
@@ -59,7 +60,7 @@ public class OrganizationService {
                         .contactEmail(savedOrg.getContactEmail())
                         .build()
                 )
-                .switchIfEmpty(Mono.error(new RuntimeException("Organization not found")));
+                .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")));
     }
 
     public Mono<Void> deleteOrg(UUID id) {
@@ -68,7 +69,7 @@ public class OrganizationService {
                     org.setStoppedAt(Instant.now());
                     return repository.save(org);
                 })
-                .switchIfEmpty(Mono.error(new RuntimeException("Organization not found")))
+                .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
                 .then();
     }
 }
