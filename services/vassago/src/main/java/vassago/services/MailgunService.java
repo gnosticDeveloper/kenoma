@@ -32,6 +32,24 @@ public class MailgunService {
                 .build();
     }
 
+    public Mono<Void> sendPasswordResetEmail(String toEmail, UUID orgId, String token) {
+        String link = "%s/verify?orgId=%s&token=%s".formatted(appBaseUrl, orgId, token);
+
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("from", from);
+        form.add("to", toEmail);
+        form.add("subject", "Reset your password");
+        form.add("text", "Reset your password by visiting: " + link);
+
+        return webClient.post()
+                .uri("/{domain}/messages", domain)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(BodyInserters.fromFormData(form))
+                .retrieve()
+                .toBodilessEntity()
+                .then();
+    }
+
     public Mono<Void> sendVerificationEmail(String toEmail, UUID orgId, String token) {
         String link = "%s/verify?orgId=%s&token=%s".formatted(appBaseUrl, orgId, token);
 

@@ -5,10 +5,14 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 
+import java.util.UUID;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class PasswordChangeRequestDTO {
+public class RecoverRequestDTO {
     @NonNull
-    String oldPassword;
+    UUID orgId;
+    @NonNull
+    String username;
 }

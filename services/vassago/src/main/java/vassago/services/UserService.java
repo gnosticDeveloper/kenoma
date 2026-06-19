@@ -218,7 +218,7 @@ public class UserService {
         return getCaller()
                 .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
                         .flatMap(client -> client.sql("""
-                                SELECT password FROM users
+                                SELECT id, password, email FROM users
                                 WHERE username = :username AND stopped_at IS NULL
                                 """)
                                 .bind("username", caller.getName())
@@ -229,15 +229,22 @@ public class UserService {
                                     if (!encoder.matches(dto.getOldPassword(), (String) row.get("password"))) {
                                         return Mono.error(new UnauthorizedException("Invalid credentials"));
                                     }
+                                    UUID userId = (UUID) row.get("id");
+                                    String email = (String) row.get("email");
+                                    String verificationToken = generateToken();
+                                    String tokenHash = hashToken(verificationToken);
+                                    Instant expiresAt = Instant.now().plus(1, ChronoUnit.HOURS);
                                     return client.sql("""
-                                            UPDATE users SET password = :password
-                                            WHERE username = :username AND stopped_at IS NULL
+                                            INSERT INTO pending_verifications (user_id, token_hash, expires_at, type)
+                                            VALUES (:userId, :tokenHash, :expiresAt, 'PASSWORD_CHANGE')
                                             """)
-                                            .bind("password", encoder.encode(dto.getNewPassword()))
-                                            .bind("username", caller.getName())
+                                            .bind("userId", userId)
+                                            .bind("tokenHash", tokenHash)
+                                            .bind("expiresAt", expiresAt)
                                             .fetch()
                                             .rowsUpdated()
-                                            .then();
+                                            .then(mailgunService.sendPasswordResetEmail(
+                                                    email, caller.getOrgId(), verificationToken));
                                 })
                         )
                 );
