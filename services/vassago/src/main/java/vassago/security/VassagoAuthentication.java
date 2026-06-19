@@ -1,8 +1,10 @@
 package vassago.security;
 
+import lombok.Getter;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -12,21 +14,27 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class VassagoAuthentication implements Authentication {
+    @Getter
     private final UUID orgId;
     private final String username;
+    @Getter
     private final Map<String, List<String>> roles;
     private final UUID serviceId;
+    @Getter
+    private final String jti;
+    @Getter
+    private final Instant expiry;
     private boolean authenticated = true;
 
-    public VassagoAuthentication(UUID orgId, String username, Map<String, List<String>> roles, UUID serviceId) {
+    public VassagoAuthentication(UUID orgId, String username, Map<String, List<String>> roles,
+                                 UUID serviceId, String jti, Instant expiry) {
         this.orgId     = orgId;
         this.username  = username;
         this.roles     = roles;
         this.serviceId = serviceId;
+        this.jti       = jti;
+        this.expiry    = expiry;
     }
-
-    public UUID getOrgId()                      { return orgId; }
-    public Map<String, List<String>> getRoles() { return roles; }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

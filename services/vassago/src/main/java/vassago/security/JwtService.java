@@ -31,7 +31,7 @@ public class JwtService {
             @Value("${openbao.base-url}") String openBaoBaseUrl,
             @Value("${vassago.openbao.token}") String openBaoToken,
             @Value("${vassago.jwt.transit-key-name}") String transitKeyName,
-            @Value("${vassago.jwt.ttl-seconds:3600}") long ttlSeconds) {
+            @Value("${vassago.jwt.ttl-seconds:300}") long ttlSeconds) {
         this.openBaoClient = WebClient.builder()
                 .baseUrl(openBaoBaseUrl)
                 .defaultHeader("X-Vault-Token", openBaoToken)
@@ -83,6 +83,10 @@ public class JwtService {
         return jwtValidator.getPublicKey();
     }
 
+    public long remainingSeconds(Instant expiry) {
+        return Math.max(0, expiry.getEpochSecond() - Instant.now().getEpochSecond());
+    }
+
     private String buildClaimsJson(UUID orgId, String username, Map<String, List<String>> roles,
                                    Instant now, Instant exp) {
         try {
@@ -92,7 +96,8 @@ public class JwtService {
                     "orgId", orgId.toString(),
                     "roles", rolesJson,
                     "iat", now.getEpochSecond(),
-                    "exp", exp.getEpochSecond()
+                    "exp", exp.getEpochSecond(),
+                    "jti", UUID.randomUUID().toString()
             );
             return OBJECT_MAPPER.writeValueAsString(claims);
         } catch (Exception e) {
