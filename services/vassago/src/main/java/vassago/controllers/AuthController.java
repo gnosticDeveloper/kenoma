@@ -3,6 +3,7 @@ package vassago.controllers;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 import vassago.dto.LoginRequestDTO;
 import vassago.dto.LoginResponseDTO;
@@ -17,8 +18,19 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/login")
-    public Mono<LoginResponseDTO> login(@RequestBody LoginRequestDTO dto) {
-        return authService.login(dto).map(LoginResponseDTO::new);
+    public Mono<LoginResponseDTO> login(@RequestBody LoginRequestDTO dto, ServerWebExchange exchange) {
+        return authService.login(dto, exchange.getResponse()).map(LoginResponseDTO::new);
+    }
+
+    @PostMapping("/refresh")
+    public Mono<LoginResponseDTO> refresh(ServerWebExchange exchange) {
+        return authService.refresh(exchange).map(LoginResponseDTO::new);
+    }
+
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> logout(ServerWebExchange exchange) {
+        return authService.logout(exchange);
     }
 
     @PostMapping("/recover")

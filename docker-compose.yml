@@ -26,6 +26,17 @@ services:
       - ./services/raum/src/main/resources/init.sql:/init.sql
     entrypoint: ["sh", "-c", "psql -h raum-postgres -U postgres -d raum -f /init.sql"]
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   operational-postgres:
     image: postgres:18.1-alpine3.23
     container_name: operational-postgres
@@ -161,9 +172,13 @@ services:
     depends_on:
       kenoma-pre-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment:
       RAUM_BASE_URL: http://raum:8080
       OPENBAO_BASE_URL: http://openbao:8200
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       MAILGUN_API_KEY: ${MAILGUN_API_KEY}
       MAILGUN_DOMAIN: ${MAILGUN_DOMAIN}
       MAILGUN_FROM: ${MAILGUN_FROM:-}

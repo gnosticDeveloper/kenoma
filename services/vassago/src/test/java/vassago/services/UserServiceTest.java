@@ -24,6 +24,7 @@ import vassago.dto.UserResponseDTO;
 import vassago.security.VassagoAuthentication;
 import vassago.security.VassagoRole;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -304,7 +305,8 @@ class UserServiceTest {
     }
 
     private reactor.util.context.Context withCallerUsername(String username, Map<String, List<String>> roles) {
-        VassagoAuthentication auth = new VassagoAuthentication(ORG_ID, username, roles, SERVICE_ID);
+        VassagoAuthentication auth = new VassagoAuthentication(ORG_ID, username, roles, SERVICE_ID,
+                UUID.randomUUID().toString(), Instant.now().plusSeconds(300));
         SecurityContext ctx = mock(SecurityContext.class);
         when(ctx.getAuthentication()).thenReturn(auth);
         return ReactiveSecurityContextHolder.withSecurityContext(Mono.just(ctx));

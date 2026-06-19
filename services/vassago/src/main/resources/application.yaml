@@ -1,6 +1,10 @@
 spring:
   application:
     name: vassago
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 server:
   port: 8081
 raum:
@@ -16,7 +20,9 @@ vassago:
     initial-size: ${VASSAGO_POOL_INITIAL_SIZE:2}
   jwt:
     transit-key-name: ${VASSAGO_JWT_TRANSIT_KEY_NAME:vassago-jwt}
-    ttl-seconds: ${VASSAGO_JWT_TTL_SECONDS:3600}
+    ttl-seconds: ${VASSAGO_JWT_TTL_SECONDS:300}
+  refresh-token:
+    ttl-seconds: ${VASSAGO_REFRESH_TOKEN_TTL_SECONDS:2592000}
 openbao:
   base-url: ${OPENBAO_BASE_URL:http://localhost:8200}
 mailgun:

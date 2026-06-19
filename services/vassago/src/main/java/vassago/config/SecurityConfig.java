@@ -31,7 +31,7 @@ public class SecurityConfig {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/auth/login", "/auth/recover", "/user/verify").permitAll()
+                        .pathMatchers("/auth/login", "/auth/refresh", "/auth/recover", "/user/verify").permitAll()
                         .anyExchange().authenticated()
                 )
                 .exceptionHandling(e -> e

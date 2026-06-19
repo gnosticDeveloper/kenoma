@@ -73,6 +73,12 @@ class CreateUserIT {
 
     @Container
     @SuppressWarnings("resource")
+    static final GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
+            .withExposedPorts(6379)
+            .waitingFor(Wait.forListeningPort());
+
+    @Container
+    @SuppressWarnings("resource")
     static final GenericContainer<?> openBao = new GenericContainer<>("openbao/openbao:2.5.2")
             .withNetwork(network)
             .withNetworkAliases("openbao")
@@ -203,7 +209,9 @@ class CreateUserIT {
                     "vassago.service-id=" + vassagoServiceIdStr,
                     "openbao.base-url=http://localhost:%d".formatted(openBao.getMappedPort(8200)),
                     "vassago.jwt.transit-key-name=vassago-jwt",
-                    "vassago.openbao.token=" + vassagoToken
+                    "vassago.openbao.token=" + vassagoToken,
+                    "spring.data.redis.host=localhost",
+                    "spring.data.redis.port=" + redis.getMappedPort(6379)
             );
         }
     }
