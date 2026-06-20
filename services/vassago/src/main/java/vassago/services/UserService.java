@@ -1,6 +1,7 @@
 package vassago.services;
 
 import common.utils.RolesUtils;
+import common.utils.StringUtils;
 import lombok.RequiredArgsConstructor;
 import common.exception.BadRequestException;
 import common.exception.ForbiddenException;
@@ -112,6 +113,9 @@ public class UserService {
                         .flatMap(row -> {
                             UUID verificationId = (UUID) row.get("id");
                             UUID userId = (UUID) row.get("user_id");
+                            if (!StringUtils.isValidPassword(dto.getNewPassword())) {
+                                return Mono.error(new BadRequestException("Password does not meet complexity requirements"));
+                            }
                             String newPasswordHash = encoder.encode(dto.getNewPassword());
                             return client.sql("""
                                     UPDATE users SET password = :password, is_ready = true
