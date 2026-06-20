@@ -22,18 +22,18 @@ public class OrganizationsController {
     }
 
     @GetMapping("/{id}")
-    Mono<OrgResponseDTO> getOrgDataById(@PathVariable UUID id) {
+    Mono<OrgResponseDTO> getOrgDataById(@PathVariable("id") UUID id) {
         return service.getOrgDataById(id);
     }
 
     @PutMapping("/{id}")
-    Mono<OrgResponseDTO> updateOrg(@PathVariable UUID id, @RequestBody OrgRequestDTO dto) {
+    Mono<OrgResponseDTO> updateOrg(@PathVariable("id") UUID id, @RequestBody OrgRequestDTO dto) {
         return service.updateOrg(id, dto);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    Mono<Void> deleteOrg(@PathVariable UUID id) {
+    Mono<Void> deleteOrg(@PathVariable("id") UUID id) {
         return service.deleteOrg(id);
     }
 }

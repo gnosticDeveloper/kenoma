@@ -2,6 +2,8 @@ package common.utils;
 
 public class StringUtils {
 
+    private StringUtils() {}
+
     public static boolean isValidPassword(String password) {
         if (password == null) return false;
         if (password.length() < 12 || password.length() > 72) return false;

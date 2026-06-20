@@ -26,6 +26,11 @@ public class JwtValidator {
         this.transitKeyName = transitKeyName;
     }
 
+    JwtValidator(WebClient openBaoClient, String transitKeyName) {
+        this.openBaoClient = openBaoClient;
+        this.transitKeyName = transitKeyName;
+    }
+
     public Mono<Claims> validateToken(String token) {
         return getPublicKey()
                 .map(publicKey -> Jwts.parser()
