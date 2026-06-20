@@ -2,22 +2,29 @@ package raum;
 
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
+import common.security.JwtValidator;
+import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.support.TestPropertySourceUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import raum.dto.OrgRequestDTO;
+import raum.dto.OrgResponseDTO;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -27,6 +34,11 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
@@ -116,6 +128,10 @@ class EphemeralCredentialsIT {
     static UUID credentialId;
     static UUID orgId;
     static UUID serviceId;
+    static UUID raumServiceId;
+
+    @MockitoBean
+    JwtValidator jwtValidator;
 
     static class Initializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         @Override
@@ -125,14 +141,16 @@ class EphemeralCredentialsIT {
             assertThat(vassagoToken).isNotBlank();
             assertThat(raumToken).isNotBlank();
 
-            String raumServiceId;
+            String raumServiceIdStr;
             try {
-                raumServiceId = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                raumServiceIdStr = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
                                 "-t", "-A", "-c", "SELECT id FROM services WHERE name = 'Raum' LIMIT 1;")
                         .getStdout().trim();
             } catch (Exception e) {
                 throw new RuntimeException("Failed to read Raum service ID", e);
             }
+
+            raumServiceId = UUID.fromString(raumServiceIdStr);
 
             TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
                     "spring.r2dbc.url=r2dbc:postgresql://localhost:%d/raum".formatted(raumDb.getMappedPort(5432)),
@@ -141,7 +159,7 @@ class EphemeralCredentialsIT {
                     "openbao.host=http://localhost:%d".formatted(openBao.getMappedPort(8200)),
                     "openbao.token=dev-root-token",
                     "openbao.kv.mount=secret",
-                    "RAUM_SERVICE_ID=" + raumServiceId,
+                    "RAUM_SERVICE_ID=" + raumServiceIdStr,
                     "RAUM_OPENBAO_TOKEN=" + raumToken,
                     "RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt"
             );
@@ -231,6 +249,16 @@ class EphemeralCredentialsIT {
         return (String) ((Map<String, Object>) loginResponse.get("auth")).get("client_token");
     }
 
+    @SuppressWarnings("unchecked")
+    private void mockAdminJwt() {
+        Claims claims = mock(Claims.class);
+        String rolesJson = "{\"" + raumServiceId + "\":[\"RAUM_ADMIN\"]}";
+        when(claims.getSubject()).thenReturn("test-admin");
+        when(claims.get(eq("orgId"), eq(String.class))).thenReturn(orgId.toString());
+        when(claims.get(eq("roles"), eq(String.class))).thenReturn(rolesJson);
+        when(jwtValidator.validateToken(anyString())).thenReturn(reactor.core.publisher.Mono.just(claims));
+    }
+
     @LocalServerPort
     int port;
 
@@ -266,5 +294,93 @@ class EphemeralCredentialsIT {
                 assertThat(conn.isValid(2)).isTrue();
             }
         });
+    }
+
+    @Test
+    void saveCredentials_registersInOpenBaoAndDb() {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        OrgResponseDTO newOrg = client.post().uri("/orgs")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new OrgRequestDTO("SaveCreds Org", "savecreds@test.com", "Test Admin"))
+                .retrieve()
+                .bodyToMono(OrgResponseDTO.class)
+                .block();
+
+        assertThat(newOrg).isNotNull();
+
+        CredentialsDTO dto = CredentialsDTO.builder()
+                .orgId(newOrg.getId())
+                .serviceId(serviceId)
+                .userName("admin")
+                .password("adminpass")
+                .dbHost("operational-postgres")
+                .dbPort(5432)
+                .dbName("operationaldb")
+                .dbEngine("postgres")
+                .build();
+
+        BasicCredentialDTO result = client.post()
+                .uri("/credentials")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .retrieve()
+                .bodyToMono(BasicCredentialDTO.class)
+                .block();
+
+        assertThat(result).isNotNull();
+        assertThat(result.getOrgId()).isEqualTo(newOrg.getId());
+        assertThat(result.getServiceId()).isEqualTo(serviceId);
+    }
+
+    @Test
+    void saveCredentials_rejectsSelf() {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        CredentialsDTO dto = CredentialsDTO.builder()
+                .orgId(orgId)
+                .serviceId(raumServiceId)
+                .userName("admin")
+                .password("adminpass")
+                .dbHost("operational-postgres")
+                .dbPort(5432)
+                .dbName("operationaldb")
+                .dbEngine("postgres")
+                .build();
+
+        assertThatThrownBy(() -> client.post()
+                .uri("/credentials")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .retrieve()
+                .bodyToMono(BasicCredentialDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.Forbidden.class);
+    }
+
+    @Test
+    void testDb_returnsTrue() {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        Boolean result = client.get()
+                .uri("/credentials/test-db")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .retrieve()
+                .bodyToMono(Boolean.class)
+                .block();
+
+        assertThat(result).isTrue();
     }
 }

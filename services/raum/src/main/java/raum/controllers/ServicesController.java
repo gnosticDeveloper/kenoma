@@ -22,7 +22,7 @@ public class ServicesController {
     }
 
     @GetMapping("/{id}")
-    Mono<ServiceResponseDTO> getById(@PathVariable UUID id) {
+    Mono<ServiceResponseDTO> getById(@PathVariable("id") UUID id) {
         return service.getById(id);
     }
 
@@ -32,13 +32,13 @@ public class ServicesController {
     }
 
     @PutMapping("/{id}")
-    Mono<ServiceResponseDTO> update(@PathVariable UUID id, @RequestBody ServiceRequestDTO dto) {
+    Mono<ServiceResponseDTO> update(@PathVariable("id") UUID id, @RequestBody ServiceRequestDTO dto) {
         return service.update(id, dto);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    Mono<Void> delete(@PathVariable UUID id) {
+    Mono<Void> delete(@PathVariable("id") UUID id) {
         return service.delete(id);
     }
 }
