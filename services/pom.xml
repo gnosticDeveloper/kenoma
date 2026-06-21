@@ -20,6 +20,7 @@
         <module>common</module>
         <module>raum</module>
         <module>vassago</module>
+        <module>bime</module>
     </modules>
 
     <build>

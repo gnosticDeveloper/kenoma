@@ -14,6 +14,12 @@ VASSAGO_SERVICE_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
   -t -A -c "SELECT id FROM services WHERE name = 'Vassago' LIMIT 1;")
 [ -z "$VASSAGO_SERVICE_ID" ] && echo "ERROR: Vassago service ID not found" && exit 1
 
+BIME_SERVICE_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
+  -h "${RAUM_DB_HOST}" -p "${RAUM_DB_PORT}" \
+  -U "${RAUM_DB_USER}" -d "${RAUM_DB_NAME}" \
+  -t -A -c "SELECT id FROM services WHERE name = 'Bime' LIMIT 1;")
+[ -z "$BIME_SERVICE_ID" ] && echo "ERROR: Bime service ID not found" && exit 1
+
 PLATFORM_ORG_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
   -h "${RAUM_DB_HOST}" -p "${RAUM_DB_PORT}" \
   -U "${RAUM_DB_USER}" -d "${RAUM_DB_NAME}" \
@@ -26,10 +32,18 @@ CREDENTIAL_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
   -t -A -c "SELECT id FROM credentials WHERE service_id = '${VASSAGO_SERVICE_ID}' LIMIT 1;")
 [ -z "$CREDENTIAL_ID" ] && echo "ERROR: Credential ID not found" && exit 1
 
+BIME_CREDENTIAL_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
+  -h "${RAUM_DB_HOST}" -p "${RAUM_DB_PORT}" \
+  -U "${RAUM_DB_USER}" -d "${RAUM_DB_NAME}" \
+  -t -A -c "SELECT id FROM credentials WHERE service_id = '${BIME_SERVICE_ID}' LIMIT 1;")
+[ -z "$BIME_CREDENTIAL_ID" ] && echo "ERROR: Bime credential ID not found" && exit 1
+
 echo "Raum service ID:    ${RAUM_SERVICE_ID}"
 echo "Vassago service ID: ${VASSAGO_SERVICE_ID}"
+echo "Bime service ID:    ${BIME_SERVICE_ID}"
 echo "Platform org ID:    ${PLATFORM_ORG_ID}"
 echo "Credential ID:      ${CREDENTIAL_ID}"
+echo "Bime credential ID: ${BIME_CREDENTIAL_ID}"
 
 echo "Reading AppRole credentials..."
 if [ ! -f /approle-out/approle.env ]; then
@@ -56,6 +70,7 @@ RAUM_TOKEN=$(echo "$RAUM_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -
 [ -z "$RAUM_TOKEN" ] && echo "ERROR: Failed to obtain Raum AppRole token." && exit 1
 echo "Raum AppRole login successful."
 
+
 echo "Provisioning operational database schema..."
 PGPASSWORD="${OPERATIONAL_DB_PASSWORD}" psql \
   -h "${OPERATIONAL_DB_HOST}" -p "${OPERATIONAL_DB_PORT}" \
@@ -64,7 +79,7 @@ PGPASSWORD="${OPERATIONAL_DB_PASSWORD}" psql \
 echo "Operational database schema provisioned."
 
 echo "Seeding operator user..."
-OPERATOR_ROLES="{\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\"]}"
+OPERATOR_ROLES="{\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
 BCRYPT_HASH=$(python3 -c "
 import bcrypt
 pwd = '${OPERATOR_PASSWORD}'.encode()
@@ -120,6 +135,39 @@ wget -q -O - \
   "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-role"
 echo "Database role created."
 
+echo "Registering Bime database connection in OpenBao..."
+cat > /tmp/bime-db-config-payload.json << DBCONFIG
+{
+  "plugin_name": "postgresql-database-plugin",
+  "allowed_roles": "${BIME_CREDENTIAL_ID}-role",
+  "connection_url": "postgresql://{{username}}:{{password}}@${BIME_DB_HOST}:${BIME_DB_PORT}/${BIME_DB_NAME}?sslmode=disable",
+  "username": "${BIME_DB_USER}",
+  "password": "${BIME_DB_PASSWORD}"
+}
+DBCONFIG
+wget -q -O - \
+  --header="Content-Type: application/json" \
+  --header="X-Vault-Token: ${OPENBAO_ROOT_TOKEN}" \
+  --post-file=/tmp/bime-db-config-payload.json \
+  "${OPENBAO_BASE_URL}/v1/database/config/${BIME_CREDENTIAL_ID}"
+echo "Bime database connection registered."
+
+echo "Creating Bime database role in OpenBao..."
+cat > /tmp/bime-role-payload.json << ROLEJSON
+{
+  "db_name": "${BIME_CREDENTIAL_ID}",
+  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${BIME_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
+  "default_ttl": "1h",
+  "max_ttl": "24h"
+}
+ROLEJSON
+wget -q -O - \
+  --header="Content-Type: application/json" \
+  --header="X-Vault-Token: ${OPENBAO_ROOT_TOKEN}" \
+  --post-file=/tmp/bime-role-payload.json \
+  "${OPENBAO_BASE_URL}/v1/database/roles/${BIME_CREDENTIAL_ID}-role"
+echo "Bime database role created."
+
 mkdir -p "$(dirname "${ENV_OUT}")"
 cat > "${ENV_OUT}" << ENVEOF
 OPENBAO_BASE_URL=${OPENBAO_BASE_URL}
@@ -128,6 +176,8 @@ VASSAGO_OPENBAO_TOKEN=${VASSAGO_TOKEN}
 RAUM_SERVICE_ID=${RAUM_SERVICE_ID}
 RAUM_OPENBAO_TOKEN=${RAUM_TOKEN}
 RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt
+BIME_SERVICE_ID=${BIME_SERVICE_ID}
+BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
 ENVEOF
 echo "Wrote env file to ${ENV_OUT}."
 echo "Kenoma pre-init complete."

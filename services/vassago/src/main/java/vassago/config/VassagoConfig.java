@@ -1,5 +1,6 @@
 package vassago.config;
 
+import common.db.DatabaseConnectionService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,5 +19,12 @@ public class VassagoConfig {
     @Bean
     public ReactiveStringRedisTemplate reactiveStringRedisTemplate(ReactiveRedisConnectionFactory factory) {
         return new ReactiveStringRedisTemplate(factory);
+    }
+
+    @Bean
+    public DatabaseConnectionService databaseConnectionService(
+            @Value("${vassago.pool.max-size:10}") int maxSize,
+            @Value("${vassago.pool.initial-size:2}") int initialSize) {
+        return new DatabaseConnectionService(maxSize, initialSize);
     }
 }

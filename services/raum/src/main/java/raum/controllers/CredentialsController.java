@@ -1,6 +1,7 @@
 package raum.controllers;
 
 import common.exception.UnauthorizedException;
+import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
@@ -21,12 +22,21 @@ class CredentialsController {
 
     @PostMapping("/ephemeral")
     public Mono<CredentialsDTO> getCredentialsForOrgAndService(
-            @RequestHeader("X-Vault-Token") String token,
+            @RequestHeader(value = "X-Vault-Token", required = false) String vaultToken,
             @RequestBody BasicCredentialDTO requestDTO) {
-        return openBaoService.validateToken(token)
-                .flatMap(valid -> valid
-                        ? credentialsService.getEphemeralCredentialsByOrgIdAndServiceId(requestDTO)
-                        : Mono.error(new UnauthorizedException("Invalid token")));
+        return ReactiveSecurityContextHolder.getContext()
+                .map(ctx -> ctx.getAuthentication())
+                .filter(auth -> auth != null && auth.isAuthenticated())
+                .flatMap(auth -> credentialsService.getEphemeralCredentialsByOrgIdAndServiceId(requestDTO))
+                .switchIfEmpty(Mono.defer(() -> {
+                    if (vaultToken != null) {
+                        return openBaoService.validateToken(vaultToken)
+                                .flatMap(valid -> valid
+                                        ? credentialsService.getEphemeralCredentialsByOrgIdAndServiceId(requestDTO)
+                                        : Mono.error(new UnauthorizedException("Invalid token")));
+                    }
+                    return Mono.error(new UnauthorizedException("Authentication required"));
+                }));
     }
 
     @GetMapping("/test-db")
