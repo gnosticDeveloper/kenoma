@@ -21,6 +21,7 @@
         <spring-boot.version>4.0.6</spring-boot.version>
         <lombok.version>1.18.46</lombok.version>
         <testcontainers.version>2.0.5</testcontainers.version>
+        <springdoc.version>3.0.2</springdoc.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -60,6 +61,11 @@
                 <groupId>studio.gnosticdeveloper</groupId>
                 <artifactId>common</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+                <version>${springdoc.version}</version>
             </dependency>
 
         </dependencies>
