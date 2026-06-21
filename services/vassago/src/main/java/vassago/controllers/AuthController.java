@@ -1,5 +1,6 @@
 package vassago.controllers;
 
+import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +28,12 @@ public class AuthController {
         return authService.refresh(exchange).map(LoginResponseDTO::new);
     }
 
+    @Operation(
+            summary = "Logout",
+            description = "Invalidates the current refresh token and blacklists the JWT used in this request. " +
+                    "Any other JWT previously issued for the same session remains valid until it naturally expires " +
+                    "(up to vassago.jwt.ttl-seconds, default 300 s)."
+    )
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> logout(ServerWebExchange exchange) {

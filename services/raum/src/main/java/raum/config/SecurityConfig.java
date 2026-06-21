@@ -44,6 +44,7 @@ public class SecurityConfig {
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/credentials/ephemeral").permitAll()
                         .pathMatchers("/actuator/**").permitAll()
+                        .pathMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/webjars/**").permitAll()
                         .anyExchange().hasAuthority("RAUM_MANAGE")
                 )
                 .exceptionHandling(e -> e
