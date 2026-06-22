@@ -1,7 +1,6 @@
 package bime.db;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -20,7 +19,7 @@ public class BimeDbService {
 
     private final ConnectionPoolService connectionPoolService;
 
-    public Mono<DatabaseClient> getClient(UUID orgId) {
-        return connectionPoolService.getClient(orgId);
+    public Mono<BimeDbHandle> getHandle(UUID orgId) {
+        return connectionPoolService.getHandle(orgId);
     }
 }
