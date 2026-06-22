@@ -26,6 +26,33 @@ services:
       - ./services/raum/src/main/resources/init.sql:/init.sql
     entrypoint: ["sh", "-c", "psql -h raum-postgres -U postgres -d raum -f /init.sql"]
 
+  bime-postgres:
+    image: postgres:18.1-alpine3.23
+    container_name: bime-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bime
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bime"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  bime-db-init:
+    image: postgres:18.1-alpine3.23
+    container_name: bime-db-init
+    depends_on:
+      bime-postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./services/bime/src/main/resources/init.sql:/init.sql
+    entrypoint: ["sh", "-c", "psql -h bime-postgres -U postgres -d bime -f /init.sql"]
+
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -96,7 +123,11 @@ services:
         condition: service_healthy
       operational-postgres:
         condition: service_healthy
+      bime-postgres:
+        condition: service_healthy
       raum-db-init:
+        condition: service_completed_successfully
+      bime-db-init:
         condition: service_completed_successfully
       openbao-init:
         condition: service_completed_successfully
@@ -113,6 +144,11 @@ services:
       OPERATIONAL_DB_NAME: operationaldb
       OPERATIONAL_DB_USER: admin
       OPERATIONAL_DB_PASSWORD: adminpass
+      BIME_DB_HOST: bime-postgres
+      BIME_DB_PORT: 5432
+      BIME_DB_NAME: bime
+      BIME_DB_USER: postgres
+      BIME_DB_PASSWORD: postgres
       OPERATOR_NAME: Platform
       OPERATOR_LAST_NAME: Operator
       OPERATOR_EMAIL: operator@internal
@@ -191,6 +227,39 @@ services:
     restart: on-failure:3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8081/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  bime:
+    build:
+      context: .
+      dockerfile: services/bime/Dockerfile
+    container_name: bime
+    depends_on:
+      bime-postgres:
+        condition: service_healthy
+      openbao:
+        condition: service_healthy
+      bime-db-init:
+        condition: service_completed_successfully
+      openbao-init:
+        condition: service_completed_successfully
+      kenoma-pre-init:
+        condition: service_completed_successfully
+      raum:
+        condition: service_healthy
+    environment:
+      OPENBAO_HOST: http://openbao:8200
+      RAUM_BASE_URL: http://raum:8080
+    volumes:
+      - ./.env-out:/env-out
+    entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
+    ports:
+      - "8082:8082"
+    restart: on-failure:3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8082/actuator/health"]
       interval: 5s
       timeout: 5s
       retries: 12

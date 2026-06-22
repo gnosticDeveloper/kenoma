@@ -1,4 +1,4 @@
-package vassago.db;
+package common.db;
 
 import common.dto.CredentialsDTO;
 import io.r2dbc.pool.ConnectionPool;
@@ -6,8 +6,6 @@ import io.r2dbc.pool.ConnectionPoolConfiguration;
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryOptions;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
 
 import static io.r2dbc.spi.ConnectionFactoryOptions.*;
 
@@ -15,9 +13,9 @@ import static io.r2dbc.spi.ConnectionFactoryOptions.*;
  * Stateless factory that builds an R2DBC {@link ConnectionPool} from ephemeral credentials.
  *
  * <p>Returns a {@link ConnectionPool} rather than a {@link org.springframework.r2dbc.core.DatabaseClient}
- * so that {@link ConnectionPoolService} can manage the pool lifecycle and call
- * {@link ConnectionPool#dispose()} on eviction, which closes all physical connections
- * and releases any credential state held internally by the R2DBC driver.
+ * so that each service's connection pool manager can control the pool lifecycle and call
+ * {@link ConnectionPool#dispose()} on eviction, closing all physical connections and
+ * releasing any credential state held internally by the R2DBC driver.
  *
  * <p><strong>Security:</strong> this class is intentionally stateless — credentials are
  * consumed once to build the factory and are not retained as fields.
@@ -27,14 +25,15 @@ import static io.r2dbc.spi.ConnectionFactoryOptions.*;
  * mitigation relies on deploy discipline (restricted heap dumps, no core dumps in prod)
  * rather than application-layer controls.
  */
-@Service
 public class DatabaseConnectionService {
 
-    @Value("${vassago.pool.max-size:10}")
-    private int poolMaxSize;
+    private final int poolMaxSize;
+    private final int poolInitialSize;
 
-    @Value("${vassago.pool.initial-size:2}")
-    private int poolInitialSize;
+    public DatabaseConnectionService(int poolMaxSize, int poolInitialSize) {
+        this.poolMaxSize = poolMaxSize;
+        this.poolInitialSize = poolInitialSize;
+    }
 
     /**
      * Builds a {@link ConnectionPool} from the supplied credentials.

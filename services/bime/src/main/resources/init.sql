@@ -1,0 +1,2 @@
+-- Bime schema placeholder
+-- Inventory tables to be added in subsequent issues

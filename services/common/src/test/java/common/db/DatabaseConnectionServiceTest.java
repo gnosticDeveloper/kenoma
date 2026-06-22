@@ -1,9 +1,8 @@
-package vassago.db;
+package common.db;
 
 import common.dto.CredentialsDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -14,9 +13,7 @@ class DatabaseConnectionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new DatabaseConnectionService();
-        ReflectionTestUtils.setField(service, "poolMaxSize", 5);
-        ReflectionTestUtils.setField(service, "poolInitialSize", 1);
+        service = new DatabaseConnectionService(5, 1);
     }
 
     @Test
@@ -48,7 +45,7 @@ class DatabaseConnectionServiceTest {
         // open a connection, so this succeeds even with no real database available.
         var pool = service.createConnectionPool(credentials);
         assertThat(pool).isNotNull();
-        pool.dispose(); // clean up
+        pool.dispose();
     }
 
     @Test
