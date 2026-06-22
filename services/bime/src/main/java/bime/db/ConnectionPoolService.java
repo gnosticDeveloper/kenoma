@@ -9,8 +9,10 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.r2dbc.connection.R2dbcTransactionManager;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -60,21 +62,24 @@ public class ConnectionPoolService {
         pool.clear();
     }
 
-    public Mono<DatabaseClient> getClient(UUID orgId) {
+    public Mono<BimeDbHandle> getHandle(UUID orgId) {
         ConnectionPoolKey key = new ConnectionPoolKey(orgId, UUID.fromString(serviceId));
-        return getClientForKey(key);
+        return getHandleForKey(key);
     }
 
-    private Mono<DatabaseClient> getClientForKey(ConnectionPoolKey key) {
+    private Mono<BimeDbHandle> getHandleForKey(ConnectionPoolKey key) {
         return pool
                 .computeIfAbsent(key, this::buildEntryMono)
                 .flatMap(entry -> {
                     if (entry.isExpired()) {
                         pool.remove(key);
                         disposeQuietly(entry);
-                        return getClientForKey(key);
+                        return getHandleForKey(key);
                     }
-                    return Mono.just(DatabaseClient.create(entry.connectionFactory()));
+                    DatabaseClient client = DatabaseClient.create(entry.connectionFactory());
+                    TransactionalOperator tx = TransactionalOperator.create(
+                            new R2dbcTransactionManager(entry.connectionFactory()));
+                    return Mono.just(new BimeDbHandle(client, tx));
                 });
     }
 
