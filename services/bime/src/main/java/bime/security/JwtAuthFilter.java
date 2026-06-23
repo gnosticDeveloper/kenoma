@@ -35,11 +35,11 @@ public class JwtAuthFilter implements WebFilter {
         String token = authHeader.substring(BEARER_PREFIX.length());
         return jwtValidator.validateToken(token)
                 .flatMap(claims -> {
-                    String username = claims.getSubject();
+                    UUID userId = UUID.fromString(claims.getSubject());
                     UUID orgId = UUID.fromString(claims.get("orgId", String.class));
                     Map<String, List<String>> roles = RolesUtils.deserialize(
                             claims.get("roles", String.class));
-                    BimeAuthentication auth = new BimeAuthentication(orgId, username, roles, serviceId, token);
+                    BimeAuthentication auth = new BimeAuthentication(orgId, userId, roles, serviceId, token);
                     return chain.filter(exchange)
                             .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
                 })

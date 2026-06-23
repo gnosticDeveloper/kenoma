@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 public class VassagoAuthentication implements Authentication {
     @Getter
     private final UUID orgId;
-    private final String username;
+    private final UUID userId;
     @Getter
     private final Map<String, List<String>> roles;
     private final UUID serviceId;
@@ -26,10 +26,10 @@ public class VassagoAuthentication implements Authentication {
     private final Instant expiry;
     private boolean authenticated = true;
 
-    public VassagoAuthentication(UUID orgId, String username, Map<String, List<String>> roles,
+    public VassagoAuthentication(UUID orgId, UUID userId, Map<String, List<String>> roles,
                                  UUID serviceId, String jti, Instant expiry) {
         this.orgId     = orgId;
-        this.username  = username;
+        this.userId    = userId;
         this.roles     = roles;
         this.serviceId = serviceId;
         this.jti       = jti;
@@ -57,5 +57,6 @@ public class VassagoAuthentication implements Authentication {
     @Override public Object getPrincipal()             { return getName(); }
     @Override public boolean isAuthenticated()         { return authenticated; }
     @Override public void setAuthenticated(boolean b)  { this.authenticated = b; }
-    @Override public String getName()                  { return username; }
+    public UUID getId()                                { return userId; }
+    @Override public String getName()                  { return userId.toString(); }
 }

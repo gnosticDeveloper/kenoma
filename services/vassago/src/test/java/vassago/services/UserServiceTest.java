@@ -46,6 +46,7 @@ class UserServiceTest {
 
     private static final UUID ORG_ID     = UUID.randomUUID();
     private static final UUID USER_ID    = UUID.randomUUID();
+    private static final UUID CALLER_ID  = UUID.randomUUID();
     private static final UUID SERVICE_ID = UUID.randomUUID();
 
     private UserService userService;
@@ -164,7 +165,7 @@ class UserServiceTest {
     @Test
     void updateUser_adminCanEditAnyUser() {
         DatabaseClient client = mockClientReturningSequential(
-                Map.of("username", "janedoe"),
+                Map.of("id", USER_ID),
                 rowFor(USER_ID, USER_ROLES)
         );
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
@@ -180,14 +181,14 @@ class UserServiceTest {
     @Test
     void updateUser_userCanEditThemselves() {
         DatabaseClient client = mockClientReturningSequential(
-                Map.of("username", "janedoe"),
+                Map.of("id", USER_ID),
                 rowFor(USER_ID, USER_ROLES)
         );
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
 
         StepVerifier.create(
                         userService.updateUser(USER_ID, validRequest(USER_ROLES))
-                                .contextWrite(withCallerUsername("janedoe", USER_ROLES))
+                                .contextWrite(withCallerId(USER_ID, USER_ROLES))
                 )
                 .assertNext(response -> assertThat(response.getId()).isEqualTo(USER_ID))
                 .verifyComplete();
@@ -195,12 +196,12 @@ class UserServiceTest {
 
     @Test
     void updateUser_userCannotEditOtherUsers() {
-        DatabaseClient client = mockClientReturningSelectOnly(Map.of("username", "someoneelse"));
+        DatabaseClient client = mockClientReturningSelectOnly(Map.of("id", USER_ID));
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
 
         StepVerifier.create(
                         userService.updateUser(USER_ID, validRequest(USER_ROLES))
-                                .contextWrite(withCallerUsername("janedoe", USER_ROLES))
+                                .contextWrite(withCallerId(CALLER_ID, USER_ROLES))
                 )
                 .expectErrorMatches(e -> e instanceof ForbiddenException)
                 .verify();
@@ -238,7 +239,7 @@ class UserServiceTest {
 
         StepVerifier.create(
                         userService.changePassword(dto)
-                                .contextWrite(withCallerUsername("janedoe", USER_ROLES))
+                                .contextWrite(withCallerId(USER_ID, USER_ROLES))
                 )
                 .verifyComplete();
     }
@@ -256,7 +257,7 @@ class UserServiceTest {
 
         StepVerifier.create(
                         userService.changePassword(dto)
-                                .contextWrite(withCallerUsername("janedoe", USER_ROLES))
+                                .contextWrite(withCallerId(USER_ID, USER_ROLES))
                 )
                 .expectErrorMatches(e -> e instanceof UnauthorizedException)
                 .verify();
@@ -271,7 +272,7 @@ class UserServiceTest {
 
         StepVerifier.create(
                         userService.changePassword(dto)
-                                .contextWrite(withCallerUsername("ghost", USER_ROLES))
+                                .contextWrite(withCallerId(CALLER_ID, USER_ROLES))
                 )
                 .expectErrorMatches(e -> e instanceof NotFoundException)
                 .verify();
@@ -301,11 +302,11 @@ class UserServiceTest {
     }
 
     private reactor.util.context.Context withCaller(Map<String, List<String>> roles) {
-        return withCallerUsername("janedoe", roles);
+        return withCallerId(USER_ID, roles);
     }
 
-    private reactor.util.context.Context withCallerUsername(String username, Map<String, List<String>> roles) {
-        VassagoAuthentication auth = new VassagoAuthentication(ORG_ID, username, roles, SERVICE_ID,
+    private reactor.util.context.Context withCallerId(UUID userId, Map<String, List<String>> roles) {
+        VassagoAuthentication auth = new VassagoAuthentication(ORG_ID, userId, roles, SERVICE_ID,
                 UUID.randomUUID().toString(), Instant.now().plusSeconds(300));
         SecurityContext ctx = mock(SecurityContext.class);
         when(ctx.getAuthentication()).thenReturn(auth);

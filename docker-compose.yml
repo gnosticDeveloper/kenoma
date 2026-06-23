@@ -189,11 +189,13 @@ services:
       OPENBAO_HOST: http://openbao:8200
       OPENBAO_TOKEN: dev-root-token
       OPENBAO_KV_MOUNT: secret
+      JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
     volumes:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
       - "8080:8080"
+      - "5005:5005"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/actuator/health"]
       interval: 5s
@@ -219,11 +221,13 @@ services:
       MAILGUN_DOMAIN: ${MAILGUN_DOMAIN}
       MAILGUN_FROM: ${MAILGUN_FROM:-}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006"
     volumes:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
       - "8081:8081"
+      - "5006:5006"
     restart: on-failure:3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8081/actuator/health"]
@@ -252,11 +256,13 @@ services:
     environment:
       OPENBAO_HOST: http://openbao:8200
       RAUM_BASE_URL: http://raum:8080
+      JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5007"
     volumes:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
       - "8082:8082"
+      - "5007:5007"
     restart: on-failure:3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8082/actuator/health"]

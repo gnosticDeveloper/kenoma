@@ -10,21 +10,22 @@ import java.util.stream.Collectors;
 public class BimeAuthentication implements Authentication {
 
     private final UUID orgId;
-    private final String username;
+    private final UUID userId;
     private final Map<String, List<String>> roles;
     private final UUID serviceId;
     private final String jwtToken;
     private boolean authenticated = true;
 
-    public BimeAuthentication(UUID orgId, String username, Map<String, List<String>> roles, UUID serviceId, String jwtToken) {
+    public BimeAuthentication(UUID orgId, UUID userId, Map<String, List<String>> roles, UUID serviceId, String jwtToken) {
         this.orgId     = orgId;
-        this.username  = username;
+        this.userId    = userId;
         this.roles     = roles;
         this.serviceId = serviceId;
         this.jwtToken  = jwtToken;
     }
 
     public UUID getOrgId()                      { return orgId; }
+    public UUID getId()                         { return userId; }
     public Map<String, List<String>> getRoles() { return roles; }
     public String getJwtToken()                 { return jwtToken; }
 
@@ -49,5 +50,5 @@ public class BimeAuthentication implements Authentication {
     @Override public Object getPrincipal()             { return getName(); }
     @Override public boolean isAuthenticated()         { return authenticated; }
     @Override public void setAuthenticated(boolean b)  { this.authenticated = b; }
-    @Override public String getName()                  { return username; }
+    @Override public String getName()                  { return userId.toString(); }
 }

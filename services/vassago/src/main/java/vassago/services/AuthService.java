@@ -53,7 +53,7 @@ public class AuthService {
         return vassagoDbService.getClient(dto.getOrgId())
                 .onErrorMap(NotFoundException.class, ex -> new UnauthorizedException("Invalid credentials"))
                 .flatMap(client -> client.sql("""
-                        SELECT username, password, roles
+                        SELECT id, username, password, roles
                         FROM users
                         WHERE username = :username AND stopped_at IS NULL AND is_ready
                         """)
@@ -67,8 +67,9 @@ public class AuthService {
                     if (!passwordEncoder.matches(dto.getPassword(), storedHash)) {
                         return Mono.error(new UnauthorizedException("Invalid credentials"));
                     }
+                    UUID userId = (UUID) row.get("id");
                     Map<String, List<String>> roles = RolesUtils.deserialize((String) row.get("roles"));
-                    return jwtService.issueToken(dto.getOrgId(), dto.getUsername(), roles)
+                    return jwtService.issueToken(dto.getOrgId(), userId, roles)
                             .flatMap(token -> {
                                 String rtRaw = generateToken();
                                 String rtHash = hashToken(rtRaw);
@@ -100,7 +101,7 @@ public class AuthService {
                     }
                     return vassagoDbService.getClient(data.orgId())
                             .flatMap(client -> client.sql("""
-                                    SELECT roles FROM users
+                                    SELECT id, roles FROM users
                                     WHERE username = :username AND stopped_at IS NULL AND is_ready
                                     """)
                                     .bind("username", data.username())
@@ -109,8 +110,9 @@ public class AuthService {
                                     .switchIfEmpty(Mono.error(new UnauthorizedException("Invalid or expired session")))
                             )
                             .flatMap(row -> {
+                                UUID userId = (UUID) row.get("id");
                                 Map<String, List<String>> roles = RolesUtils.deserialize((String) row.get("roles"));
-                                return jwtService.issueToken(data.orgId(), data.username(), roles);
+                                return jwtService.issueToken(data.orgId(), userId, roles);
                             })
                             .flatMap(token -> {
                                 String newRtRaw = generateToken();

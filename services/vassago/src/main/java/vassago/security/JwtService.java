@@ -41,14 +41,14 @@ public class JwtService {
         this.jwtValidator = new JwtValidator(openBaoBaseUrl, openBaoToken, transitKeyName);
     }
 
-    public Mono<String> issueToken(UUID orgId, String username, Map<String, List<String>> roles) {
+    public Mono<String> issueToken(UUID orgId, UUID userId, Map<String, List<String>> roles) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(ttlSeconds);
 
         String header = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString("{\"alg\":\"ES256\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
 
-        String claimsJson = buildClaimsJson(orgId, username, roles, now, exp);
+        String claimsJson = buildClaimsJson(orgId, userId, roles, now, exp);
         String payload = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(claimsJson.getBytes(StandardCharsets.UTF_8));
 
@@ -87,12 +87,12 @@ public class JwtService {
         return Math.max(0, expiry.getEpochSecond() - Instant.now().getEpochSecond());
     }
 
-    private String buildClaimsJson(UUID orgId, String username, Map<String, List<String>> roles,
+    private String buildClaimsJson(UUID orgId, UUID userId, Map<String, List<String>> roles,
                                    Instant now, Instant exp) {
         try {
             String rolesJson = OBJECT_MAPPER.writeValueAsString(roles);
             Map<String, Object> claims = Map.of(
-                    "sub", username,
+                    "sub", userId.toString(),
                     "orgId", orgId.toString(),
                     "roles", rolesJson,
                     "iat", now.getEpochSecond(),
