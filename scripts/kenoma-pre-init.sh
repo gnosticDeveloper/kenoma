@@ -180,4 +180,28 @@ BIME_SERVICE_ID=${BIME_SERVICE_ID}
 BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
 ENVEOF
 echo "Wrote env file to ${ENV_OUT}."
+
+cat > "${ENV_OUT}.local" << LOCALEOF
+# Dynamic values generated at startup — regenerated every time pre-init runs
+RAUM_SERVICE_ID=${RAUM_SERVICE_ID}
+RAUM_OPENBAO_TOKEN=${RAUM_TOKEN}
+VASSAGO_SERVICE_ID=${VASSAGO_SERVICE_ID}
+VASSAGO_OPENBAO_TOKEN=${VASSAGO_TOKEN}
+VASSAGO_JWT_TRANSIT_KEY_NAME=vassago-jwt
+BIME_SERVICE_ID=${BIME_SERVICE_ID}
+BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
+
+# Infrastructure — localhost addresses for running services outside Docker
+OPENBAO_BASE_URL=http://localhost:8200
+OPENBAO_HOST=http://localhost:8200
+OPENBAO_TOKEN=dev-root-token
+RAUM_BASE_URL=http://localhost:8080
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# Add your Mailgun credentials below (required by Vassago — not managed by init):
+# MAILGUN_API_KEY=
+# MAILGUN_DOMAIN=
+LOCALEOF
+echo "Wrote local env file to ${ENV_OUT}.local."
 echo "Kenoma pre-init complete."

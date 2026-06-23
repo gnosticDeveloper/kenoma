@@ -41,13 +41,13 @@ public class JwtAuthFilter implements WebFilter {
                                     exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                                     return exchange.getResponse().setComplete();
                                 }
-                                String username = claims.getSubject();
+                                UUID userId = UUID.fromString(claims.getSubject());
                                 UUID orgId = UUID.fromString(claims.get("orgId", String.class));
                                 Instant expiry = claims.getExpiration().toInstant();
                                 Map<String, List<String>> roles = RolesUtils.deserialize(
                                         claims.get("roles", String.class));
                                 VassagoAuthentication auth = new VassagoAuthentication(
-                                        orgId, username, roles, serviceId, jti, expiry);
+                                        orgId, userId, roles, serviceId, jti, expiry);
                                 return chain.filter(exchange)
                                         .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
                             });

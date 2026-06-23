@@ -184,7 +184,7 @@ public class UserService {
 
                     return vassagoDbService.getClient(caller.getOrgId())
                             .flatMap(client -> client.sql("""
-                                    SELECT username FROM users
+                                    SELECT id FROM users
                                     WHERE id = :id AND stopped_at IS NULL
                                     """)
                                     .bind("id", id)
@@ -192,8 +192,8 @@ public class UserService {
                                     .one()
                                     .switchIfEmpty(Mono.error(new NotFoundException("User not found")))
                                     .flatMap(row -> {
-                                        String targetUsername = (String) row.get("username");
-                                        if (!isAdmin && !caller.getName().equals(targetUsername)) {
+                                        UUID targetId = (UUID) row.get("id");
+                                        if (!isAdmin && !caller.getId().equals(targetId)) {
                                             return Mono.error(new ForbiddenException("Cannot edit another user"));
                                         }
                                         return client.sql("""
@@ -223,9 +223,9 @@ public class UserService {
                 .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
                         .flatMap(client -> client.sql("""
                                 SELECT id, password, email FROM users
-                                WHERE username = :username AND stopped_at IS NULL
+                                WHERE id = :userId AND stopped_at IS NULL
                                 """)
-                                .bind("username", caller.getName())
+                                .bind("userId", caller.getId())
                                 .fetch()
                                 .one()
                                 .switchIfEmpty(Mono.error(new NotFoundException("User not found")))
