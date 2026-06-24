@@ -8,19 +8,25 @@ public enum BimeRole {
     BIME_ADMIN {
         @Override
         public Set<BimePermission> getPermissions() {
-            return Set.of(BIME_MANAGE, BIME_VIEW);
+            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG);
         }
     },
     BIME_MANAGER {
         @Override
         public Set<BimePermission> getPermissions() {
-            return Set.of(BIME_MANAGE, BIME_VIEW);
+            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG);
         }
     },
     BIME_VIEWER {
         @Override
         public Set<BimePermission> getPermissions() {
-            return Set.of(BIME_VIEW);
+            return Set.of(BIME_VIEW, BIME_VIEW_CATALOG);
+        }
+    },
+    BIME_USER {
+        @Override
+        public Set<BimePermission> getPermissions() {
+            return Set.of(BIME_VIEW_CATALOG);
         }
     };
 
