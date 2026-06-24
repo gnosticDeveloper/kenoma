@@ -1,6 +1,9 @@
 package bime.services;
 
+import bime.db.BimeDbHandle;
 import bime.db.BimeDbService;
+import bime.dto.AssignedMetadataDTO;
+import bime.dto.MetadataOptionResponseDTO;
 import bime.dto.ProductRequestDTO;
 import bime.dto.ProductResponseDTO;
 import bime.security.BimeAuthentication;
@@ -12,8 +15,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+
 
 @Service
 @RequiredArgsConstructor
@@ -43,19 +46,71 @@ public class ProductService {
     public Mono<ProductResponseDTO> getProductById(UUID id) {
         return getCaller()
                 .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> handle.client().sql("""
-                                SELECT id, org_id, sku, name, description, is_active, created_at, modified_at
-                                FROM products
-                                WHERE id = :id AND org_id = :orgId
-                                """)
-                                .bind("id", id)
-                                .bind("orgId", caller.getOrgId())
-                                .fetch()
-                                .one()
-                                .map(this::toResponseDTO)
-                                .switchIfEmpty(Mono.error(new NotFoundException("Product not found")))
+                        .flatMap(handle ->
+                                fetchProductRow(handle, id, caller.getOrgId())
+                                        .flatMap(dto -> loadProductMetadata(handle, id)
+                                                .map(metadata -> {
+                                                    dto.setMetadata(metadata);
+                                                    return dto;
+                                                })
+                                        )
                         )
                 );
+    }
+
+    private Mono<ProductResponseDTO> fetchProductRow(BimeDbHandle handle, UUID id, UUID orgId) {
+        return handle.client().sql("""
+                SELECT id, org_id, sku, name, description, is_active, created_at, modified_at
+                FROM products
+                WHERE id = :id AND org_id = :orgId
+                """)
+                .bind("id", id)
+                .bind("orgId", orgId)
+                .fetch()
+                .one()
+                .map(this::toResponseDTO)
+                .switchIfEmpty(Mono.error(new NotFoundException("Product not found")));
+    }
+
+    private Mono<List<AssignedMetadataDTO>> loadProductMetadata(BimeDbHandle handle, UUID productId) {
+        return handle.client().sql("""
+                SELECT pm.id AS metadata_id, pm.name AS metadata_name,
+                       pmo.id AS option_id, pmo.value AS option_value
+                FROM product_metadata_assignments pma
+                JOIN product_metadata pm ON pm.id = pma.metadata_id
+                LEFT JOIN product_option_selections pos ON pos.assignment_id = pma.id
+                LEFT JOIN product_metadata_option pmo ON pmo.id = pos.option_id
+                WHERE pma.product_id = :productId
+                ORDER BY pm.name, pmo.value
+                """)
+                .bind("productId", productId)
+                .fetch()
+                .all()
+                .collectList()
+                .map(this::aggregateAssignedMetadata);
+    }
+
+    private List<AssignedMetadataDTO> aggregateAssignedMetadata(List<Map<String, Object>> rows) {
+        LinkedHashMap<UUID, AssignedMetadataDTO> map = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            UUID metaId = (UUID) row.get("metadata_id");
+            map.computeIfAbsent(metaId, k -> AssignedMetadataDTO.builder()
+                    .metadataId(metaId)
+                    .metadataName((String) row.get("metadata_name"))
+                    .selectedOptions(new ArrayList<>())
+                    .build()
+            );
+            UUID optionId = (UUID) row.get("option_id");
+            if (optionId != null) {
+                map.get(metaId).getSelectedOptions().add(MetadataOptionResponseDTO.builder()
+                        .id(optionId)
+                        .metadataId(metaId)
+                        .value((String) row.get("option_value"))
+                        .build()
+                );
+            }
+        }
+        return new ArrayList<>(map.values());
     }
 
     public Flux<ProductResponseDTO> getProducts() {

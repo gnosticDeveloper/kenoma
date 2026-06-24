@@ -36,6 +36,38 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 CREATE INDEX IF NOT EXISTS idx_movements_org_product_location
     ON stock_movements(org_id, product_id, location_id);
 
+CREATE TABLE IF NOT EXISTS product_metadata (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id     uuid NOT NULL,
+    name       varchar(100) NOT NULL,
+    created_at timestamp NOT NULL DEFAULT current_timestamp,
+    UNIQUE (org_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS product_metadata_option (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    metadata_id uuid NOT NULL REFERENCES product_metadata(id) ON DELETE CASCADE,
+    value       varchar(255) NOT NULL,
+    created_at  timestamp NOT NULL DEFAULT current_timestamp,
+    UNIQUE (metadata_id, value)
+);
+
+CREATE TABLE IF NOT EXISTS product_metadata_assignments (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id  uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    metadata_id uuid NOT NULL REFERENCES product_metadata(id) ON DELETE CASCADE,
+    UNIQUE (product_id, metadata_id)
+);
+
+CREATE TABLE IF NOT EXISTS product_option_selections (
+    assignment_id uuid NOT NULL REFERENCES product_metadata_assignments(id) ON DELETE CASCADE,
+    option_id     uuid NOT NULL REFERENCES product_metadata_option(id) ON DELETE CASCADE,
+    PRIMARY KEY (assignment_id, option_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_option_selections_option_id
+    ON product_option_selections(option_id);
+
 CREATE TABLE IF NOT EXISTS stock_balances (
     org_id      uuid    NOT NULL,
     product_id  uuid    NOT NULL REFERENCES products(id),

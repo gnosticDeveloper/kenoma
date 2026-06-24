@@ -1,26 +1,22 @@
 package bime.dto;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
 @Data
-@SuperBuilder
+@Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class ProductResponseDTO {
+public class ProductMetadataResponseDTO {
     private UUID id;
     private UUID orgId;
-    private String sku;
     private String name;
-    private String description;
-    private Boolean isActive;
+    private List<MetadataOptionResponseDTO> options;
     private LocalDateTime createdAt;
-    private LocalDateTime modifiedAt;
-    private List<AssignedMetadataDTO> metadata;
 }
