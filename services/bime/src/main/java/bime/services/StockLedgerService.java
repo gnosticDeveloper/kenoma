@@ -40,7 +40,7 @@ public class StockLedgerService {
         return getCaller()
                 .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
                         .flatMap(handle -> handle.client().sql("""
-                                SELECT id, org_id, product_id, location_id, movement_type,
+                                SELECT id, org_id, product_id, variant_id, location_id, movement_type,
                                        delta, reference_id, note, created_at, created_by
                                 FROM stock_movements
                                 WHERE id = :id AND org_id = :orgId
@@ -55,40 +55,40 @@ public class StockLedgerService {
                 );
     }
 
-    public Flux<StockMovementResponseDTO> getMovements(UUID productId, UUID locationId) {
+    public Flux<StockMovementResponseDTO> getMovements(UUID variantId, UUID locationId) {
         return getCaller()
                 .flatMapMany(caller -> bimeDbService.getHandle(caller.getOrgId())
                         .flatMapMany(handle -> {
-                            if (productId != null && locationId != null) {
+                            if (variantId != null && locationId != null) {
                                 return handle.client().sql("""
-                                        SELECT id, org_id, product_id, location_id, movement_type,
+                                        SELECT id, org_id, product_id, variant_id, location_id, movement_type,
                                                delta, reference_id, note, created_at, created_by
                                         FROM stock_movements
-                                        WHERE org_id = :orgId AND product_id = :productId AND location_id = :locationId
+                                        WHERE org_id = :orgId AND variant_id = :variantId AND location_id = :locationId
                                         ORDER BY created_at DESC
                                         """)
                                         .bind("orgId", caller.getOrgId())
-                                        .bind("productId", productId)
+                                        .bind("variantId", variantId)
                                         .bind("locationId", locationId)
                                         .fetch()
                                         .all()
                                         .map(this::toMovementResponseDTO);
-                            } else if (productId != null) {
+                            } else if (variantId != null) {
                                 return handle.client().sql("""
-                                        SELECT id, org_id, product_id, location_id, movement_type,
+                                        SELECT id, org_id, product_id, variant_id, location_id, movement_type,
                                                delta, reference_id, note, created_at, created_by
                                         FROM stock_movements
-                                        WHERE org_id = :orgId AND product_id = :productId
+                                        WHERE org_id = :orgId AND variant_id = :variantId
                                         ORDER BY created_at DESC
                                         """)
                                         .bind("orgId", caller.getOrgId())
-                                        .bind("productId", productId)
+                                        .bind("variantId", variantId)
                                         .fetch()
                                         .all()
                                         .map(this::toMovementResponseDTO);
                             } else if (locationId != null) {
                                 return handle.client().sql("""
-                                        SELECT id, org_id, product_id, location_id, movement_type,
+                                        SELECT id, org_id, product_id, variant_id, location_id, movement_type,
                                                delta, reference_id, note, created_at, created_by
                                         FROM stock_movements
                                         WHERE org_id = :orgId AND location_id = :locationId
@@ -101,7 +101,7 @@ public class StockLedgerService {
                                         .map(this::toMovementResponseDTO);
                             } else {
                                 return handle.client().sql("""
-                                        SELECT id, org_id, product_id, location_id, movement_type,
+                                        SELECT id, org_id, product_id, variant_id, location_id, movement_type,
                                                delta, reference_id, note, created_at, created_by
                                         FROM stock_movements
                                         WHERE org_id = :orgId
@@ -116,37 +116,37 @@ public class StockLedgerService {
                 );
     }
 
-    public Flux<StockBalanceResponseDTO> getBalances(UUID productId, UUID locationId) {
+    public Flux<StockBalanceResponseDTO> getBalances(UUID variantId, UUID locationId) {
         return getCaller()
                 .flatMapMany(caller -> bimeDbService.getHandle(caller.getOrgId())
                         .flatMapMany(handle -> {
-                            if (productId != null && locationId != null) {
+                            if (variantId != null && locationId != null) {
                                 return handle.client().sql("""
-                                        SELECT org_id, product_id, location_id, quantity, modified_at
-                                        FROM stock_balances
-                                        WHERE org_id = :orgId AND product_id = :productId AND location_id = :locationId
+                                        SELECT org_id, variant_id, location_id, quantity, modified_at
+                                        FROM variant_stock_balances
+                                        WHERE org_id = :orgId AND variant_id = :variantId AND location_id = :locationId
                                         """)
                                         .bind("orgId", caller.getOrgId())
-                                        .bind("productId", productId)
+                                        .bind("variantId", variantId)
                                         .bind("locationId", locationId)
                                         .fetch()
                                         .all()
                                         .map(this::toBalanceResponseDTO);
-                            } else if (productId != null) {
+                            } else if (variantId != null) {
                                 return handle.client().sql("""
-                                        SELECT org_id, product_id, location_id, quantity, modified_at
-                                        FROM stock_balances
-                                        WHERE org_id = :orgId AND product_id = :productId
+                                        SELECT org_id, variant_id, location_id, quantity, modified_at
+                                        FROM variant_stock_balances
+                                        WHERE org_id = :orgId AND variant_id = :variantId
                                         """)
                                         .bind("orgId", caller.getOrgId())
-                                        .bind("productId", productId)
+                                        .bind("variantId", variantId)
                                         .fetch()
                                         .all()
                                         .map(this::toBalanceResponseDTO);
                             } else if (locationId != null) {
                                 return handle.client().sql("""
-                                        SELECT org_id, product_id, location_id, quantity, modified_at
-                                        FROM stock_balances
+                                        SELECT org_id, variant_id, location_id, quantity, modified_at
+                                        FROM variant_stock_balances
                                         WHERE org_id = :orgId AND location_id = :locationId
                                         """)
                                         .bind("orgId", caller.getOrgId())
@@ -156,8 +156,8 @@ public class StockLedgerService {
                                         .map(this::toBalanceResponseDTO);
                             } else {
                                 return handle.client().sql("""
-                                        SELECT org_id, product_id, location_id, quantity, modified_at
-                                        FROM stock_balances
+                                        SELECT org_id, variant_id, location_id, quantity, modified_at
+                                        FROM variant_stock_balances
                                         WHERE org_id = :orgId
                                         """)
                                         .bind("orgId", caller.getOrgId())
@@ -169,17 +169,20 @@ public class StockLedgerService {
                 );
     }
 
+    // Derives product_id from the variant in the same INSERT to avoid an extra round-trip.
+    // Returns empty if the variant doesn't exist or doesn't belong to the org.
     private Mono<StockMovementResponseDTO> insertMovement(BimeDbHandle handle, UUID orgId, UUID userId, StockMovementRequestDTO dto) {
         var spec = handle.client().sql("""
                 INSERT INTO stock_movements
-                    (org_id, product_id, location_id, movement_type, delta, reference_id, note, created_by)
-                VALUES
-                    (:orgId, :productId, :locationId, :movementType, :delta, :referenceId, :note, :createdBy)
-                RETURNING id, org_id, product_id, location_id, movement_type,
+                    (org_id, product_id, variant_id, location_id, movement_type, delta, reference_id, note, created_by)
+                SELECT :orgId, pv.product_id, pv.id, :locationId, :movementType, :delta, :referenceId, :note, :createdBy
+                FROM product_variants pv
+                WHERE pv.id = :variantId AND pv.org_id = :orgId
+                RETURNING id, org_id, product_id, variant_id, location_id, movement_type,
                           delta, reference_id, note, created_at, created_by
                 """)
                 .bind("orgId", orgId)
-                .bind("productId", dto.getProductId())
+                .bind("variantId", dto.getVariantId())
                 .bind("locationId", dto.getLocationId())
                 .bind("movementType", dto.getMovementType())
                 .bind("delta", dto.getDelta())
@@ -192,34 +195,34 @@ public class StockLedgerService {
             spec = spec.bindNull("referenceId", UUID.class);
         }
 
-        return spec.fetch().one().map(this::toMovementResponseDTO);
+        return spec.fetch().one()
+                .map(this::toMovementResponseDTO)
+                .switchIfEmpty(Mono.error(new NotFoundException("Variant not found")));
     }
 
     private Mono<Long> upsertBalance(BimeDbHandle handle, UUID orgId, StockMovementRequestDTO dto) {
         LocalDateTime now = LocalDateTime.now();
-        // PostgreSQL evaluates CHECK before conflict detection on INSERT, so a negative delta
-        // would fire the quantity >= 0 check even when an existing balance would accommodate it.
-        // Fix: guarantee the row exists with INSERT ... ON CONFLICT DO NOTHING (quantity=0 always
-        // passes the check), then apply the delta via a plain UPDATE whose CHECK fires on the result.
+        // Same two-step pattern as before: guarantee the row exists at 0 first so the CHECK
+        // constraint (quantity >= 0) is never evaluated on the initial insert, then apply the delta.
         return handle.client().sql("""
-                INSERT INTO stock_balances (org_id, product_id, location_id, quantity, modified_at)
-                VALUES (:orgId, :productId, :locationId, 0, :modifiedAt)
-                ON CONFLICT (org_id, product_id, location_id) DO NOTHING
+                INSERT INTO variant_stock_balances (org_id, variant_id, location_id, quantity, modified_at)
+                VALUES (:orgId, :variantId, :locationId, 0, :modifiedAt)
+                ON CONFLICT (org_id, variant_id, location_id) DO NOTHING
                 """)
                 .bind("orgId", orgId)
-                .bind("productId", dto.getProductId())
+                .bind("variantId", dto.getVariantId())
                 .bind("locationId", dto.getLocationId())
                 .bind("modifiedAt", now)
                 .fetch()
                 .rowsUpdated()
                 .then(handle.client().sql("""
-                        UPDATE stock_balances
+                        UPDATE variant_stock_balances
                         SET quantity    = quantity + :delta,
                             modified_at = :modifiedAt
-                        WHERE org_id = :orgId AND product_id = :productId AND location_id = :locationId
+                        WHERE org_id = :orgId AND variant_id = :variantId AND location_id = :locationId
                         """)
                         .bind("orgId", orgId)
-                        .bind("productId", dto.getProductId())
+                        .bind("variantId", dto.getVariantId())
                         .bind("locationId", dto.getLocationId())
                         .bind("delta", dto.getDelta())
                         .bind("modifiedAt", now)
@@ -241,6 +244,7 @@ public class StockLedgerService {
                 .id((UUID) row.get("id"))
                 .orgId((UUID) row.get("org_id"))
                 .productId((UUID) row.get("product_id"))
+                .variantId((UUID) row.get("variant_id"))
                 .locationId((UUID) row.get("location_id"))
                 .movementType((String) row.get("movement_type"))
                 .delta((Integer) row.get("delta"))
@@ -254,7 +258,7 @@ public class StockLedgerService {
     private StockBalanceResponseDTO toBalanceResponseDTO(Map<String, Object> row) {
         return StockBalanceResponseDTO.builder()
                 .orgId((UUID) row.get("org_id"))
-                .productId((UUID) row.get("product_id"))
+                .variantId((UUID) row.get("variant_id"))
                 .locationId((UUID) row.get("location_id"))
                 .quantity((Integer) row.get("quantity"))
                 .modifiedAt((LocalDateTime) row.get("modified_at"))

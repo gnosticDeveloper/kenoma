@@ -23,6 +23,7 @@ import java.util.*;
 public class ProductService {
 
     private final BimeDbService bimeDbService;
+    private final ProductVariantService productVariantService;
 
     public Mono<ProductResponseDTO> createProduct(ProductRequestDTO dto) {
         return getCaller()
@@ -51,6 +52,14 @@ public class ProductService {
                                         .flatMap(dto -> loadProductMetadata(handle, id)
                                                 .map(metadata -> {
                                                     dto.setMetadata(metadata);
+                                                    return dto;
+                                                })
+                                        )
+                                        .flatMap(dto -> productVariantService
+                                                .loadVariantsForProduct(handle, id, caller.getOrgId())
+                                                .collectList()
+                                                .map(variants -> {
+                                                    dto.setVariants(variants);
                                                     return dto;
                                                 })
                                         )
