@@ -6,7 +6,7 @@ import java.util.UUID;
 
 @Data
 public class StockMovementRequestDTO {
-    private UUID productId;
+    private UUID variantId;
     private UUID locationId;
     private String movementType;
     private int delta;

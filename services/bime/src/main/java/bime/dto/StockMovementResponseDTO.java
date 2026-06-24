@@ -16,6 +16,7 @@ public class StockMovementResponseDTO {
     private UUID id;
     private UUID orgId;
     private UUID productId;
+    private UUID variantId;
     private UUID locationId;
     private String movementType;
     private int delta;

@@ -34,16 +34,16 @@ public class StockController {
     @GetMapping("/movements")
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<StockMovementResponseDTO> getMovements(
-            @RequestParam(required = false) UUID productId,
+            @RequestParam(required = false) UUID variantId,
             @RequestParam(required = false) UUID locationId) {
-        return stockLedgerService.getMovements(productId, locationId);
+        return stockLedgerService.getMovements(variantId, locationId);
     }
 
     @GetMapping("/balances")
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<StockBalanceResponseDTO> getBalances(
-            @RequestParam(required = false) UUID productId,
+            @RequestParam(required = false) UUID variantId,
             @RequestParam(required = false) UUID locationId) {
-        return stockLedgerService.getBalances(productId, locationId);
+        return stockLedgerService.getBalances(variantId, locationId);
     }
 }

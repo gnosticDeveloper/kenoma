@@ -43,7 +43,7 @@ public class SecurityConfig {
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/webjars/**").permitAll()
-                        .anyExchange().hasAnyAuthority("BIME_VIEW", "BIME_MANAGE")
+                        .anyExchange().hasAnyAuthority("BIME_VIEW", "BIME_MANAGE", "BIME_VIEW_CATALOG")
                 )
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((exchange, ex) ->
