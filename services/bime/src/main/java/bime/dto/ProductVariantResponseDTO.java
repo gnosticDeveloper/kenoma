@@ -18,7 +18,7 @@ public class ProductVariantResponseDTO {
     private UUID productId;
     private UUID orgId;
     private String sku;
-    private boolean isActive;
+    private Boolean isActive;
     private LocalDateTime createdAt;
     private List<MetadataOptionResponseDTO> options;
     private List<VariantStockDTO> stock;
