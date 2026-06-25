@@ -1,16 +1,16 @@
 package bime.services;
 
-import bime.db.BimeDbService;
+import bime.db.BimeContextService;
 import bime.db.BimeDbHandle;
 import bime.dto.StockBalanceResponseDTO;
 import bime.dto.StockMovementRequestDTO;
 import bime.dto.StockMovementResponseDTO;
-import bime.security.BimeAuthentication;
+import common.db.WhereClause;
 import common.exception.BadRequestException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -23,156 +23,76 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class StockLedgerService {
 
-    private final BimeDbService bimeDbService;
+    private final BimeContextService ctx;
 
     public Mono<StockMovementResponseDTO> recordMovement(StockMovementRequestDTO dto) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> Mono.from(handle.tx().transactional(
-                                insertMovement(handle, caller.getOrgId(), caller.getId(), dto)
-                                        .flatMap(movement -> upsertBalance(handle, caller.getOrgId(), dto)
-                                                .thenReturn(movement))
-                        )))
-                );
+        return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
+                insertMovement(handle, caller.getOrgId(), caller.getId(), dto)
+                        .flatMap(movement -> upsertBalance(handle, caller.getOrgId(), dto)
+                                .thenReturn(movement))
+        )));
     }
 
     public Mono<StockMovementResponseDTO> getMovementById(UUID id) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> handle.client().sql("""
-                                SELECT id, org_id, product_id, variant_id, location_id, movement_type,
-                                       delta, reference_id, note, created_at, created_by
-                                FROM stock_movements
-                                WHERE id = :id AND org_id = :orgId
-                                """)
-                                .bind("id", id)
-                                .bind("orgId", caller.getOrgId())
-                                .fetch()
-                                .one()
-                                .map(this::toMovementResponseDTO)
-                                .switchIfEmpty(Mono.error(new NotFoundException("Stock movement not found")))
-                        )
-                );
+        return ctx.withHandle((caller, handle) -> handle.client().sql("""
+                SELECT id, org_id, product_id, variant_id, location_id, movement_type,
+                       delta, reference_id, note, created_at, created_by
+                FROM stock_movements
+                WHERE id = :id AND org_id = :orgId
+                """)
+                .bind("id", id)
+                .bind("orgId", caller.getOrgId())
+                .fetch()
+                .one()
+                .map(this::toMovementResponseDTO)
+                .switchIfEmpty(Mono.error(new NotFoundException("Stock movement not found")))
+        );
     }
 
     public Flux<StockMovementResponseDTO> getMovements(UUID variantId, UUID locationId) {
-        return getCaller()
-                .flatMapMany(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMapMany(handle -> {
-                            if (variantId != null && locationId != null) {
-                                return handle.client().sql("""
-                                        SELECT id, org_id, product_id, variant_id, location_id, movement_type,
-                                               delta, reference_id, note, created_at, created_by
-                                        FROM stock_movements
-                                        WHERE org_id = :orgId AND variant_id = :variantId AND location_id = :locationId
-                                        ORDER BY created_at DESC
-                                        """)
-                                        .bind("orgId", caller.getOrgId())
-                                        .bind("variantId", variantId)
-                                        .bind("locationId", locationId)
-                                        .fetch()
-                                        .all()
-                                        .map(this::toMovementResponseDTO);
-                            } else if (variantId != null) {
-                                return handle.client().sql("""
-                                        SELECT id, org_id, product_id, variant_id, location_id, movement_type,
-                                               delta, reference_id, note, created_at, created_by
-                                        FROM stock_movements
-                                        WHERE org_id = :orgId AND variant_id = :variantId
-                                        ORDER BY created_at DESC
-                                        """)
-                                        .bind("orgId", caller.getOrgId())
-                                        .bind("variantId", variantId)
-                                        .fetch()
-                                        .all()
-                                        .map(this::toMovementResponseDTO);
-                            } else if (locationId != null) {
-                                return handle.client().sql("""
-                                        SELECT id, org_id, product_id, variant_id, location_id, movement_type,
-                                               delta, reference_id, note, created_at, created_by
-                                        FROM stock_movements
-                                        WHERE org_id = :orgId AND location_id = :locationId
-                                        ORDER BY created_at DESC
-                                        """)
-                                        .bind("orgId", caller.getOrgId())
-                                        .bind("locationId", locationId)
-                                        .fetch()
-                                        .all()
-                                        .map(this::toMovementResponseDTO);
-                            } else {
-                                return handle.client().sql("""
-                                        SELECT id, org_id, product_id, variant_id, location_id, movement_type,
-                                               delta, reference_id, note, created_at, created_by
-                                        FROM stock_movements
-                                        WHERE org_id = :orgId
-                                        ORDER BY created_at DESC
-                                        """)
-                                        .bind("orgId", caller.getOrgId())
-                                        .fetch()
-                                        .all()
-                                        .map(this::toMovementResponseDTO);
-                            }
-                        })
-                );
+        return ctx.withHandleMany((caller, handle) -> {
+            WhereClause where = WhereClause.of()
+                    .eq("org_id", "orgId", caller.getOrgId())
+                    .eqIfPresent("variant_id", "variantId", variantId)
+                    .eqIfPresent("location_id", "locationId", locationId);
+
+            DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
+                    SELECT id, org_id, product_id, variant_id, location_id, movement_type,
+                           delta, reference_id, note, created_at, created_by
+                    FROM stock_movements
+                    %s
+                    ORDER BY created_at DESC
+                    """.formatted(where.toSql()));
+            for (WhereClause.Binding b : where.bindings()) {
+                spec = spec.bind(b.name(), b.value());
+            }
+            return spec.fetch().all().map(this::toMovementResponseDTO);
+        });
     }
 
     public Flux<StockBalanceResponseDTO> getBalances(UUID variantId, UUID locationId) {
-        return getCaller()
-                .flatMapMany(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMapMany(handle -> {
-                            if (variantId != null && locationId != null) {
-                                return handle.client().sql("""
-                                        SELECT org_id, variant_id, location_id, quantity, modified_at
-                                        FROM variant_stock_balances
-                                        WHERE org_id = :orgId AND variant_id = :variantId AND location_id = :locationId
-                                        """)
-                                        .bind("orgId", caller.getOrgId())
-                                        .bind("variantId", variantId)
-                                        .bind("locationId", locationId)
-                                        .fetch()
-                                        .all()
-                                        .map(this::toBalanceResponseDTO);
-                            } else if (variantId != null) {
-                                return handle.client().sql("""
-                                        SELECT org_id, variant_id, location_id, quantity, modified_at
-                                        FROM variant_stock_balances
-                                        WHERE org_id = :orgId AND variant_id = :variantId
-                                        """)
-                                        .bind("orgId", caller.getOrgId())
-                                        .bind("variantId", variantId)
-                                        .fetch()
-                                        .all()
-                                        .map(this::toBalanceResponseDTO);
-                            } else if (locationId != null) {
-                                return handle.client().sql("""
-                                        SELECT org_id, variant_id, location_id, quantity, modified_at
-                                        FROM variant_stock_balances
-                                        WHERE org_id = :orgId AND location_id = :locationId
-                                        """)
-                                        .bind("orgId", caller.getOrgId())
-                                        .bind("locationId", locationId)
-                                        .fetch()
-                                        .all()
-                                        .map(this::toBalanceResponseDTO);
-                            } else {
-                                return handle.client().sql("""
-                                        SELECT org_id, variant_id, location_id, quantity, modified_at
-                                        FROM variant_stock_balances
-                                        WHERE org_id = :orgId
-                                        """)
-                                        .bind("orgId", caller.getOrgId())
-                                        .fetch()
-                                        .all()
-                                        .map(this::toBalanceResponseDTO);
-                            }
-                        })
-                );
+        return ctx.withHandleMany((caller, handle) -> {
+            WhereClause where = WhereClause.of()
+                    .eq("org_id", "orgId", caller.getOrgId())
+                    .eqIfPresent("variant_id", "variantId", variantId)
+                    .eqIfPresent("location_id", "locationId", locationId);
+
+            DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
+                    SELECT org_id, variant_id, location_id, quantity, modified_at
+                    FROM variant_stock_balances
+                    %s
+                    """.formatted(where.toSql()));
+            for (WhereClause.Binding b : where.bindings()) {
+                spec = spec.bind(b.name(), b.value());
+            }
+            return spec.fetch().all().map(this::toBalanceResponseDTO);
+        });
     }
 
     // Derives product_id from the variant in the same INSERT to avoid an extra round-trip.
     // Returns empty if the variant doesn't exist or doesn't belong to the org.
     private Mono<StockMovementResponseDTO> insertMovement(BimeDbHandle handle, UUID orgId, UUID userId, StockMovementRequestDTO dto) {
-        var spec = handle.client().sql("""
+        DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                 INSERT INTO stock_movements
                     (org_id, product_id, variant_id, location_id, movement_type, delta, reference_id, note, created_by)
                 SELECT :orgId, pv.product_id, pv.id, :locationId, :movementType, :delta, :referenceId, :note, :createdBy
@@ -232,11 +152,6 @@ public class StockLedgerService {
                         DataIntegrityViolationException.class,
                         e -> new BadRequestException("Insufficient stock: movement would result in negative balance")
                 );
-    }
-
-    private Mono<BimeAuthentication> getCaller() {
-        return ReactiveSecurityContextHolder.getContext()
-                .mapNotNull(ctx -> (BimeAuthentication) ctx.getAuthentication());
     }
 
     private StockMovementResponseDTO toMovementResponseDTO(Map<String, Object> row) {
