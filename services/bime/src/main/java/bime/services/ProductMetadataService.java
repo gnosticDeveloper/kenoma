@@ -1,12 +1,10 @@
 package bime.services;
 
+import bime.db.BimeContextService;
 import bime.db.BimeDbHandle;
-import bime.db.BimeDbService;
 import bime.dto.*;
-import bime.security.BimeAuthentication;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -18,168 +16,144 @@ import java.util.*;
 @RequiredArgsConstructor
 public class ProductMetadataService {
 
-    private final BimeDbService bimeDbService;
+    private final BimeContextService ctx;
 
     public Mono<ProductMetadataResponseDTO> createMetadata(ProductMetadataRequestDTO dto) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> handle.client().sql("""
-                                INSERT INTO product_metadata (org_id, name)
-                                VALUES (:orgId, :name)
-                                RETURNING id, org_id, name, created_at
-                                """)
-                                .bind("orgId", caller.getOrgId())
-                                .bind("name", dto.getName())
-                                .fetch()
-                                .one()
-                                .map(row -> ProductMetadataResponseDTO.builder()
-                                        .id((UUID) row.get("id"))
-                                        .orgId((UUID) row.get("org_id"))
-                                        .name((String) row.get("name"))
-                                        .options(List.of())
-                                        .createdAt((LocalDateTime) row.get("created_at"))
-                                        .build()
-                                )
-                        )
-                );
+        return ctx.withHandle((caller, handle) -> handle.client().sql("""
+                INSERT INTO product_metadata (org_id, name)
+                VALUES (:orgId, :name)
+                RETURNING id, org_id, name, created_at
+                """)
+                .bind("orgId", caller.getOrgId())
+                .bind("name", dto.getName())
+                .fetch()
+                .one()
+                .map(row -> ProductMetadataResponseDTO.builder()
+                        .id((UUID) row.get("id"))
+                        .orgId((UUID) row.get("org_id"))
+                        .name((String) row.get("name"))
+                        .options(List.of())
+                        .createdAt((LocalDateTime) row.get("created_at"))
+                        .build()
+                )
+        );
     }
 
     public Flux<ProductMetadataResponseDTO> getAllMetadata() {
-        return getCaller()
-                .flatMapMany(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMapMany(handle -> handle.client().sql("""
-                                SELECT pm.id, pm.org_id, pm.name, pm.created_at,
-                                       pmo.id AS option_id, pmo.value AS option_value,
-                                       pmo.created_at AS option_created_at
-                                FROM product_metadata pm
-                                LEFT JOIN product_metadata_option pmo ON pmo.metadata_id = pm.id
-                                WHERE pm.org_id = :orgId
-                                ORDER BY pm.name, pmo.value
-                                """)
-                                .bind("orgId", caller.getOrgId())
-                                .fetch()
-                                .all()
-                                .collectList()
-                                .flatMapMany(rows -> Flux.fromIterable(aggregateMetadataList(rows)))
-                        )
-                );
+        return ctx.withHandleMany((caller, handle) -> handle.client().sql("""
+                SELECT pm.id, pm.org_id, pm.name, pm.created_at,
+                       pmo.id AS option_id, pmo.value AS option_value,
+                       pmo.created_at AS option_created_at
+                FROM product_metadata pm
+                LEFT JOIN product_metadata_option pmo ON pmo.metadata_id = pm.id
+                WHERE pm.org_id = :orgId
+                ORDER BY pm.name, pmo.value
+                """)
+                .bind("orgId", caller.getOrgId())
+                .fetch()
+                .all()
+                .collectList()
+                .flatMapMany(rows -> Flux.fromIterable(aggregateMetadataList(rows)))
+        );
     }
 
     public Mono<ProductMetadataResponseDTO> getMetadataById(UUID id) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> handle.client().sql("""
-                                SELECT pm.id, pm.org_id, pm.name, pm.created_at,
-                                       pmo.id AS option_id, pmo.value AS option_value,
-                                       pmo.created_at AS option_created_at
-                                FROM product_metadata pm
-                                LEFT JOIN product_metadata_option pmo ON pmo.metadata_id = pm.id
-                                WHERE pm.id = :id AND pm.org_id = :orgId
-                                ORDER BY pmo.value
-                                """)
-                                .bind("id", id)
-                                .bind("orgId", caller.getOrgId())
-                                .fetch()
-                                .all()
-                                .collectList()
-                                .flatMap(rows -> {
-                                    List<ProductMetadataResponseDTO> result = aggregateMetadataList(rows);
-                                    return result.isEmpty()
-                                            ? Mono.error(new NotFoundException("Metadata not found"))
-                                            : Mono.just(result.get(0));
-                                })
-                        )
-                );
+        return ctx.withHandle((caller, handle) -> handle.client().sql("""
+                SELECT pm.id, pm.org_id, pm.name, pm.created_at,
+                       pmo.id AS option_id, pmo.value AS option_value,
+                       pmo.created_at AS option_created_at
+                FROM product_metadata pm
+                LEFT JOIN product_metadata_option pmo ON pmo.metadata_id = pm.id
+                WHERE pm.id = :id AND pm.org_id = :orgId
+                ORDER BY pmo.value
+                """)
+                .bind("id", id)
+                .bind("orgId", caller.getOrgId())
+                .fetch()
+                .all()
+                .collectList()
+                .flatMap(rows -> {
+                    List<ProductMetadataResponseDTO> result = aggregateMetadataList(rows);
+                    return result.isEmpty()
+                            ? Mono.error(new NotFoundException("Metadata not found"))
+                            : Mono.just(result.get(0));
+                })
+        );
     }
 
     public Mono<Void> deleteMetadata(UUID id) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> handle.client().sql("""
-                                DELETE FROM product_metadata WHERE id = :id AND org_id = :orgId
-                                """)
-                                .bind("id", id)
-                                .bind("orgId", caller.getOrgId())
-                                .fetch()
-                                .rowsUpdated()
-                                .flatMap(rows -> rows == 0
-                                        ? Mono.error(new NotFoundException("Metadata not found"))
-                                        : Mono.empty())
-                        )
-                ).then();
+        return ctx.withHandle((caller, handle) -> handle.client().sql("""
+                DELETE FROM product_metadata WHERE id = :id AND org_id = :orgId
+                """)
+                .bind("id", id)
+                .bind("orgId", caller.getOrgId())
+                .fetch()
+                .rowsUpdated()
+                .flatMap(rows -> rows == 0
+                        ? Mono.error(new NotFoundException("Metadata not found"))
+                        : Mono.empty())
+        ).then();
     }
 
     public Mono<MetadataOptionResponseDTO> addOption(UUID metadataId, MetadataOptionRequestDTO dto) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> handle.client().sql("""
-                                INSERT INTO product_metadata_option (metadata_id, value)
-                                SELECT id, :value FROM product_metadata
-                                WHERE id = :metadataId AND org_id = :orgId
-                                RETURNING id, metadata_id, value, created_at
-                                """)
-                                .bind("value", dto.getValue())
-                                .bind("metadataId", metadataId)
-                                .bind("orgId", caller.getOrgId())
-                                .fetch()
-                                .one()
-                                .map(this::toOptionResponseDTO)
-                                .switchIfEmpty(Mono.error(new NotFoundException("Metadata not found")))
-                        )
-                );
+        return ctx.withHandle((caller, handle) -> handle.client().sql("""
+                INSERT INTO product_metadata_option (metadata_id, value)
+                SELECT id, :value FROM product_metadata
+                WHERE id = :metadataId AND org_id = :orgId
+                RETURNING id, metadata_id, value, created_at
+                """)
+                .bind("value", dto.getValue())
+                .bind("metadataId", metadataId)
+                .bind("orgId", caller.getOrgId())
+                .fetch()
+                .one()
+                .map(this::toOptionResponseDTO)
+                .switchIfEmpty(Mono.error(new NotFoundException("Metadata not found")))
+        );
     }
 
     public Mono<Void> removeOption(UUID metadataId, UUID optionId) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> handle.client().sql("""
-                                DELETE FROM product_metadata_option pmo
-                                USING product_metadata pm
-                                WHERE pmo.id = :optionId
-                                  AND pmo.metadata_id = :metadataId
-                                  AND pm.id = pmo.metadata_id
-                                  AND pm.org_id = :orgId
-                                """)
-                                .bind("optionId", optionId)
-                                .bind("metadataId", metadataId)
-                                .bind("orgId", caller.getOrgId())
-                                .fetch()
-                                .rowsUpdated()
-                                .flatMap(rows -> rows == 0
-                                        ? Mono.error(new NotFoundException("Option not found"))
-                                        : Mono.empty())
-                        )
-                ).then();
+        return ctx.withHandle((caller, handle) -> handle.client().sql("""
+                DELETE FROM product_metadata_option pmo
+                USING product_metadata pm
+                WHERE pmo.id = :optionId
+                  AND pmo.metadata_id = :metadataId
+                  AND pm.id = pmo.metadata_id
+                  AND pm.org_id = :orgId
+                """)
+                .bind("optionId", optionId)
+                .bind("metadataId", metadataId)
+                .bind("orgId", caller.getOrgId())
+                .fetch()
+                .rowsUpdated()
+                .flatMap(rows -> rows == 0
+                        ? Mono.error(new NotFoundException("Option not found"))
+                        : Mono.empty())
+        ).then();
     }
 
     public Mono<Void> assignMetadata(UUID productId, List<ProductMetadataAssignmentItemDTO> items) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> Mono.from(handle.tx().transactional(
-                                deleteAssignments(handle, productId, caller.getOrgId())
-                                        .thenMany(Flux.fromIterable(items))
-                                        .concatMap(item ->
-                                                insertAssignment(handle, productId, item.getMetadataId(), caller.getOrgId())
-                                                        .flatMap(assignmentId ->
-                                                                insertOptionSelections(handle, assignmentId, item.getOptionIds())
-                                                        )
+        return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
+                deleteAssignments(handle, productId, caller.getOrgId())
+                        .thenMany(Flux.fromIterable(items))
+                        .concatMap(item ->
+                                insertAssignment(handle, productId, item.getMetadataId(), caller.getOrgId())
+                                        .flatMap(assignmentId ->
+                                                insertOptionSelections(handle, assignmentId, item.getOptionIds())
                                         )
-                                        .then()
-                        )))
-                );
+                        )
+                        .then()
+        )));
     }
 
     public Mono<Void> patchOptions(UUID productId, UUID metadataId, MetadataOptionPatchDTO dto) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> Mono.from(handle.tx().transactional(
-                                getOrCreateAssignment(handle, productId, metadataId, caller.getOrgId())
-                                        .flatMap(assignmentId ->
-                                                applyOptionRemovals(handle, assignmentId, dto.getRemove())
-                                                        .then(applyOptionAdditions(handle, assignmentId, metadataId, dto.getAdd()))
-                                        )
-                        )))
-                );
+        return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
+                getOrCreateAssignment(handle, productId, metadataId, caller.getOrgId())
+                        .flatMap(assignmentId ->
+                                applyOptionRemovals(handle, assignmentId, dto.getRemove())
+                                        .then(applyOptionAdditions(handle, assignmentId, metadataId, dto.getAdd()))
+                        )
+        )));
     }
 
     private Mono<Long> deleteAssignments(BimeDbHandle handle, UUID productId, UUID orgId) {
@@ -283,11 +257,6 @@ public class ProductMetadataService {
                         .rowsUpdated()
                 )
                 .then();
-    }
-
-    private Mono<BimeAuthentication> getCaller() {
-        return ReactiveSecurityContextHolder.getContext()
-                .mapNotNull(ctx -> (BimeAuthentication) ctx.getAuthentication());
     }
 
     private List<ProductMetadataResponseDTO> aggregateMetadataList(List<Map<String, Object>> rows) {

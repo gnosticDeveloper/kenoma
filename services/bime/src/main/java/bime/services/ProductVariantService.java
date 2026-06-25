@@ -1,8 +1,9 @@
 package bime.services;
 
+import bime.db.BimeContextService;
 import bime.db.BimeDbHandle;
-import bime.db.BimeDbService;
 import bime.dto.MetadataOptionResponseDTO;
+import org.springframework.r2dbc.core.DatabaseClient;
 import bime.dto.ProductVariantRequestDTO;
 import bime.dto.ProductVariantResponseDTO;
 import bime.dto.VariantStockDTO;
@@ -10,7 +11,6 @@ import bime.security.BimeAuthentication;
 import common.exception.BadRequestException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -22,94 +22,81 @@ import java.util.*;
 @RequiredArgsConstructor
 public class ProductVariantService {
 
-    private final BimeDbService bimeDbService;
+    private final BimeContextService ctx;
 
     private record Palette(Set<UUID> assignedMetadataIds, Map<UUID, UUID> optionToMetadata) {}
 
     public Mono<ProductVariantResponseDTO> createVariant(UUID productId, ProductVariantRequestDTO dto) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> Mono.from(handle.tx().transactional(
-                                verifyProductExists(handle, productId, caller.getOrgId())
-                                        .then(loadPalette(handle, productId))
-                                        .flatMap(palette -> validateOptions(palette, dto.getOptionIds()))
-                                        .flatMap(validatedOptionIds ->
-                                                insertVariant(handle, productId, caller.getOrgId(), dto)
-                                                        .flatMap(variantId ->
-                                                                insertVariantOptions(handle, variantId, validatedOptionIds)
-                                                                        .thenReturn(variantId))
-                                        )
-                                        .flatMap(variantId -> fetchVariantById(handle, variantId, productId, caller.getOrgId()))
-                        )))
-                );
+        return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
+                verifyProductExists(handle, productId, caller.getOrgId())
+                        .then(loadPalette(handle, productId))
+                        .flatMap(palette -> validateOptions(palette, dto.getOptionIds()))
+                        .flatMap(validatedOptionIds ->
+                                insertVariant(handle, productId, caller.getOrgId(), dto)
+                                        .flatMap(variantId ->
+                                                insertVariantOptions(handle, variantId, validatedOptionIds)
+                                                        .thenReturn(variantId))
+                        )
+                        .flatMap(variantId -> fetchVariantById(handle, variantId, productId, caller.getOrgId()))
+        )));
     }
 
     public Flux<ProductVariantResponseDTO> getVariantsForProduct(UUID productId) {
-        return getCaller()
-                .flatMapMany(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMapMany(handle ->
-                                verifyProductExists(handle, productId, caller.getOrgId())
-                                        .thenMany(loadVariantsForProduct(handle, productId, caller.getOrgId()))
-                        )
-                );
+        return ctx.withHandleMany((caller, handle) ->
+                verifyProductExists(handle, productId, caller.getOrgId())
+                        .thenMany(loadVariantsForProduct(handle, productId, caller.getOrgId()))
+        );
     }
 
     public Mono<ProductVariantResponseDTO> getVariantById(UUID productId, UUID variantId) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> fetchVariantById(handle, variantId, productId, caller.getOrgId()))
-                );
+        return ctx.withHandle((caller, handle) ->
+                fetchVariantById(handle, variantId, productId, caller.getOrgId())
+        );
     }
 
     public Mono<ProductVariantResponseDTO> patchVariant(UUID productId, UUID variantId, ProductVariantRequestDTO dto) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> {
-                            var spec = handle.client().sql("""
-                                    UPDATE product_variants
-                                    SET sku       = COALESCE(:sku, sku),
-                                        is_active = COALESCE(:isActive, is_active)
-                                    WHERE id = :variantId AND product_id = :productId AND org_id = :orgId
-                                    RETURNING id
-                                    """);
-                            if (dto.getSku() != null) {
-                                spec = spec.bind("sku", dto.getSku());
-                            } else {
-                                spec = spec.bindNull("sku", String.class);
-                            }
-                            if (dto.getIsActive() != null) {
-                                spec = spec.bind("isActive", dto.getIsActive());
-                            } else {
-                                spec = spec.bindNull("isActive", Boolean.class);
-                            }
-                            return spec.bind("variantId", variantId)
-                                    .bind("productId", productId)
-                                    .bind("orgId", caller.getOrgId())
-                                    .fetch()
-                                    .one()
-                                    .switchIfEmpty(Mono.error(new NotFoundException("Variant not found")))
-                                    .flatMap(row -> fetchVariantById(handle, variantId, productId, caller.getOrgId()));
-                        })
-                );
+        return ctx.withHandle((caller, handle) -> {
+            DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
+                    UPDATE product_variants
+                    SET sku       = COALESCE(:sku, sku),
+                        is_active = COALESCE(:isActive, is_active)
+                    WHERE id = :variantId AND product_id = :productId AND org_id = :orgId
+                    RETURNING id
+                    """);
+            if (dto.getSku() != null) {
+                spec = spec.bind("sku", dto.getSku());
+            } else {
+                spec = spec.bindNull("sku", String.class);
+            }
+            if (dto.getIsActive() != null) {
+                spec = spec.bind("isActive", dto.getIsActive());
+            } else {
+                spec = spec.bindNull("isActive", Boolean.class);
+            }
+            return spec.bind("variantId", variantId)
+                    .bind("productId", productId)
+                    .bind("orgId", caller.getOrgId())
+                    .fetch()
+                    .one()
+                    .switchIfEmpty(Mono.error(new NotFoundException("Variant not found")))
+                    .flatMap(row -> fetchVariantById(handle, variantId, productId, caller.getOrgId()));
+        });
     }
 
     public Mono<Void> deactivateVariant(UUID productId, UUID variantId) {
-        return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
-                        .flatMap(handle -> handle.client().sql("""
-                                UPDATE product_variants SET is_active = false
-                                WHERE id = :variantId AND product_id = :productId AND org_id = :orgId
-                                """)
-                                .bind("variantId", variantId)
-                                .bind("productId", productId)
-                                .bind("orgId", caller.getOrgId())
-                                .fetch()
-                                .rowsUpdated()
-                                .flatMap(rows -> rows == 0
-                                        ? Mono.error(new NotFoundException("Variant not found"))
-                                        : Mono.empty())
-                        )
-                ).then();
+        return ctx.withHandle((caller, handle) -> handle.client().sql("""
+                UPDATE product_variants SET is_active = false
+                WHERE id = :variantId AND product_id = :productId AND org_id = :orgId
+                """)
+                .bind("variantId", variantId)
+                .bind("productId", productId)
+                .bind("orgId", caller.getOrgId())
+                .fetch()
+                .rowsUpdated()
+                .flatMap(rows -> rows == 0
+                        ? Mono.error(new NotFoundException("Variant not found"))
+                        : Mono.empty())
+        ).then();
     }
 
     // Called by ProductService to embed variants in the product detail response
@@ -356,7 +343,7 @@ public class ProductVariantService {
     }
 
     private Mono<UUID> insertVariant(BimeDbHandle handle, UUID productId, UUID orgId, ProductVariantRequestDTO dto) {
-        var spec = handle.client().sql("""
+        DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                 INSERT INTO product_variants (product_id, org_id, sku)
                 VALUES (:productId, :orgId, :sku)
                 RETURNING id
@@ -386,10 +373,5 @@ public class ProductVariantService {
                         .rowsUpdated()
                 )
                 .then();
-    }
-
-    private Mono<BimeAuthentication> getCaller() {
-        return ReactiveSecurityContextHolder.getContext()
-                .mapNotNull(ctx -> (BimeAuthentication) ctx.getAuthentication());
     }
 }
