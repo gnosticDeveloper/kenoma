@@ -184,7 +184,7 @@ class MultiOrgIsolationIT extends BaseIT {
         StockMovementRequestDTO movement = new StockMovementRequestDTO();
         movement.setVariantId(fixture.variantId());
         movement.setLocationId(orgBLocation.getId());
-        movement.setMovementType("RECEIPT");
+        movement.setMovementType(MovementType.INBOUND);
         movement.setDelta(10);
 
         client.post().uri("/stock/movements")
@@ -202,7 +202,7 @@ class MultiOrgIsolationIT extends BaseIT {
         StockMovementRequestDTO movement = new StockMovementRequestDTO();
         movement.setVariantId(fixture.variantId());
         movement.setLocationId(fixture.locationId());
-        movement.setMovementType("RECEIPT");
+        movement.setMovementType(MovementType.INBOUND);
         movement.setDelta(5);
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
