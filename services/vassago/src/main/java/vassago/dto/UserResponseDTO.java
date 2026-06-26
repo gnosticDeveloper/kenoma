@@ -1,5 +1,6 @@
 package vassago.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -13,11 +14,13 @@ import java.util.UUID;
 @SuperBuilder
 @AllArgsConstructor
 @NoArgsConstructor
+@Schema(description = "User details")
 public class UserResponseDTO {
     UUID id;
     String name;
     String lastName;
     String email;
     String username;
+    @Schema(description = "Role assignments keyed by service ID (UUID as string), with a list of role names as the value")
     Map<String, List<String>> roles;
 }
