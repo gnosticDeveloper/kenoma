@@ -20,8 +20,7 @@ public class StockMovementResponseDTO {
     private UUID productId;
     private UUID variantId;
     private UUID locationId;
-    @Schema(description = "Movement type", example = "INBOUND", allowableValues = {"INBOUND", "OUTBOUND", "ADJUSTMENT"})
-    private String movementType;
+    private MovementType movementType;
     @Schema(description = "Net quantity change applied. Positive values increase stock, negative values decrease it", example = "10")
     private int delta;
     @Schema(description = "Optional external reference (e.g. purchase order ID or transfer ID) for traceability. This is currently not implemented and can safely be ignored")
