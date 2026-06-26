@@ -34,14 +34,14 @@ class StockLedgerIT extends BaseIT {
     void recordMovement_createsMovementAndUpdatesBalance() {
         StockFixture f = buildStockFixture();
 
-        StockMovementResponseDTO movement = recordMovement(f.variantId, f.locationId, "RECEIPT", 10);
+        StockMovementResponseDTO movement = recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 10);
 
         assertThat(movement).isNotNull();
         assertThat(movement.getId()).isNotNull();
         assertThat(movement.getVariantId()).isEqualTo(f.variantId);
         assertThat(movement.getLocationId()).isEqualTo(f.locationId);
         assertThat(movement.getDelta()).isEqualTo(10);
-        assertThat(movement.getMovementType()).isEqualTo("RECEIPT");
+        assertThat(movement.getMovementType()).isEqualTo(MovementType.INBOUND);
 
         List<StockBalanceResponseDTO> balances = client.get()
                 .uri("/stock/balances?variantId={v}", f.variantId)
@@ -58,7 +58,7 @@ class StockLedgerIT extends BaseIT {
     @Test
     void getMovementById_returnsMovement() {
         StockFixture f = buildStockFixture();
-        StockMovementResponseDTO created = recordMovement(f.variantId, f.locationId, "RECEIPT", 5);
+        StockMovementResponseDTO created = recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 5);
 
         StockMovementResponseDTO response = client.get()
                 .uri("/stock/movements/{id}", created.getId())
@@ -78,8 +78,8 @@ class StockLedgerIT extends BaseIT {
         StockFixture f1 = buildStockFixture();
         StockFixture f2 = buildStockFixture();
 
-        recordMovement(f1.variantId, f1.locationId, "RECEIPT", 3);
-        recordMovement(f2.variantId, f2.locationId, "RECEIPT", 7);
+        recordMovement(f1.variantId, f1.locationId, MovementType.INBOUND, 3);
+        recordMovement(f2.variantId, f2.locationId, MovementType.INBOUND, 7);
 
         List<StockMovementResponseDTO> movements = client.get()
                 .uri("/stock/movements?variantId={v}", f1.variantId)
@@ -98,8 +98,8 @@ class StockLedgerIT extends BaseIT {
         StockFixture f1 = buildStockFixture();
         StockFixture f2 = buildStockFixture();
 
-        recordMovement(f1.variantId, f1.locationId, "RECEIPT", 20);
-        recordMovement(f2.variantId, f2.locationId, "RECEIPT", 30);
+        recordMovement(f1.variantId, f1.locationId, MovementType.INBOUND, 20);
+        recordMovement(f2.variantId, f2.locationId, MovementType.INBOUND, 30);
 
         List<StockBalanceResponseDTO> balances = client.get()
                 .uri("/stock/balances?variantId={v}", f2.variantId)
@@ -116,12 +116,12 @@ class StockLedgerIT extends BaseIT {
     @Test
     void recordMovement_rejectsNegativeBalance() {
         StockFixture f = buildStockFixture();
-        recordMovement(f.variantId, f.locationId, "RECEIPT", 10);
+        recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 10);
 
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(movementRequest(f.variantId, f.locationId, "ISSUE", -20))
+                .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.OUTBOUND, -20))
                 .exchange()
                 .expectStatus().isBadRequest();
     }
@@ -129,8 +129,8 @@ class StockLedgerIT extends BaseIT {
     @Test
     void recordMovement_secondIncrement_accumulatesBalance() {
         StockFixture f = buildStockFixture();
-        recordMovement(f.variantId, f.locationId, "RECEIPT", 10);
-        recordMovement(f.variantId, f.locationId, "RECEIPT", 5);
+        recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 10);
+        recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 5);
 
         List<StockBalanceResponseDTO> balances = client.get()
                 .uri("/stock/balances?variantId={v}", f.variantId)
@@ -151,7 +151,7 @@ class StockLedgerIT extends BaseIT {
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(movementRequest(UUID.randomUUID(), f.locationId(), "RECEIPT", 5))
+                .bodyValue(movementRequest(UUID.randomUUID(), f.locationId(), MovementType.INBOUND, 5))
                 .exchange()
                 .expectStatus().isNotFound();
     }
@@ -165,17 +165,56 @@ class StockLedgerIT extends BaseIT {
     }
 
     @Test
+    void recordMovement_rejectsNonPositiveDeltaForInbound() {
+        StockFixture f = buildStockFixture();
+
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.INBOUND, -5))
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.INBOUND, 0))
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void recordMovement_rejectsNonNegativeDeltaForOutbound() {
+        StockFixture f = buildStockFixture();
+        recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 10);
+
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.OUTBOUND, 5))
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.OUTBOUND, 0))
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
     void recordTransferPair_movesStockBetweenLocations() {
         StockFixture source = buildStockFixture();
         UUID destination = createLocation();
 
-        recordMovement(source.variantId, source.locationId, "RECEIPT", 20);
+        recordMovement(source.variantId, source.locationId, MovementType.INBOUND, 20);
 
-        StockMovementResponseDTO transferOut = recordMovement(source.variantId, source.locationId, "TRANSFER_OUT", -8);
-        assertThat(transferOut.getMovementType()).isEqualTo("TRANSFER_OUT");
+        StockMovementResponseDTO transferOut = recordMovement(source.variantId, source.locationId, MovementType.OUTBOUND, -8);
+        assertThat(transferOut.getMovementType()).isEqualTo(MovementType.OUTBOUND);
         assertThat(transferOut.getReferenceId()).isNull();
 
-        StockMovementRequestDTO transferInDto = movementRequest(source.variantId, destination, "TRANSFER_IN", 8);
+        StockMovementRequestDTO transferInDto = movementRequest(source.variantId, destination, MovementType.INBOUND, 8);
         transferInDto.setReferenceId(transferOut.getId());
         StockMovementResponseDTO transferIn = client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -186,7 +225,7 @@ class StockLedgerIT extends BaseIT {
                 .expectBody(StockMovementResponseDTO.class)
                 .returnResult().getResponseBody();
         assertThat(transferIn).isNotNull();
-        assertThat(transferIn.getMovementType()).isEqualTo("TRANSFER_IN");
+        assertThat(transferIn.getMovementType()).isEqualTo(MovementType.INBOUND);
         assertThat(transferIn.getReferenceId()).isEqualTo(transferOut.getId());
 
         List<StockBalanceResponseDTO> sourceBalances = client.get()
@@ -213,12 +252,12 @@ class StockLedgerIT extends BaseIT {
     @Test
     void transferOut_cannotExceedAvailableBalance() {
         StockFixture f = buildStockFixture();
-        recordMovement(f.variantId, f.locationId, "RECEIPT", 10);
+        recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 10);
 
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(movementRequest(f.variantId, f.locationId, "TRANSFER_OUT", -11))
+                .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.OUTBOUND, -11))
                 .exchange()
                 .expectStatus().isBadRequest();
     }
@@ -228,8 +267,8 @@ class StockLedgerIT extends BaseIT {
         StockFixture f = buildStockFixture();
         UUID otherLocation = createLocation();
 
-        recordMovement(f.variantId, f.locationId, "RECEIPT", 10);
-        recordMovement(f.variantId, otherLocation, "RECEIPT", 5);
+        recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 10);
+        recordMovement(f.variantId, otherLocation, MovementType.INBOUND, 5);
 
         List<StockMovementResponseDTO> movements = client.get()
                 .uri("/stock/movements?locationId={l}", otherLocation)
@@ -325,7 +364,7 @@ class StockLedgerIT extends BaseIT {
         return new StockFixture(product.getId(), variant.getId(), location.getId());
     }
 
-    private StockMovementResponseDTO recordMovement(UUID variantId, UUID locationId, String type, int delta) {
+    private StockMovementResponseDTO recordMovement(UUID variantId, UUID locationId, MovementType type, int delta) {
         StockMovementResponseDTO response = client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -338,7 +377,7 @@ class StockLedgerIT extends BaseIT {
         return response;
     }
 
-    private static StockMovementRequestDTO movementRequest(UUID variantId, UUID locationId, String type, int delta) {
+    private static StockMovementRequestDTO movementRequest(UUID variantId, UUID locationId, MovementType type, int delta) {
         StockMovementRequestDTO dto = new StockMovementRequestDTO();
         dto.setVariantId(variantId);
         dto.setLocationId(locationId);

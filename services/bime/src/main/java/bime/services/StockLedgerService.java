@@ -2,6 +2,7 @@ package bime.services;
 
 import bime.db.BimeContextService;
 import bime.db.BimeDbHandle;
+import bime.dto.MovementType;
 import bime.dto.StockBalanceResponseDTO;
 import bime.dto.StockMovementRequestDTO;
 import bime.dto.StockMovementResponseDTO;
@@ -26,6 +27,12 @@ public class StockLedgerService {
     private final BimeContextService ctx;
 
     public Mono<StockMovementResponseDTO> recordMovement(StockMovementRequestDTO dto) {
+        if (dto.getMovementType() == MovementType.INBOUND && dto.getDelta() <= 0) {
+            return Mono.error(new BadRequestException("INBOUND movement must have a positive delta"));
+        }
+        if (dto.getMovementType() == MovementType.OUTBOUND && dto.getDelta() >= 0) {
+            return Mono.error(new BadRequestException("OUTBOUND movement must have a negative delta"));
+        }
         return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
                 insertMovement(handle, caller.getOrgId(), caller.getId(), dto)
                         .flatMap(movement -> upsertBalance(handle, caller.getOrgId(), dto)
@@ -104,7 +111,7 @@ public class StockLedgerService {
                 .bind("orgId", orgId)
                 .bind("variantId", dto.getVariantId())
                 .bind("locationId", dto.getLocationId())
-                .bind("movementType", dto.getMovementType())
+                .bind("movementType", dto.getMovementType().name())
                 .bind("delta", dto.getDelta())
                 .bind("note", dto.getNote() != null ? dto.getNote() : "")
                 .bind("createdBy", userId);
@@ -161,7 +168,7 @@ public class StockLedgerService {
                 .productId((UUID) row.get("product_id"))
                 .variantId((UUID) row.get("variant_id"))
                 .locationId((UUID) row.get("location_id"))
-                .movementType((String) row.get("movement_type"))
+                .movementType(MovementType.valueOf((String) row.get("movement_type")))
                 .delta((Integer) row.get("delta"))
                 .referenceId((UUID) row.get("reference_id"))
                 .note((String) row.get("note"))

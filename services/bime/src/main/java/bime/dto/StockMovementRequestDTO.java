@@ -10,9 +10,7 @@ import java.util.UUID;
 public class StockMovementRequestDTO {
     private UUID variantId;
     private UUID locationId;
-    @Schema(description = "Movement type. Accepted values: INBOUND (stock received), OUTBOUND (stock dispatched), ADJUSTMENT (manual correction)",
-            example = "INBOUND", allowableValues = {"INBOUND", "OUTBOUND", "ADJUSTMENT"})
-    private String movementType;
+    private MovementType movementType;
     @Schema(description = "Quantity change to apply. Must be positive for INBOUND, negative for OUTBOUND, and may be positive or negative for ADJUSTMENT",
             example = "10")
     private int delta;
