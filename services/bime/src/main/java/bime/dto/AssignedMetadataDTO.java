@@ -1,5 +1,6 @@
 package bime.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -12,6 +13,7 @@ import java.util.UUID;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
+@Schema(description = "A metadata attribute that has been assigned to a product, along with the options selected for that product")
 public class AssignedMetadataDTO {
     private UUID metadataId;
     private String metadataName;

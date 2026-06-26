@@ -1,5 +1,6 @@
 package bime.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -12,8 +13,10 @@ import java.util.UUID;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
+@Schema(description = "A single selectable option within a metadata definition")
 public class MetadataOptionResponseDTO {
     private UUID id;
+    @Schema(description = "Identifier of the parent metadata definition this option belongs to")
     private UUID metadataId;
     private String value;
     private LocalDateTime createdAt;
