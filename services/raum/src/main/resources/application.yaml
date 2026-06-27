@@ -19,7 +19,10 @@ openbao:
     mount: ${OPENBAO_KV_MOUNT:secret}
 server:
   port: 8080
+vassago:
+  base-url: ${VASSAGO_BASE_URL:http://localhost:8081}
+  jwt:
+    public-key-refresh-cron: ${VASSAGO_JWT_PUBLIC_KEY_REFRESH_CRON:15 0 0 * * *}
+
 raum:
   service-id: ${RAUM_SERVICE_ID}
-  jwt:
-    transit-key-name: ${RAUM_JWT_TRANSIT_KEY_NAME:vassago-jwt}

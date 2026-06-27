@@ -118,7 +118,8 @@ public abstract class BaseIT {
         public void initialize(ConfigurableApplicationContext ctx) {
             if (initialized.compareAndSet(false, true)) {
                 TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
-                        "BIME_SERVICE_ID=" + BIME_SERVICE_ID.toString()
+                        "BIME_SERVICE_ID=" + BIME_SERVICE_ID.toString(),
+                        "vassago.jwt.public-key-refresh-cron=-"
                 );
             }
         }

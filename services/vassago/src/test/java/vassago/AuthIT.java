@@ -13,6 +13,7 @@ import reactor.core.publisher.Mono;
 import vassago.dto.LoginRequestDTO;
 import vassago.dto.LoginResponseDTO;
 import vassago.dto.PasswordChangeRequestDTO;
+import vassago.dto.PublicKeyResponseDTO;
 import vassago.dto.RecoverRequestDTO;
 import vassago.dto.VerifyTokenRequestDTO;
 
@@ -145,6 +146,19 @@ class AuthIT extends BaseIT {
                 .cookie("session-fp", "tampered-fingerprint-value")
                 .exchange()
                 .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void publicKey_returnsValidPem() {
+        webTestClient.get()
+                .uri("/auth/public-key")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(PublicKeyResponseDTO.class)
+                .value(dto -> {
+                    assertThat(dto.publicKey()).contains("-----BEGIN PUBLIC KEY-----");
+                    assertThat(dto.publicKey()).contains("-----END PUBLIC KEY-----");
+                });
     }
 
     @Test

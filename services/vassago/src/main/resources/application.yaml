@@ -21,6 +21,7 @@ vassago:
   jwt:
     transit-key-name: ${VASSAGO_JWT_TRANSIT_KEY_NAME:vassago-jwt}
     ttl-seconds: ${VASSAGO_JWT_TTL_SECONDS:300}
+    key-rotation-cron: ${VASSAGO_JWT_KEY_ROTATION_CRON:0 0 0 * * *}
   refresh-token:
     ttl-seconds: ${VASSAGO_REFRESH_TOKEN_TTL_SECONDS:2592000}
 openbao:

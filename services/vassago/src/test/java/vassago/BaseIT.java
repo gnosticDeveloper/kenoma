@@ -103,7 +103,7 @@ public abstract class BaseIT {
                     curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/vassago-policy \
                       -H 'X-Vault-Token: dev-root-token' \
                       -H 'Content-Type: application/json' \
-                      -d '{"policy":"path \\"database/creds/*\\" { capabilities = [\\"read\\"] } path \\"transit/sign/vassago-jwt\\" { capabilities = [\\"update\\"] } path \\"transit/keys/vassago-jwt\\" { capabilities = [\\"read\\"] }"}' ;
+                      -d '{"policy":"path \\"database/creds/*\\" { capabilities = [\\"read\\"] } path \\"transit/sign/vassago-jwt\\" { capabilities = [\\"update\\"] } path \\"transit/keys/vassago-jwt\\" { capabilities = [\\"read\\"] } path \\"transit/keys/vassago-jwt/rotate\\" { capabilities = [\\"update\\"] }"}' ;
                     curl -sf -X POST http://openbao:8200/v1/auth/approle/role/vassago \
                       -H 'X-Vault-Token: dev-root-token' \
                       -H 'Content-Type: application/json' \
@@ -126,6 +126,7 @@ public abstract class BaseIT {
             .withEnv("OPENBAO_HOST", "http://openbao:8200")
             .withEnv("OPENBAO_TOKEN", "dev-root-token")
             .withEnv("OPENBAO_KV_MOUNT", "secret")
+            .withEnv("VASSAGO_BASE_URL", "http://localhost:8081")
             .waitingFor(Wait.forHttp("/actuator/health").forPort(8080)
                     .withStartupTimeout(Duration.ofSeconds(60)));
 
@@ -305,8 +306,7 @@ public abstract class BaseIT {
             vassagoServiceId = UUID.fromString(vassagoServiceIdStr);
 
             raum.withEnv("RAUM_SERVICE_ID", raumServiceIdStr)
-                    .withEnv("RAUM_OPENBAO_TOKEN", vassagoToken)
-                    .withEnv("RAUM_JWT_TRANSIT_KEY_NAME", "vassago-jwt");
+                    .withEnv("RAUM_OPENBAO_TOKEN", vassagoToken);
             raum.start();
         }
 
@@ -316,6 +316,7 @@ public abstract class BaseIT {
                     "vassago.service-id=" + vassagoServiceId,
                     "openbao.base-url=http://localhost:%d".formatted(openBao.getMappedPort(8200)),
                     "vassago.jwt.transit-key-name=vassago-jwt",
+                    "vassago.jwt.key-rotation-cron=-",
                     "vassago.openbao.token=" + vassagoToken,
                     "spring.data.redis.host=localhost",
                     "spring.data.redis.port=" + redis.getMappedPort(6379)

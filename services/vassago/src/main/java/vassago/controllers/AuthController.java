@@ -15,7 +15,9 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 import vassago.dto.LoginRequestDTO;
 import vassago.dto.LoginResponseDTO;
+import vassago.dto.PublicKeyResponseDTO;
 import vassago.dto.RecoverRequestDTO;
+import vassago.security.JwtService;
 import vassago.services.AuthService;
 
 @RestController
@@ -25,6 +27,7 @@ import vassago.services.AuthService;
 public class AuthController {
 
     private final AuthService authService;
+    private final JwtService jwtService;
 
     @Operation(
             summary = "Login",
@@ -71,6 +74,15 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> logout(ServerWebExchange exchange) {
         return authService.logout(exchange);
+    }
+
+    @Operation(summary = "Get current JWT signing public key",
+            description = "Returns the current EC public key used to sign JWTs. " +
+                    "Consumer services use this to validate JWTs without a direct OpenBao connection.")
+    @ApiResponse(responseCode = "200", description = "Public key in PEM format")
+    @GetMapping("/public-key")
+    public Mono<PublicKeyResponseDTO> publicKey() {
+        return jwtService.getPublicKeyPem().map(PublicKeyResponseDTO::new);
     }
 
     @Operation(

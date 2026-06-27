@@ -2,64 +2,93 @@ package common.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.SignatureException;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class JwtValidator {
 
-    private final WebClient openBaoClient;
-    private final String transitKeyName;
-    private final AtomicReference<PublicKey> cachedPublicKey = new AtomicReference<>();
+    record CachedKey(PublicKey key, Instant fetchedAt) {}
 
-    public JwtValidator(String openBaoBaseUrl, String openBaoToken, String transitKeyName) {
-        this.openBaoClient = WebClient.builder()
-                .baseUrl(openBaoBaseUrl)
-                .defaultHeader("X-Vault-Token", openBaoToken)
-                .build();
-        this.transitKeyName = transitKeyName;
+    private static final Duration DEFAULT_REFETCH_COOLDOWN = Duration.ofSeconds(30);
+
+    private final WebClient vassagoClient;
+    private final Duration refetchCooldown;
+    private final AtomicReference<CachedKey> cache = new AtomicReference<>();
+
+    public JwtValidator(String vassagoBaseUrl) {
+        this(WebClient.builder().baseUrl(vassagoBaseUrl).build(), DEFAULT_REFETCH_COOLDOWN);
     }
 
-    JwtValidator(WebClient openBaoClient, String transitKeyName) {
-        this.openBaoClient = openBaoClient;
-        this.transitKeyName = transitKeyName;
+    JwtValidator(WebClient vassagoClient) {
+        this(vassagoClient, DEFAULT_REFETCH_COOLDOWN);
+    }
+
+    JwtValidator(WebClient vassagoClient, Duration refetchCooldown) {
+        this.vassagoClient = vassagoClient;
+        this.refetchCooldown = refetchCooldown;
     }
 
     public Mono<Claims> validateToken(String token) {
         return getPublicKey()
-                .map(publicKey -> Jwts.parser()
-                        .verifyWith(publicKey)
-                        .build()
-                        .parseSignedClaims(token)
-                        .getPayload());
+                .flatMap(publicKey -> {
+                    try {
+                        return Mono.just(Jwts.parser()
+                                .verifyWith(publicKey)
+                                .build()
+                                .parseSignedClaims(token)
+                                .getPayload());
+                    } catch (SignatureException e) {
+                        CachedKey current = cache.get();
+                        if (current != null && Duration.between(current.fetchedAt(), Instant.now()).compareTo(refetchCooldown) < 0) {
+                            throw e;
+                        }
+                        return fetchFromVassago().map(freshKey ->
+                                Jwts.parser()
+                                        .verifyWith(freshKey)
+                                        .build()
+                                        .parseSignedClaims(token)
+                                        .getPayload());
+                    }
+                });
     }
 
     public Mono<PublicKey> getPublicKey() {
-        PublicKey cached = cachedPublicKey.get();
+        CachedKey cached = cache.get();
         if (cached != null) {
-            return Mono.just(cached);
+            return Mono.just(cached.key());
         }
-        return openBaoClient.get()
-                .uri("/v1/transit/keys/{key}", transitKeyName)
+        return fetchFromVassago();
+    }
+
+    private Mono<PublicKey> fetchFromVassago() {
+        return vassagoClient.get()
+                .uri("/auth/public-key")
                 .retrieve()
                 .bodyToMono(Map.class)
                 .map(response -> {
                     @SuppressWarnings("unchecked")
-                    Map<String, Object> data = (Map<String, Object>) response.get("data");
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> keys = (Map<String, Object>) data.get("keys");
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> latestKey = (Map<String, Object>) keys.get("1");
-                    String pemPublicKey = (String) latestKey.get("public_key");
-                    return parsePublicKey(pemPublicKey);
+                    String pem = (String) ((Map<String, Object>) response).get("publicKey");
+                    return parsePublicKey(pem);
                 })
-                .doOnNext(cachedPublicKey::set);
+                .doOnNext(key -> cache.set(new CachedKey(key, Instant.now())));
+    }
+
+    public Mono<PublicKey> refreshCache() {
+        return fetchFromVassago();
+    }
+
+    void invalidateCache() {
+        cache.set(null);
     }
 
     private PublicKey parsePublicKey(String pem) {
@@ -72,7 +101,7 @@ public class JwtValidator {
             return KeyFactory.getInstance("EC")
                     .generatePublic(new X509EncodedKeySpec(decoded));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to parse OpenBao public key", e);
+            throw new RuntimeException("Failed to parse public key", e);
         }
     }
 }

@@ -2,12 +2,13 @@ spring:
   application:
     name: bime
 
-openbao:
-  host: ${OPENBAO_HOST:http://localhost:8200}
-  token: ${OPENBAO_TOKEN:dev-root-token}
-
 server:
   port: 8082
+
+vassago:
+  base-url: ${VASSAGO_BASE_URL:http://localhost:8081}
+  jwt:
+    public-key-refresh-cron: ${VASSAGO_JWT_PUBLIC_KEY_REFRESH_CRON:15 0 0 * * *}
 
 raum:
   base-url: ${RAUM_BASE_URL:http://localhost:8080}
@@ -19,5 +20,3 @@ bime:
     eviction-interval-seconds: ${BIME_POOL_EVICTION_INTERVAL_SECONDS:60}
     max-size: ${BIME_POOL_MAX_SIZE:10}
     initial-size: ${BIME_POOL_INITIAL_SIZE:2}
-  jwt:
-    transit-key-name: ${BIME_JWT_TRANSIT_KEY_NAME:vassago-jwt}
