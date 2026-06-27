@@ -10,9 +10,9 @@ pwd = '${SEED_USER_PASSWORD}'.encode()
 print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '\$2a\$'))
 ")
 
-PGPASSWORD="${OPERATIONAL_DB_PASSWORD}" psql \
-  -h "${OPERATIONAL_DB_HOST}" -p "${OPERATIONAL_DB_PORT}" \
-  -U "${OPERATIONAL_DB_USER}" -d "${OPERATIONAL_DB_NAME}" \
+PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
+  -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
+  -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
   -c "INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
       VALUES ('${SEED_USER_NAME}', '${SEED_USER_LAST_NAME}', '${SEED_USER_EMAIL}',
               '${SEED_USER_USERNAME}', '${BCRYPT_HASH}', '${SEED_ROLES}', true)

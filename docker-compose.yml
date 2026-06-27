@@ -1,15 +1,17 @@
 services:
+  # The three databases are kept as separate containers to enforce tenant isolation during
+  # development and testing. In production they can share a single PostgreSQL instance.
   raum-postgres:
     image: postgres:18.1-alpine3.23
     container_name: raum-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${RAUM_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${RAUM_DB_PASSWORD:-postgres}
       POSTGRES_DB: raum
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d raum"]
+      test: ["CMD-SHELL", "pg_isready -U ${RAUM_DB_USER:-postgres} -d raum"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -21,22 +23,22 @@ services:
       raum-postgres:
         condition: service_healthy
     environment:
-      PGPASSWORD: postgres
+      PGPASSWORD: ${RAUM_DB_PASSWORD:-postgres}
     volumes:
       - ./services/raum/src/main/resources/init.sql:/init.sql
-    entrypoint: ["sh", "-c", "psql -h raum-postgres -U postgres -d raum -f /init.sql"]
+    entrypoint: ["sh", "-c", "psql -h raum-postgres -U ${RAUM_DB_USER:-postgres} -d raum -f /init.sql"]
 
   bime-postgres:
     image: postgres:18.1-alpine3.23
     container_name: bime-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${BIME_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${BIME_DB_PASSWORD:-postgres}
       POSTGRES_DB: bime
     ports:
       - "5434:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d bime"]
+      test: ["CMD-SHELL", "pg_isready -U ${BIME_DB_USER:-postgres} -d bime"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -48,10 +50,10 @@ services:
       bime-postgres:
         condition: service_healthy
     environment:
-      PGPASSWORD: postgres
+      PGPASSWORD: ${BIME_DB_PASSWORD:-postgres}
     volumes:
       - ./services/bime/src/main/resources/init.sql:/init.sql
-    entrypoint: ["sh", "-c", "psql -h bime-postgres -U postgres -d bime -f /init.sql"]
+    entrypoint: ["sh", "-c", "psql -h bime-postgres -U ${BIME_DB_USER:-postgres} -d bime -f /init.sql"]
 
   redis:
     image: redis:7-alpine
@@ -64,17 +66,17 @@ services:
       timeout: 5s
       retries: 5
 
-  operational-postgres:
+  vassago-postgres:
     image: postgres:18.1-alpine3.23
-    container_name: operational-postgres
+    container_name: vassago-postgres
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: adminpass
-      POSTGRES_DB: operationaldb
+      POSTGRES_USER: ${VASSAGO_DB_USER:-admin}
+      POSTGRES_PASSWORD: ${VASSAGO_DB_PASSWORD:-adminpass}
+      POSTGRES_DB: vassagodb
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d operationaldb"]
+      test: ["CMD-SHELL", "pg_isready -U ${VASSAGO_DB_USER:-admin} -d vassagodb"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -85,7 +87,7 @@ services:
     ports:
       - "8200:8200"
     environment:
-      BAO_DEV_ROOT_TOKEN_ID: "dev-root-token"
+      BAO_DEV_ROOT_TOKEN_ID: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
       BAO_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
     cap_add:
       - IPC_LOCK
@@ -106,7 +108,7 @@ services:
         condition: service_healthy
     environment:
       BAO_ADDR: "http://openbao:8200"
-      BAO_TOKEN: "dev-root-token"
+      BAO_TOKEN: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
     volumes:
       - ./scripts/init-openbao.sh:/init-openbao.sh
       - approle-out:/approle-out
@@ -121,7 +123,7 @@ services:
     depends_on:
       raum-postgres:
         condition: service_healthy
-      operational-postgres:
+      vassago-postgres:
         condition: service_healthy
       bime-postgres:
         condition: service_healthy
@@ -133,27 +135,27 @@ services:
         condition: service_completed_successfully
     environment:
       OPENBAO_BASE_URL: http://openbao:8200
-      OPENBAO_ROOT_TOKEN: dev-root-token
+      OPENBAO_ROOT_TOKEN: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
       RAUM_DB_HOST: raum-postgres
       RAUM_DB_PORT: 5432
       RAUM_DB_NAME: raum
-      RAUM_DB_USER: postgres
-      RAUM_DB_PASSWORD: postgres
-      OPERATIONAL_DB_HOST: operational-postgres
-      OPERATIONAL_DB_PORT: 5432
-      OPERATIONAL_DB_NAME: operationaldb
-      OPERATIONAL_DB_USER: admin
-      OPERATIONAL_DB_PASSWORD: adminpass
+      RAUM_DB_USER: ${RAUM_DB_USER:-postgres}
+      RAUM_DB_PASSWORD: ${RAUM_DB_PASSWORD:-postgres}
+      VASSAGO_DB_HOST: vassago-postgres
+      VASSAGO_DB_PORT: 5432
+      VASSAGO_DB_NAME: vassagodb
+      VASSAGO_DB_USER: ${VASSAGO_DB_USER:-admin}
+      VASSAGO_DB_PASSWORD: ${VASSAGO_DB_PASSWORD:-adminpass}
       BIME_DB_HOST: bime-postgres
       BIME_DB_PORT: 5432
       BIME_DB_NAME: bime
-      BIME_DB_USER: postgres
-      BIME_DB_PASSWORD: postgres
-      OPERATOR_NAME: Platform
-      OPERATOR_LAST_NAME: Operator
-      OPERATOR_EMAIL: operator@internal
-      OPERATOR_USERNAME: platform_operator
-      OPERATOR_PASSWORD: "Ch4ng3me!Ops#"
+      BIME_DB_USER: ${BIME_DB_USER:-postgres}
+      BIME_DB_PASSWORD: ${BIME_DB_PASSWORD:-postgres}
+      OPERATOR_NAME: ${OPERATOR_NAME:-Platform}
+      OPERATOR_LAST_NAME: ${OPERATOR_LAST_NAME:-Operator}
+      OPERATOR_EMAIL: ${OPERATOR_EMAIL:-operator@internal}
+      OPERATOR_USERNAME: ${OPERATOR_USERNAME:-platform_operator}
+      OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-Ch4ng3me!Ops#}
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/kenoma-pre-init.sh:/kenoma-pre-init.sh
@@ -171,7 +173,6 @@ services:
     depends_on:
       raum-postgres:
         condition: service_healthy
-
       openbao:
         condition: service_healthy
       raum-db-init:
@@ -184,10 +185,10 @@ services:
       RAUM_DB_HOST: raum-postgres
       RAUM_DB_PORT: 5432
       RAUM_DB_NAME: raum
-      RAUM_DB_USER: postgres
-      RAUM_DB_PASSWORD: postgres
+      RAUM_DB_USER: ${RAUM_DB_USER:-postgres}
+      RAUM_DB_PASSWORD: ${RAUM_DB_PASSWORD:-postgres}
       OPENBAO_HOST: http://openbao:8200
-      OPENBAO_TOKEN: dev-root-token
+      OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
       OPENBAO_KV_MOUNT: secret
       JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
     volumes:
@@ -279,19 +280,19 @@ services:
     depends_on:
       kenoma-pre-init:
         condition: service_completed_successfully
-      operational-postgres:
+      vassago-postgres:
         condition: service_healthy
     environment:
-      OPERATIONAL_DB_HOST: operational-postgres
-      OPERATIONAL_DB_PORT: 5432
-      OPERATIONAL_DB_NAME: operationaldb
-      OPERATIONAL_DB_USER: admin
-      OPERATIONAL_DB_PASSWORD: adminpass
-      SEED_USER_NAME: Admin
-      SEED_USER_LAST_NAME: User
-      SEED_USER_EMAIL: admin@example.com
-      SEED_USER_USERNAME: admin
-      SEED_USER_PASSWORD: "Ch4ng3me!Dev#"
+      VASSAGO_DB_HOST: vassago-postgres
+      VASSAGO_DB_PORT: 5432
+      VASSAGO_DB_NAME: vassagodb
+      VASSAGO_DB_USER: ${VASSAGO_DB_USER:-admin}
+      VASSAGO_DB_PASSWORD: ${VASSAGO_DB_PASSWORD:-adminpass}
+      SEED_USER_NAME: ${SEED_USER_NAME:-Admin}
+      SEED_USER_LAST_NAME: ${SEED_USER_LAST_NAME:-User}
+      SEED_USER_EMAIL: ${SEED_USER_EMAIL:-admin@example.com}
+      SEED_USER_USERNAME: ${SEED_USER_USERNAME:-admin}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-Ch4ng3me!Dev#}
     volumes:
       - ./scripts/seed-kenoma.sh:/seed-kenoma.sh
       - ./.env-out:/env-out
