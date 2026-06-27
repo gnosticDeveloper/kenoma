@@ -24,11 +24,8 @@ import java.util.UUID;
 public class SecurityConfig {
 
     @Bean
-    public JwtValidator jwtValidator(
-            @Value("${openbao.host}") String openBaoBaseUrl,
-            @Value("${openbao.token}") String openBaoToken,
-            @Value("${raum.jwt.transit-key-name}") String transitKeyName) {
-        return new JwtValidator(openBaoBaseUrl, openBaoToken, transitKeyName);
+    public JwtValidator jwtValidator(@Value("${vassago.base-url}") String vassagoBaseUrl) {
+        return new JwtValidator(vassagoBaseUrl);
     }
 
     @Bean

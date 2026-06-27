@@ -103,7 +103,8 @@ public abstract class BaseIT {
                     "openbao.token=fake-token",
                     "openbao.kv.mount=secret",
                     "RAUM_SERVICE_ID=" + raumServiceIdStr,
-                    "RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt"
+                    "vassago.base-url=http://fake-vassago:8081",
+                    "vassago.jwt.public-key-refresh-cron=-"
             );
         }
     }

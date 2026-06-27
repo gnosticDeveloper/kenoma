@@ -1,21 +1,27 @@
 package vassago.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import common.security.JwtValidator;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.SignatureException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
 import java.security.PublicKey;
+import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class JwtService {
@@ -25,7 +31,7 @@ public class JwtService {
     private final WebClient openBaoClient;
     private final String transitKeyName;
     private final long ttlSeconds;
-    private final JwtValidator jwtValidator;
+    private final AtomicReference<PublicKey> cachedPublicKey = new AtomicReference<>();
 
     public JwtService(
             @Value("${openbao.base-url}") String openBaoBaseUrl,
@@ -38,7 +44,6 @@ public class JwtService {
                 .build();
         this.transitKeyName = transitKeyName;
         this.ttlSeconds = ttlSeconds;
-        this.jwtValidator = new JwtValidator(openBaoBaseUrl, openBaoToken, transitKeyName);
     }
 
     public Mono<String> issueToken(UUID orgId, UUID userId, Map<String, List<String>> roles) {
@@ -75,16 +80,88 @@ public class JwtService {
     }
 
     public Mono<Claims> validateToken(String token) {
-        return jwtValidator.validateToken(token);
+        return fetchPublicKey()
+                .flatMap(publicKey -> {
+                    try {
+                        return Mono.just(Jwts.parser()
+                                .verifyWith(publicKey)
+                                .build()
+                                .parseSignedClaims(token)
+                                .getPayload());
+                    } catch (SignatureException e) {
+                        cachedPublicKey.set(null);
+                        return fetchPublicKey().map(freshKey ->
+                                Jwts.parser()
+                                        .verifyWith(freshKey)
+                                        .build()
+                                        .parseSignedClaims(token)
+                                        .getPayload());
+                    }
+                });
     }
 
-    // TODO: refresh cache on key rotation (e.g. via scheduled re-fetch or version check)
     public Mono<PublicKey> getPublicKey() {
-        return jwtValidator.getPublicKey();
+        return fetchPublicKey();
+    }
+
+    public Mono<String> getPublicKeyPem() {
+        return fetchPublicKey().map(key ->
+                "-----BEGIN PUBLIC KEY-----\n"
+                        + Base64.getMimeEncoder(64, new byte[]{'\n'}).encodeToString(key.getEncoded())
+                        + "\n-----END PUBLIC KEY-----\n");
+    }
+
+    @Scheduled(cron = "${vassago.jwt.key-rotation-cron:0 0 0 * * *}")
+    public void scheduledKeyRotation() {
+        openBaoClient.post()
+                .uri("/v1/transit/keys/{key}/rotate", transitKeyName)
+                .retrieve()
+                .bodyToMono(Void.class)
+                .retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(5)))
+                .then(Mono.delay(Duration.ofSeconds(1)))
+                .then(Mono.fromRunnable(() -> cachedPublicKey.set(null)))
+                .then(fetchPublicKey().retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(2))))
+                .block();
     }
 
     public long remainingSeconds(Instant expiry) {
         return Math.max(0, expiry.getEpochSecond() - Instant.now().getEpochSecond());
+    }
+
+    private Mono<PublicKey> fetchPublicKey() {
+        PublicKey cached = cachedPublicKey.get();
+        if (cached != null) {
+            return Mono.just(cached);
+        }
+        return openBaoClient.get()
+                .uri("/v1/transit/keys/{key}", transitKeyName)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .map(response -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) response.get("data");
+                    int latestVersion = ((Number) data.get("latest_version")).intValue();
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> keys = (Map<String, Object>) data.get("keys");
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> latestKey = (Map<String, Object>) keys.get(String.valueOf(latestVersion));
+                    return parsePublicKey((String) latestKey.get("public_key"));
+                })
+                .doOnNext(cachedPublicKey::set);
+    }
+
+    private PublicKey parsePublicKey(String pem) {
+        try {
+            String stripped = pem
+                    .replace("-----BEGIN PUBLIC KEY-----", "")
+                    .replace("-----END PUBLIC KEY-----", "")
+                    .replaceAll("\\s", "");
+            byte[] decoded = Base64.getDecoder().decode(stripped);
+            return KeyFactory.getInstance("EC")
+                    .generatePublic(new X509EncodedKeySpec(decoded));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse OpenBao public key", e);
+        }
     }
 
     private String buildClaimsJson(UUID orgId, UUID userId, Map<String, List<String>> roles,
