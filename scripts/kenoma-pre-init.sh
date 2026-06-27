@@ -71,10 +71,10 @@ RAUM_TOKEN=$(echo "$RAUM_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -
 echo "Raum AppRole login successful."
 
 
-echo "Provisioning operational database schema..."
-PGPASSWORD="${OPERATIONAL_DB_PASSWORD}" psql \
-  -h "${OPERATIONAL_DB_HOST}" -p "${OPERATIONAL_DB_PORT}" \
-  -U "${OPERATIONAL_DB_USER}" -d "${OPERATIONAL_DB_NAME}" \
+echo "Provisioning Vassago database schema..."
+PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
+  -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
+  -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
   -f /users.sql
 echo "Operational database schema provisioned."
 
@@ -85,9 +85,9 @@ import bcrypt
 pwd = '${OPERATOR_PASSWORD}'.encode()
 print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '\$2a\$'))
 ")
-PGPASSWORD="${OPERATIONAL_DB_PASSWORD}" psql \
-  -h "${OPERATIONAL_DB_HOST}" -p "${OPERATIONAL_DB_PORT}" \
-  -U "${OPERATIONAL_DB_USER}" -d "${OPERATIONAL_DB_NAME}" \
+PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
+  -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
+  -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
   -c "INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
       VALUES ('${OPERATOR_NAME}', '${OPERATOR_LAST_NAME}', '${OPERATOR_EMAIL}',
               '${OPERATOR_USERNAME}', '${BCRYPT_HASH}', '${OPERATOR_ROLES}', true)
@@ -98,7 +98,7 @@ echo "Storing credentials in OpenBao KV..."
 wget -q -O - \
   --header="Content-Type: application/json" \
   --header="X-Vault-Token: ${OPENBAO_ROOT_TOKEN}" \
-  --post-data="{\"data\":{\"username\":\"${OPERATIONAL_DB_USER}\",\"password\":\"${OPERATIONAL_DB_PASSWORD}\"}}" \
+  --post-data="{\"data\":{\"username\":\"${VASSAGO_DB_USER}\",\"password\":\"${VASSAGO_DB_PASSWORD}\"}}" \
   "${OPENBAO_BASE_URL}/v1/secret/data/credentials/${CREDENTIAL_ID}"
 echo "Credentials stored."
 
@@ -107,9 +107,9 @@ cat > /tmp/db-config-payload.json << DBCONFIG
 {
   "plugin_name": "postgresql-database-plugin",
   "allowed_roles": "${CREDENTIAL_ID}-role",
-  "connection_url": "postgresql://{{username}}:{{password}}@${OPERATIONAL_DB_HOST}:${OPERATIONAL_DB_PORT}/${OPERATIONAL_DB_NAME}?sslmode=disable",
-  "username": "${OPERATIONAL_DB_USER}",
-  "password": "${OPERATIONAL_DB_PASSWORD}"
+  "connection_url": "postgresql://{{username}}:{{password}}@${VASSAGO_DB_HOST}:${VASSAGO_DB_PORT}/${VASSAGO_DB_NAME}?sslmode=disable",
+  "username": "${VASSAGO_DB_USER}",
+  "password": "${VASSAGO_DB_PASSWORD}"
 }
 DBCONFIG
 wget -q -O - \
@@ -123,7 +123,7 @@ echo "Creating database role in OpenBao..."
 cat > /tmp/role-payload.json << ROLEJSON
 {
   "db_name": "${CREDENTIAL_ID}",
-  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${OPERATIONAL_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
+  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${VASSAGO_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
   "default_ttl": "1h",
   "max_ttl": "24h"
 }
