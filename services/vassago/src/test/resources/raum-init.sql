@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS credentials (
                                            db_host           varchar(255) NOT NULL,
                                            db_port           integer NOT NULL,
                                            db_name           varchar(255) NOT NULL,
+                                           is_initialized    bool NOT NULL DEFAULT false,
                                            modification_lock bool DEFAULT false,
                                            locked_at         timestamp,
                                            created_at        timestamp DEFAULT current_timestamp,
