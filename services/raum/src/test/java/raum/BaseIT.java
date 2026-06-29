@@ -9,7 +9,9 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.support.TestPropertySourceUtils;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import reactor.core.publisher.Mono;
 
@@ -39,8 +41,14 @@ public abstract class BaseIT {
             .withPassword("postgres")
             .withInitScript("init.sql");
 
+    @SuppressWarnings("resource")
+    static final GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
+            .withExposedPorts(6379)
+            .waitingFor(Wait.forListeningPort());
+
     static {
         raumDb.start();
+        redis.start();
     }
 
     protected static UUID orgId;
@@ -75,6 +83,8 @@ public abstract class BaseIT {
 
         private static final AtomicBoolean initialized = new AtomicBoolean(false);
         private static String raumServiceIdStr;
+        private static String vassagoServiceIdStr;
+        private static String bimeServiceIdStr;
 
         @Override
         public void initialize(ConfigurableApplicationContext ctx) {
@@ -89,8 +99,14 @@ public abstract class BaseIT {
                 raumServiceIdStr = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
                                 "-t", "-A", "-c", "SELECT id FROM services WHERE name = 'Raum' LIMIT 1;")
                         .getStdout().trim();
+                vassagoServiceIdStr = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                                "-t", "-A", "-c", "SELECT id FROM services WHERE name = 'Vassago' LIMIT 1;")
+                        .getStdout().trim();
+                bimeServiceIdStr = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                                "-t", "-A", "-c", "SELECT id FROM services WHERE name = 'Bime' LIMIT 1;")
+                        .getStdout().trim();
             } catch (Exception e) {
-                throw new RuntimeException("Failed to read Raum service ID", e);
+                throw new RuntimeException("Failed to read service IDs", e);
             }
         }
 
@@ -104,7 +120,12 @@ public abstract class BaseIT {
                     "openbao.kv.mount=secret",
                     "RAUM_SERVICE_ID=" + raumServiceIdStr,
                     "vassago.base-url=http://fake-vassago:8081",
-                    "vassago.jwt.public-key-refresh-cron=-"
+                    "vassago.service-id=" + vassagoServiceIdStr,
+                    "bime.service-id=" + bimeServiceIdStr,
+                    "spring.data.redis.host=localhost",
+                    "spring.data.redis.port=" + redis.getMappedPort(6379),
+                    "vassago.jwt.public-key-refresh-cron=-",
+                    "raum.onboarding.retry-cron=-"
             );
         }
     }

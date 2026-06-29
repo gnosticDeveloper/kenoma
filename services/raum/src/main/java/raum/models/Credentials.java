@@ -40,6 +40,9 @@ public class Credentials {
     @Column("locked_at")
     private Instant lockedAt;
 
+    @Column("is_initialized")
+    private boolean initialized;
+
     @Column("created_at")
     private Instant createdAt;
 

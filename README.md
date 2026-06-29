@@ -1,6 +1,6 @@
 # Kenoma
 
-**Privacy-first B2B SaaS infrastructure.** Kenoma is a reactive, multi-tenant microservices platform providing authentication, organisation management, secrets handling, and inventory management as composable backend services.
+**Privacy-first B2B SaaS infrastructure.** Kenoma is a reactive, multi-tenant microservices platform providing authentication, organization management, secrets handling, and inventory management as composable backend services.
 
 [![CI](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/ci.yml/badge.svg)](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/codeql.yml/badge.svg)](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/codeql.yml)
@@ -12,23 +12,23 @@
 
 | Service | Port | Description |
 |---|---|---|
-| **Raum** | `8080` | Organisation registry — manages tenants, registered services, and ephemeral database credentials via OpenBao |
-| **Vassago** | `8081` | Authentication and identity — JWT issuance, session management, user lifecycle, and password recovery |
-| **Bime** | `8082` | Inventory management — products, variants, metadata, stock ledger, and warehouse locations |
-| **Common** | — | Shared library: DTOs, exception handling, JWT validation, and R2DBC connection pooling |
+| **Raum** | `8080` | Organization registry. Manages tenants, registered services, and ephemeral database credentials via OpenBao |
+| **Vassago** | `8081` | Authentication and identity. JWT issuance, session management, user lifecycle, and password recovery |
+| **Bime** | `8082` | Inventory management. Products, variants, metadata, stock ledger, and warehouse locations |
+| **Common** |No port | Shared library: DTOs, exception handling, JWT validation, and R2DBC connection pooling |
 
-### Raum — Organisation & Credential Registry
+### Raum: Organization & Credential Registry
 
-Raum is the platform's administrative backbone. It provisions tenant organisations, registers services that consume the platform, and issues ephemeral database credentials through OpenBao AppRole so downstream services never hold long-lived secrets.
+Raum is the platform's administrative backbone. It provisions tenant organizations, registers services that consume the platform, and issues ephemeral database credentials through OpenBao AppRole so downstream services never hold long-lived secrets. It also orchestrates new organization onboarding. Provisioning the org admin account in Vassago and seeding initial inventory data in Bime according to a configurable preset, with Redis-backed retry so partial failures can be recovered automatically.
 
 **API surface:**
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/orgs` | Create an organisation |
-| `GET` | `/orgs/{id}` | Get an organisation |
-| `PUT` | `/orgs/{id}` | Update an organisation |
-| `DELETE` | `/orgs/{id}` | Delete an organisation |
+| `POST` | `/orgs` | Create an organization |
+| `GET` | `/orgs/{id}` | Get an organization |
+| `PUT` | `/orgs/{id}` | Update an organization |
+| `DELETE` | `/orgs/{id}` | Delete an organization |
 | `POST` | `/services` | Register a service |
 | `GET` | `/services` | List all services |
 | `GET` | `/services/{id}` | Get a service |
@@ -36,10 +36,11 @@ Raum is the platform's administrative backbone. It provisions tenant organisatio
 | `DELETE` | `/services/{id}` | Delete a service |
 | `POST` | `/credentials` | Register credentials for a service |
 | `POST` | `/credentials/ephemeral` | Issue ephemeral credentials for an org/service pair |
+| `POST` | `/onboarding/{orgId}` | Onboard an organization. Seed Vassago admin user and Bime inventory preset |
 
-**Roles:** `RAUM_ADMIN`
+**Roles:** `RAUM_ADMIN`, `RAUM_ONBOARDING`
 
-### Vassago — Authentication & Identity
+### Vassago: Authentication & Identity
 
 Vassago issues and validates ES256 JWTs (ECDSA P-256 via OpenBao transit), manages user sessions via Redis, and handles the full user lifecycle including email-based password recovery through Mailgun. Public keys are exposed so downstream services can validate tokens without calling back into Vassago on every request.
 
@@ -62,7 +63,7 @@ Vassago issues and validates ES256 JWTs (ECDSA P-256 via OpenBao transit), manag
 
 **Roles:** `VASSAGO_ADMIN`, `VASSAGO_USER`
 
-### Bime — Inventory Management
+### Bime: Inventory Management
 
 Bime is a multi-tenant inventory service with tenant data isolated at the data layer. It supports a rich product model with configurable metadata, multi-option variants, and an append-only stock ledger.
 
@@ -104,33 +105,43 @@ Bime is a multi-tenant inventory service with tenant data isolated at the data l
 
 ## Architecture
 
-```
-                         ┌─────────────┐
-                         │   Client    │
-                         └──────┬──────┘
-                                │
-           ┌────────────────────┼────────────────────┐
-           │                    │                    │
-    ┌──────▼──────┐      ┌──────▼──────┐      ┌──────▼──────┐
-    │   Vassago   │      │    Raum     │      │    Bime     │
-    │   :8081     │      │    :8080    │      │    :8082    │
-    └──────┬──────┘      └──────┬──────┘      └──────┬──────┘
-           │                    │                    │
-    ┌──────▼──────┐      ┌──────▼──────┐      ┌──────▼──────┐
-    │ Redis :6379 │      │  Raum DB    │      │  Bime DB    │
-    │VassagoDB:5433│     │   :5432     │      │   :5434     │
-    └─────────────┘      └──────┬──────┘      └─────────────┘
-                                │
-                         ┌──────▼──────┐
-                         │   OpenBao   │
-                         │   :8200     │
-                         └─────────────┘
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+    OpenBao[("OpenBao")] -- public api keys --> Vassago["Vassago Service"]
+    Redis[("Redis")] -- onboarding --> Raum["Raum Service"]
+    Redis -- refresh tokens --> Vassago
+    RaumDB[("Raum DB")] -- fixed credentials --> Raum
+    Raum -- dynamic db credentials --> Vassago & Bime["Bime Service"]
+    VassagoDB[("Vassago DB")] -- provisioned from Raum --> Vassago
+    BimeDB[("Bime DB")] -- provisioned from Raum --> Bime
+    Vassago -- auth --> Bime
+    OpenBao -- db credentials --> Raum
+
+     OpenBao:::orange
+     Vassago:::sky
+     Redis:::teal
+     Raum:::violet
+     RaumDB:::indigo
+     Bime:::green
+     VassagoDB:::indigo
+     BimeDB:::indigo
+    classDef orange stroke:#fb923c,fill:#fff7ed
+    classDef teal stroke:#2dd4bf,fill:#f0fdfa
+    classDef indigo stroke:#818cf8,fill:#eef2ff
+    classDef violet stroke:#a78bfa,fill:#f5f3ff
+    classDef sky stroke:#38bdf8,fill:#f0f9ff
+    classDef green stroke:#4ade80,fill:#f0fdf4
 ```
 
 - All services are **reactive** (Spring WebFlux + R2DBC).
-- JWT signing keys live in **OpenBao**'s transit engine; services fetch and cache the public key on a staggered schedule for zero-downtime key rotation.
-- All database credentials are short-lived and issued by OpenBao — no static DB password is stored in any service's configuration.
-- Vassago stores users in Vassago DB (:5433); Bime stores inventory in Bime DB (:5434). Both obtain ephemeral credentials from OpenBao at runtime.
+- JWT signing keys live in **OpenBao**'s transit engine, managed by Vassago. Vassago and Raum read the public key directly from OpenBao; Bime fetches it from Vassago's public key endpoint.
+- Database credentials are short-lived and issued through Raum. Vassago and Bime call Raum to obtain ephemeral credentials, which Raum provisions via OpenBao. No service holds a static database password.
+- **Redis** is shared between Vassago (session tokens) and Raum (onboarding preset config for retry).
+- During onboarding, Raum calls Vassago and Bime over HTTP to seed the new tenant. A scheduled retry recovers any credential that failed mid-flow using the preset config stored in Redis.
 - The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, and a unified exception hierarchy.
 
 > **Database separation note:** The three databases run as separate containers in development to enforce proper tenant isolation at the infrastructure level during testing. In practice, they can all live on the same PostgreSQL instance without issue, although it is not the intended setup.
@@ -196,9 +207,9 @@ docker compose up --build
 
 This brings up OpenBao, all PostgreSQL instances, Redis, and all three services. An init sequence runs automatically:
 
-1. **OpenBao** is configured — KV, database, and transit secrets engines are enabled; AppRole auth is set up for each service; the JWT signing key is generated.
-2. **Raum and Bime database schemas** are initialised from their respective `init.sql` files.
-3. **`kenoma-pre-init`** runs after the above complete — it provisions the Operational DB schema (Vassago's user store), seeds the platform operator account, registers both database connections in OpenBao, and writes dynamic runtime values (service IDs, AppRole tokens) to `.env-out/.env` for the services to consume on startup.
+1. **OpenBao** is configured. KV, database, and transit secrets engines are enabled; AppRole auth is set up for each service; the JWT signing key is generated.
+2. **Raum and Bime database schemas** are initialized from their respective `init.sql` files.
+3. **`kenoma-pre-init`** runs after the above complete. It provisions the Vassago database schema, seeds the platform operator account, registers both database connections in OpenBao, and writes dynamic runtime values (service IDs, AppRole tokens) to `.env-out/.env` for the services to consume on startup.
 
 ### 3. Seed a demo user (optional)
 
@@ -230,7 +241,7 @@ mvn test -pl services/common,services/raum,services/vassago,services/bime -am
 mvn verify -pl services/raum,services/vassago,services/bime -am
 ```
 
-Integration tests use Testcontainers and spin up real PostgreSQL and OpenBao instances; no external infrastructure is needed.
+Integration tests use Testcontainers and spin up real PostgreSQL, OpenBao, and Redis instances; no external infrastructure is needed.
 
 ---
 
@@ -238,9 +249,9 @@ Integration tests use Testcontainers and spin up real PostgreSQL and OpenBao ins
 
 GitHub Actions runs on every pull request to `main`:
 
-- **Unit Tests** — fast feedback; no Docker required
-- **Integration Tests** — full Testcontainers suite against real dependencies
-- **CodeQL** — static security analysis
+- **Unit Tests**: fast feedback; no Docker required
+- **Integration Tests**: full Testcontainers suite against real dependencies
+- **CodeQL**: static security analysis
 
 ---
 

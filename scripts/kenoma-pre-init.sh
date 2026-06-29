@@ -79,7 +79,7 @@ PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
 echo "Operational database schema provisioned."
 
 echo "Seeding operator user..."
-OPERATOR_ROLES="{\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
+OPERATOR_ROLES="{\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\",\"RAUM_ONBOARDING\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
 BCRYPT_HASH=$(python3 -c "
 import bcrypt
 pwd = '${OPERATOR_PASSWORD}'.encode()

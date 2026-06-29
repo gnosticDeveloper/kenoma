@@ -72,11 +72,11 @@ services:
     environment:
       POSTGRES_USER: ${VASSAGO_DB_USER:-admin}
       POSTGRES_PASSWORD: ${VASSAGO_DB_PASSWORD:-adminpass}
-      POSTGRES_DB: vassagodb
+      POSTGRES_DB: vassago
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${VASSAGO_DB_USER:-admin} -d vassagodb"]
+      test: ["CMD-SHELL", "pg_isready -U ${VASSAGO_DB_USER:-admin} -d vassago"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -143,7 +143,7 @@ services:
       RAUM_DB_PASSWORD: ${RAUM_DB_PASSWORD:-postgres}
       VASSAGO_DB_HOST: vassago-postgres
       VASSAGO_DB_PORT: 5432
-      VASSAGO_DB_NAME: vassagodb
+      VASSAGO_DB_NAME: vassago
       VASSAGO_DB_USER: ${VASSAGO_DB_USER:-admin}
       VASSAGO_DB_PASSWORD: ${VASSAGO_DB_PASSWORD:-adminpass}
       BIME_DB_HOST: bime-postgres
@@ -181,6 +181,8 @@ services:
         condition: service_completed_successfully
       kenoma-pre-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment:
       RAUM_DB_HOST: raum-postgres
       RAUM_DB_PORT: 5432
@@ -190,6 +192,10 @@ services:
       OPENBAO_HOST: http://openbao:8200
       OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
       OPENBAO_KV_MOUNT: secret
+      VASSAGO_BASE_URL: http://vassago:8081
+      BIME_BASE_URL: http://bime:8082
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
     volumes:
       - ./.env-out:/env-out
@@ -257,6 +263,7 @@ services:
     environment:
       OPENBAO_HOST: http://openbao:8200
       RAUM_BASE_URL: http://raum:8080
+      VASSAGO_BASE_URL: http://vassago:8081
       JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5007"
     volumes:
       - ./.env-out:/env-out
@@ -285,7 +292,7 @@ services:
     environment:
       VASSAGO_DB_HOST: vassago-postgres
       VASSAGO_DB_PORT: 5432
-      VASSAGO_DB_NAME: vassagodb
+      VASSAGO_DB_NAME: vassago
       VASSAGO_DB_USER: ${VASSAGO_DB_USER:-admin}
       VASSAGO_DB_PASSWORD: ${VASSAGO_DB_PASSWORD:-adminpass}
       SEED_USER_NAME: ${SEED_USER_NAME:-Admin}

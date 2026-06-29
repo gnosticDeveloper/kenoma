@@ -48,7 +48,7 @@ VALUES ('Platform', 'Platform Operator', 'platform@internal')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO credentials (org_id, service_id, db_engine, db_host, db_port, db_name)
-SELECT o.id, s.id, 'postgres', 'operational-postgres', 5432, 'operationaldb'
+SELECT o.id, s.id, 'postgres', 'vassago-postgres', 5432, 'vassago'
 FROM organizations o, services s
 WHERE o.name = 'Platform' AND s.name = 'Vassago'
 ON CONFLICT DO NOTHING;
