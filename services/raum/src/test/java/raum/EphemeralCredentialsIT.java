@@ -59,8 +59,8 @@ class EphemeralCredentialsIT {
     @Container
     static final PostgreSQLContainer operationalDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
             .withNetwork(network)
-            .withNetworkAliases("operational-postgres")
-            .withDatabaseName("operationaldb")
+            .withNetworkAliases("vassago-postgres")
+            .withDatabaseName("vassago")
             .withUsername("admin")
             .withPassword("adminpass");
 
@@ -75,6 +75,12 @@ class EphemeralCredentialsIT {
             .withCommand("server", "-dev")
             .waitingFor(Wait.forHttp("/v1/sys/health").forPort(8200)
                     .withStartupTimeout(Duration.ofSeconds(30)));
+
+    @Container
+    @SuppressWarnings("resource")
+    static final GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
+            .withExposedPorts(6379)
+            .waitingFor(Wait.forListeningPort());
 
     @Container
     @SuppressWarnings("resource")
@@ -142,12 +148,20 @@ class EphemeralCredentialsIT {
             assertThat(raumToken).isNotBlank();
 
             String raumServiceIdStr;
+            String vassagoServiceIdStr;
+            String bimeServiceIdStr;
             try {
                 raumServiceIdStr = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
                                 "-t", "-A", "-c", "SELECT id FROM services WHERE name = 'Raum' LIMIT 1;")
                         .getStdout().trim();
+                vassagoServiceIdStr = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                                "-t", "-A", "-c", "SELECT id FROM services WHERE name = 'Vassago' LIMIT 1;")
+                        .getStdout().trim();
+                bimeServiceIdStr = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                                "-t", "-A", "-c", "SELECT id FROM services WHERE name = 'Bime' LIMIT 1;")
+                        .getStdout().trim();
             } catch (Exception e) {
-                throw new RuntimeException("Failed to read Raum service ID", e);
+                throw new RuntimeException("Failed to read service IDs", e);
             }
 
             raumServiceId = UUID.fromString(raumServiceIdStr);
@@ -161,7 +175,13 @@ class EphemeralCredentialsIT {
                     "openbao.kv.mount=secret",
                     "RAUM_SERVICE_ID=" + raumServiceIdStr,
                     "RAUM_OPENBAO_TOKEN=" + raumToken,
-                    "RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt"
+                    "RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt",
+                    "vassago.service-id=" + vassagoServiceIdStr,
+                    "bime.service-id=" + bimeServiceIdStr,
+                    "spring.data.redis.host=localhost",
+                    "spring.data.redis.port=" + redis.getMappedPort(6379),
+                    "vassago.jwt.public-key-refresh-cron=-",
+                    "raum.onboarding.retry-cron=-"
             );
         }
     }
@@ -197,7 +217,7 @@ class EphemeralCredentialsIT {
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
                         "allowed_roles", credentialId + "-role",
-                        "connection_url", "postgresql://{{username}}:{{password}}@operational-postgres:5432/operationaldb?sslmode=disable",
+                        "connection_url", "postgresql://{{username}}:{{password}}@vassago-postgres:5432/vassago?sslmode=disable",
                         "username", "admin",
                         "password", "adminpass"
                 ))
@@ -209,7 +229,7 @@ class EphemeralCredentialsIT {
                         "db_name", credentialId.toString(),
                         "creation_statements", """
                                 CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
-                                GRANT CONNECT ON DATABASE "operationaldb" TO "{{name}}";
+                                GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
                                 GRANT USAGE ON SCHEMA public TO "{{name}}";
                                 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
                                 """,
@@ -283,10 +303,10 @@ class EphemeralCredentialsIT {
         assertThat(ephemeral).isNotNull();
         assertThat(ephemeral.getUserName()).isNotBlank();
         assertThat(ephemeral.getPassword()).isNotBlank();
-        assertThat(ephemeral.getDbHost()).isEqualTo("operational-postgres");
-        assertThat(ephemeral.getDbName()).isEqualTo("operationaldb");
+        assertThat(ephemeral.getDbHost()).isEqualTo("vassago-postgres");
+        assertThat(ephemeral.getDbName()).isEqualTo("vassago");
 
-        String jdbcUrl = "jdbc:postgresql://localhost:%d/operationaldb"
+        String jdbcUrl = "jdbc:postgresql://localhost:%d/vassago"
                 .formatted(operationalDb.getMappedPort(5432));
         assertThatNoException().isThrownBy(() -> {
             try (Connection conn = DriverManager.getConnection(
@@ -318,9 +338,9 @@ class EphemeralCredentialsIT {
                 .serviceId(serviceId)
                 .userName("admin")
                 .password("adminpass")
-                .dbHost("operational-postgres")
+                .dbHost("vassago-postgres")
                 .dbPort(5432)
-                .dbName("operationaldb")
+                .dbName("vassago")
                 .dbEngine("postgres")
                 .build();
 
@@ -350,9 +370,9 @@ class EphemeralCredentialsIT {
                 .serviceId(raumServiceId)
                 .userName("admin")
                 .password("adminpass")
-                .dbHost("operational-postgres")
+                .dbHost("vassago-postgres")
                 .dbPort(5432)
-                .dbName("operationaldb")
+                .dbName("vassago")
                 .dbEngine("postgres")
                 .build();
 

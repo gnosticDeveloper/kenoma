@@ -53,14 +53,16 @@ public abstract class BaseIT {
     @SuppressWarnings("resource")
     static final PostgreSQLContainer operationalDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
             .withNetwork(network)
-            .withNetworkAliases("operational-postgres")
-            .withDatabaseName("operationaldb")
+            .withNetworkAliases("vassago-postgres")
+            .withDatabaseName("vassago")
             .withUsername("admin")
             .withPassword("adminpass")
             .withInitScript("users-test.sql");
 
     @SuppressWarnings("resource")
     static final GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
+            .withNetwork(network)
+            .withNetworkAliases("redis")
             .withExposedPorts(6379)
             .waitingFor(Wait.forListeningPort());
 
@@ -184,7 +186,7 @@ public abstract class BaseIT {
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
                         "allowed_roles", credentialId + "-role",
-                        "connection_url", "postgresql://{{username}}:{{password}}@operational-postgres:5432/operationaldb?sslmode=disable",
+                        "connection_url", "postgresql://{{username}}:{{password}}@vassago-postgres:5432/vassago?sslmode=disable",
                         "username", "admin",
                         "password", "adminpass"
                 ))
@@ -196,7 +198,7 @@ public abstract class BaseIT {
                         "db_name", credentialId.toString(),
                         "creation_statements", """
                                 CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
-                                GRANT CONNECT ON DATABASE "operationaldb" TO "{{name}}";
+                                GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
                                 GRANT USAGE ON SCHEMA public TO "{{name}}";
                                 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
                                 """,
@@ -210,7 +212,7 @@ public abstract class BaseIT {
                 + VassagoRole.VASSAGO_USER.name() + "\"]}";
         String userRoles = "{\"" + vassagoServiceId + "\":[\"" + VassagoRole.VASSAGO_USER.name() + "\"]}";
 
-        operationalDb.execInContainer("psql", "-U", "admin", "-d", "operationaldb",
+        operationalDb.execInContainer("psql", "-U", "admin", "-d", "vassago",
                 "-c", """
                         INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
                         VALUES ('Bootstrap', 'Admin', 'admin@bootstrap.local', 'bootstrap_admin',
@@ -306,7 +308,11 @@ public abstract class BaseIT {
             vassagoServiceId = UUID.fromString(vassagoServiceIdStr);
 
             raum.withEnv("RAUM_SERVICE_ID", raumServiceIdStr)
-                    .withEnv("RAUM_OPENBAO_TOKEN", vassagoToken);
+                    .withEnv("RAUM_OPENBAO_TOKEN", vassagoToken)
+                    .withEnv("VASSAGO_SERVICE_ID", vassagoServiceIdStr)
+                    .withEnv("BIME_SERVICE_ID", "00000000-0000-0000-0000-000000000099")
+                    .withEnv("REDIS_HOST", "redis")
+                    .withEnv("ONBOARDING_RETRY_CRON", "-");
             raum.start();
         }
 

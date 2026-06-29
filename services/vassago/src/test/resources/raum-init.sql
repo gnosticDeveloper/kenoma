@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS credentials (
                                            db_host           varchar(255) NOT NULL,
                                            db_port           integer NOT NULL,
                                            db_name           varchar(255) NOT NULL,
+                                           is_initialized    bool NOT NULL DEFAULT false,
                                            modification_lock bool DEFAULT false,
                                            locked_at         timestamp,
                                            created_at        timestamp DEFAULT current_timestamp,
@@ -48,7 +49,7 @@ VALUES ('Platform', 'Platform Operator', 'platform@internal')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO credentials (org_id, service_id, db_engine, db_host, db_port, db_name)
-SELECT o.id, s.id, 'postgres', 'operational-postgres', 5432, 'operationaldb'
+SELECT o.id, s.id, 'postgres', 'vassago-postgres', 5432, 'vassago'
 FROM organizations o, services s
 WHERE o.name = 'Platform' AND s.name = 'Vassago'
 ON CONFLICT DO NOTHING;

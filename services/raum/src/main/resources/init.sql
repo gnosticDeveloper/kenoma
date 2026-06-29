@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS credentials (
                                            db_name           varchar(255) NOT NULL,
                                            modification_lock bool DEFAULT false,
                                            locked_at         timestamp,
+                                           is_initialized    bool NOT NULL DEFAULT false,
                                            created_at        timestamp DEFAULT current_timestamp,
                                            modified_at       timestamp DEFAULT current_timestamp,
                                            FOREIGN KEY (org_id) REFERENCES organizations(id),
@@ -53,9 +54,9 @@ SELECT
     o.id,
     s.id,
     'postgres',
-    'operational-postgres',
+    'vassago-postgres',
     5432,
-    'operationaldb'
+    'vassago'
 FROM organizations o, services s
 WHERE o.name = 'Platform' AND s.name = 'Vassago'
 ON CONFLICT DO NOTHING;

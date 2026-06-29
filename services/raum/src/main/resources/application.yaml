@@ -7,6 +7,10 @@ spring:
     service-registry:
       auto-registration:
         enabled: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   r2dbc:
     url: r2dbc:postgresql://${RAUM_DB_HOST:localhost}:${RAUM_DB_PORT:5432}/${RAUM_DB_NAME:raum}
     username: ${RAUM_DB_USER:postgres}
@@ -21,8 +25,17 @@ server:
   port: 8080
 vassago:
   base-url: ${VASSAGO_BASE_URL:http://localhost:8081}
+  service-id: ${VASSAGO_SERVICE_ID}
   jwt:
     public-key-refresh-cron: ${VASSAGO_JWT_PUBLIC_KEY_REFRESH_CRON:15 0 0 * * *}
 
 raum:
   service-id: ${RAUM_SERVICE_ID}
+
+bime:
+  base-url: ${BIME_BASE_URL:http://localhost:8082}
+  service-id: ${BIME_SERVICE_ID}
+
+raum.onboarding:
+  retry-cron: ${ONBOARDING_RETRY_CRON:0 */10 * * * *}
+  config-ttl-seconds: ${ONBOARDING_CONFIG_TTL_SECONDS:86400}

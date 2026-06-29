@@ -8,6 +8,12 @@ public enum RaumRole {
         public Set<RaumPermission> getPermissions() {
             return Set.of(RaumPermission.RAUM_MANAGE);
         }
+    },
+    RAUM_ONBOARDING {
+        @Override
+        public Set<RaumPermission> getPermissions() {
+            return Set.of(RaumPermission.INITIATE_ONBOARDING);
+        }
     };
 
     public abstract Set<RaumPermission> getPermissions();
