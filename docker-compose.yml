@@ -89,17 +89,18 @@ services:
 
   openbao:
     image: openbao/openbao:2.5.2
-    container_name: openbao-dev
+    container_name: openbao
     ports:
       - "8200:8200"
-    environment:
-      BAO_DEV_ROOT_TOKEN_ID: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
-      BAO_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
     cap_add:
       - IPC_LOCK
-    command: server -dev
+    command: server
+    volumes:
+      - openbao-data:/openbao/file
+      - ./config/openbao:/openbao/config:ro
+      - openbao-init-out:/init-out
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8200/v1/sys/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8200/v1/sys/seal-status"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -114,10 +115,10 @@ services:
         condition: service_healthy
     environment:
       BAO_ADDR: "http://openbao:8200"
-      BAO_TOKEN: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
     volumes:
       - ./scripts/init-openbao.sh:/init-openbao.sh
       - approle-out:/approle-out
+      - openbao-init-out:/init-out
     entrypoint: ["/bin/sh", "/init-openbao.sh"]
     restart: "no"
 
@@ -141,7 +142,6 @@ services:
         condition: service_completed_successfully
     environment:
       OPENBAO_BASE_URL: http://openbao:8200
-      OPENBAO_ROOT_TOKEN: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
       RAUM_DB_HOST: raum-postgres
       RAUM_DB_PORT: 5432
       RAUM_DB_NAME: raum
@@ -168,6 +168,7 @@ services:
       - ./services/vassago/src/main/resources/users.sql:/users.sql
       - ./.env-out:/out
       - approle-out:/approle-out
+      - openbao-init-out:/init-out
     entrypoint: ["/bin/sh", "/kenoma-pre-init.sh"]
     restart: "no"
 
@@ -196,7 +197,6 @@ services:
       RAUM_DB_USER: ${RAUM_DB_USER:-postgres}
       RAUM_DB_PASSWORD: ${RAUM_DB_PASSWORD:-postgres}
       OPENBAO_HOST: http://openbao:8200
-      OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN:-dev-root-token}
       OPENBAO_KV_MOUNT: secret
       VASSAGO_BASE_URL: http://vassago:8081
       BIME_BASE_URL: http://bime:8082
@@ -332,6 +332,8 @@ services:
 
 volumes:
   approle-out:
+  openbao-data:
+  openbao-init-out:
   raum-postgres-data:
   bime-postgres-data:
   vassago-postgres-data:

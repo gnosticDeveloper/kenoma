@@ -18,7 +18,7 @@ spring:
 
 openbao:
   host: ${OPENBAO_HOST:http://localhost:8200}
-  token: ${OPENBAO_TOKEN:dev-root-token}
+  token: ${RAUM_OPENBAO_TOKEN:dev-root-token}
   kv:
     mount: ${OPENBAO_KV_MOUNT:secret}
 server:

@@ -1,5 +1,11 @@
 set -e
 
+echo "Reading OpenBao root token from init volume..."
+if [ ! -f /init-out/unseal-keys.env ]; then
+  echo "ERROR: /init-out/unseal-keys.env not found" && exit 1
+fi
+. /init-out/unseal-keys.env
+
 echo "Reading bootstrap IDs from Raum database..."
 
 RAUM_SERVICE_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
@@ -70,6 +76,15 @@ RAUM_TOKEN=$(echo "$RAUM_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -
 [ -z "$RAUM_TOKEN" ] && echo "ERROR: Failed to obtain Raum AppRole token." && exit 1
 echo "Raum AppRole login successful."
 
+echo "Logging in with Raum service AppRole..."
+RAUM_SERVICE_LOGIN=$(wget -q -O - \
+  --header="Content-Type: application/json" \
+  --post-data="{\"role_id\":\"${RAUM_SERVICE_APPROLE_ROLE_ID}\",\"secret_id\":\"${RAUM_SERVICE_APPROLE_SECRET_ID}\"}" \
+  "${OPENBAO_BASE_URL}/v1/auth/approle/login")
+RAUM_SERVICE_TOKEN=$(echo "$RAUM_SERVICE_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -f4)
+[ -z "$RAUM_SERVICE_TOKEN" ] && echo "ERROR: Failed to obtain Raum service AppRole token." && exit 1
+echo "Raum service AppRole login successful."
+
 
 echo "Provisioning Vassago database schema..."
 PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
@@ -97,7 +112,7 @@ echo "Operator user seeded."
 echo "Storing credentials in OpenBao KV..."
 wget -q -O - \
   --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${OPENBAO_ROOT_TOKEN}" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
   --post-data="{\"data\":{\"username\":\"${VASSAGO_DB_USER}\",\"password\":\"${VASSAGO_DB_PASSWORD}\"}}" \
   "${OPENBAO_BASE_URL}/v1/secret/data/credentials/${CREDENTIAL_ID}"
 echo "Credentials stored."
@@ -114,7 +129,7 @@ cat > /tmp/db-config-payload.json << DBCONFIG
 DBCONFIG
 wget -q -O - \
   --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${OPENBAO_ROOT_TOKEN}" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
   --post-file=/tmp/db-config-payload.json \
   "${OPENBAO_BASE_URL}/v1/database/config/${CREDENTIAL_ID}"
 echo "Database connection registered."
@@ -130,7 +145,7 @@ cat > /tmp/role-payload.json << ROLEJSON
 ROLEJSON
 wget -q -O - \
   --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${OPENBAO_ROOT_TOKEN}" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
   --post-file=/tmp/role-payload.json \
   "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-role"
 echo "Database role created."
@@ -147,7 +162,7 @@ cat > /tmp/bime-db-config-payload.json << DBCONFIG
 DBCONFIG
 wget -q -O - \
   --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${OPENBAO_ROOT_TOKEN}" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
   --post-file=/tmp/bime-db-config-payload.json \
   "${OPENBAO_BASE_URL}/v1/database/config/${BIME_CREDENTIAL_ID}"
 echo "Bime database connection registered."
@@ -163,7 +178,7 @@ cat > /tmp/bime-role-payload.json << ROLEJSON
 ROLEJSON
 wget -q -O - \
   --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${OPENBAO_ROOT_TOKEN}" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
   --post-file=/tmp/bime-role-payload.json \
   "${OPENBAO_BASE_URL}/v1/database/roles/${BIME_CREDENTIAL_ID}-role"
 echo "Bime database role created."
@@ -174,7 +189,7 @@ OPENBAO_BASE_URL=${OPENBAO_BASE_URL}
 VASSAGO_SERVICE_ID=${VASSAGO_SERVICE_ID}
 VASSAGO_OPENBAO_TOKEN=${VASSAGO_TOKEN}
 RAUM_SERVICE_ID=${RAUM_SERVICE_ID}
-RAUM_OPENBAO_TOKEN=${RAUM_TOKEN}
+RAUM_OPENBAO_TOKEN=${RAUM_SERVICE_TOKEN}
 RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt
 BIME_SERVICE_ID=${BIME_SERVICE_ID}
 BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
@@ -184,7 +199,7 @@ echo "Wrote env file to ${ENV_OUT}."
 cat > "${ENV_OUT}.local" << LOCALEOF
 # Dynamic values generated at startup — regenerated every time pre-init runs
 RAUM_SERVICE_ID=${RAUM_SERVICE_ID}
-RAUM_OPENBAO_TOKEN=${RAUM_TOKEN}
+RAUM_OPENBAO_TOKEN=${RAUM_SERVICE_TOKEN}
 VASSAGO_SERVICE_ID=${VASSAGO_SERVICE_ID}
 VASSAGO_OPENBAO_TOKEN=${VASSAGO_TOKEN}
 VASSAGO_JWT_TRANSIT_KEY_NAME=vassago-jwt
@@ -194,7 +209,6 @@ BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
 # Infrastructure — localhost addresses for running services outside Docker
 OPENBAO_BASE_URL=http://localhost:8200
 OPENBAO_HOST=http://localhost:8200
-OPENBAO_TOKEN=dev-root-token
 RAUM_BASE_URL=http://localhost:8080
 REDIS_HOST=localhost
 REDIS_PORT=6379
