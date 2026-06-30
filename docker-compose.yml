@@ -10,6 +10,8 @@ services:
       POSTGRES_DB: raum
     ports:
       - "5432:5432"
+    volumes:
+      - raum-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${RAUM_DB_USER:-postgres} -d raum"]
       interval: 5s
@@ -37,6 +39,8 @@ services:
       POSTGRES_DB: bime
     ports:
       - "5434:5432"
+    volumes:
+      - bime-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${BIME_DB_USER:-postgres} -d bime"]
       interval: 5s
@@ -75,6 +79,8 @@ services:
       POSTGRES_DB: vassago
     ports:
       - "5433:5432"
+    volumes:
+      - vassago-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${VASSAGO_DB_USER:-admin} -d vassago"]
       interval: 5s
@@ -278,6 +284,23 @@ services:
       timeout: 5s
       retries: 12
 
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gateway/certs:/etc/nginx/certs:ro
+    depends_on:
+      raum:
+        condition: service_healthy
+      vassago:
+        condition: service_healthy
+      bime:
+        condition: service_healthy
+
   kenoma-seed:
     profiles: ["seed"]
     build:
@@ -309,3 +332,6 @@ services:
 
 volumes:
   approle-out:
+  raum-postgres-data:
+  bime-postgres-data:
+  vassago-postgres-data:
