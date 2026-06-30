@@ -39,3 +39,4 @@ codebase.json
 .env-out/
 repomix.config.json
 .claude
+gateway/certs/server.key
