@@ -538,6 +538,8 @@ class OnboardingIT {
                 .thenReturn(Mono.empty());
         when(bimeClient.createVariant(anyString(), any(UUID.class), anyList(), anyString()))
                 .thenReturn(Mono.just(UUID.randomUUID()));
+        when(bimeClient.recordStockMovement(anyString(), any(UUID.class), any(UUID.class), anyInt()))
+                .thenReturn(Mono.empty());
     }
 
     @SuppressWarnings("unchecked")
