@@ -21,6 +21,7 @@ openbao:
   token: ${RAUM_OPENBAO_TOKEN:dev-root-token}
   kv:
     mount: ${OPENBAO_KV_MOUNT:secret}
+  token-renewal-rate-ms: ${OPENBAO_TOKEN_RENEWAL_RATE_MS:1200000}
 server:
   port: 8080
 vassago:

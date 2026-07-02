@@ -13,6 +13,7 @@ vassago:
   service-id: ${VASSAGO_SERVICE_ID}
   openbao:
     token: ${VASSAGO_OPENBAO_TOKEN}
+    token-renewal-rate-ms: ${VASSAGO_OPENBAO_TOKEN_RENEWAL_RATE_MS:1200000}
   pool:
     expiry-buffer-percent: ${VASSAGO_POOL_EXPIRY_BUFFER_PERCENT:10}
     eviction-interval-seconds: ${VASSAGO_POOL_EVICTION_INTERVAL_SECONDS:60}
