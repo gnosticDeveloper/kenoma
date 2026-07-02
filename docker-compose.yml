@@ -202,12 +202,12 @@ services:
       BIME_BASE_URL: http://bime:8082
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
     volumes:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
-      - "8080:8080"
       - "5005:5005"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/actuator/health"]
@@ -234,12 +234,13 @@ services:
       MAILGUN_DOMAIN: ${MAILGUN_DOMAIN}
       MAILGUN_FROM: ${MAILGUN_FROM:-}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      VASSAGO_COOKIE_DOMAIN: ${VASSAGO_COOKIE_DOMAIN:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006"
     volumes:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
-      - "8081:8081"
       - "5006:5006"
     restart: on-failure:3
     healthcheck:
@@ -270,12 +271,12 @@ services:
       OPENBAO_HOST: http://openbao:8200
       RAUM_BASE_URL: http://raum:8080
       VASSAGO_BASE_URL: http://vassago:8081
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5007"
     volumes:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
-      - "8082:8082"
       - "5007:5007"
     restart: on-failure:3
     healthcheck:
@@ -287,11 +288,13 @@ services:
   nginx:
     image: nginx:alpine
     container_name: nginx
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN:-localhost}
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gateway/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./gateway/certs:/etc/nginx/certs:ro
     depends_on:
       raum:

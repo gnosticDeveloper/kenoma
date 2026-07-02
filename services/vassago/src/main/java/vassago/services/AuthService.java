@@ -49,6 +49,9 @@ public class AuthService {
     @Value("${vassago.refresh-token.ttl-seconds:2592000}")
     private long refreshTtlSeconds;
 
+    @Value("${vassago.cookie.domain:}")
+    private String cookieDomain;
+
     public Mono<String> login(LoginRequestDTO dto, ServerHttpResponse response) {
         return vassagoDbService.getClient(dto.getOrgId())
                 .onErrorMap(NotFoundException.class, ex -> new UnauthorizedException("Invalid credentials"))
@@ -179,25 +182,26 @@ public class AuthService {
     }
 
     private void setCookie(ServerHttpResponse response, String name, String value) {
-        response.addCookie(ResponseCookie.from(name, value)
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
-                .maxAge(Duration.ofSeconds(refreshTtlSeconds))
-                .path("/auth")
-                .build());
+        response.addCookie(cookieBuilder(name, value, Duration.ofSeconds(refreshTtlSeconds)).build());
     }
 
     private void clearCookies(ServerHttpResponse response) {
         for (String name : new String[]{REFRESH_COOKIE, FP_COOKIE}) {
-            response.addCookie(ResponseCookie.from(name, "")
-                    .httpOnly(true)
-                    .secure(true)
-                    .sameSite("Strict")
-                    .maxAge(Duration.ZERO)
-                    .path("/auth")
-                    .build());
+            response.addCookie(cookieBuilder(name, "", Duration.ZERO).build());
         }
+    }
+
+    private ResponseCookie.ResponseCookieBuilder cookieBuilder(String name, String value, Duration maxAge) {
+        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(name, value)
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Strict")
+                .maxAge(maxAge)
+                .path("/auth");
+        if (cookieDomain != null && !cookieDomain.isBlank()) {
+            builder.domain(cookieDomain);
+        }
+        return builder;
     }
 
     private static String generateToken() {

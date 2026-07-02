@@ -66,6 +66,8 @@ class AuthIT extends BaseIT {
 
         assertThat(rtCookie).isNotNull();
         assertThat(fpCookie).isNotNull();
+        assertThat(rtCookie.getDomain()).isEqualTo(".test.local");
+        assertThat(fpCookie.getDomain()).isEqualTo(".test.local");
 
         webTestClient.post()
                 .uri("/auth/logout")

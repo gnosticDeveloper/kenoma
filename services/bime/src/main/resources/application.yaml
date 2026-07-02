@@ -15,6 +15,8 @@ raum:
 
 bime:
   service-id: ${BIME_SERVICE_ID}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   pool:
     expiry-buffer-percent: ${BIME_POOL_EXPIRY_BUFFER_PERCENT:10}
     eviction-interval-seconds: ${BIME_POOL_EVICTION_INTERVAL_SECONDS:60}

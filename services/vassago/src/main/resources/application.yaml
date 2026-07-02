@@ -25,6 +25,10 @@ vassago:
     key-rotation-cron: ${VASSAGO_JWT_KEY_ROTATION_CRON:0 0 0 * * *}
   refresh-token:
     ttl-seconds: ${VASSAGO_REFRESH_TOKEN_TTL_SECONDS:2592000}
+  cookie:
+    domain: ${VASSAGO_COOKIE_DOMAIN:}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
 openbao:
   base-url: ${OPENBAO_BASE_URL:http://localhost:8200}
 mailgun:
