@@ -50,7 +50,7 @@ public abstract class BaseIT {
             .withDatabaseName("bime")
             .withUsername("postgres")
             .withPassword("postgres")
-            .withInitScript("init.sql");
+            .withInitScript("bime-init.sql");
 
     static {
         bimeDb.start();

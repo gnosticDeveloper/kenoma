@@ -183,6 +183,13 @@ wget -q -O - \
   "${OPENBAO_BASE_URL}/v1/database/roles/${BIME_CREDENTIAL_ID}-role"
 echo "Bime database role created."
 
+echo "Marking pre-initialized credentials as initialized..."
+PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
+  -h "${RAUM_DB_HOST}" -p "${RAUM_DB_PORT}" \
+  -U "${RAUM_DB_USER}" -d "${RAUM_DB_NAME}" \
+  -c "UPDATE credentials SET is_initialized = true WHERE id IN ('${CREDENTIAL_ID}', '${BIME_CREDENTIAL_ID}');"
+echo "Credentials marked as initialized."
+
 mkdir -p "$(dirname "${ENV_OUT}")"
 cat > "${ENV_OUT}" << ENVEOF
 OPENBAO_BASE_URL=${OPENBAO_BASE_URL}

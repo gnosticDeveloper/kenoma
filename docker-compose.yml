@@ -56,7 +56,7 @@ services:
     environment:
       PGPASSWORD: ${BIME_DB_PASSWORD:-postgres}
     volumes:
-      - ./services/bime/src/main/resources/init.sql:/init.sql
+      - ./services/common/src/main/resources/bime-init.sql:/init.sql
     entrypoint: ["sh", "-c", "psql -h bime-postgres -U ${BIME_DB_USER:-postgres} -d bime -f /init.sql"]
 
   redis:
@@ -165,7 +165,7 @@ services:
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/kenoma-pre-init.sh:/kenoma-pre-init.sh
-      - ./services/vassago/src/main/resources/users.sql:/users.sql
+      - ./services/common/src/main/resources/users.sql:/users.sql
       - ./.env-out:/out
       - approle-out:/approle-out
       - openbao-init-out:/init-out

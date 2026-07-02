@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import raum.clients.BimeClient;
 import raum.clients.BimeClient.MetadataAssignmentItem;
 import raum.dto.OnboardingRequestDTO;
+import raum.openbao.OpenBaoService;
+import raum.repository.CredentialsRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -18,13 +20,19 @@ import java.util.UUID;
 @Order(2)
 public class BimeOnboardingStrategy implements OnboardingStrategy {
 
+    private static final String SCHEMA_RESOURCE = "bime-init.sql";
+
     private final BimeClient bimeClient;
+    private final CredentialsRepository credentialsRepository;
+    private final OpenBaoService openBaoService;
 
     @Value("${bime.service-id}")
     private UUID bimeServiceId;
 
-    public BimeOnboardingStrategy(BimeClient bimeClient) {
+    public BimeOnboardingStrategy(BimeClient bimeClient, CredentialsRepository credentialsRepository, OpenBaoService openBaoService) {
         this.bimeClient = bimeClient;
+        this.credentialsRepository = credentialsRepository;
+        this.openBaoService = openBaoService;
     }
 
     @Override
@@ -47,12 +55,14 @@ public class BimeOnboardingStrategy implements OnboardingStrategy {
     @Override
     public Mono<Void> execute(UUID orgId, CredentialsDTO credentials, OnboardingRequestDTO request, OnboardingContext context) {
         String jwt = context.getJwt();
-        return switch (request.getBimePreset()) {
-            case CLOTHING_STORE -> clothingStore(jwt);
-            case BOOK_STORE -> bookStore(jwt);
-            case REPAIR_SHOP -> repairShop(jwt);
-            case STORAGE_WAREHOUSE -> storageWarehouse(jwt);
-        };
+        return SchemaProvisioner.staticClientFor(credentialsRepository, openBaoService, orgId, bimeServiceId, credentials)
+                .flatMap(schemaClient -> SchemaProvisioner.applySchema(schemaClient, SCHEMA_RESOURCE))
+                .then(Mono.defer(() -> switch (request.getBimePreset()) {
+                    case CLOTHING_STORE -> clothingStore(jwt);
+                    case BOOK_STORE -> bookStore(jwt);
+                    case REPAIR_SHOP -> repairShop(jwt);
+                    case STORAGE_WAREHOUSE -> storageWarehouse(jwt);
+                }));
     }
 
     // -------------------------------------------------------------------------
@@ -60,13 +70,15 @@ public class BimeOnboardingStrategy implements OnboardingStrategy {
     // -------------------------------------------------------------------------
 
     private Mono<Void> clothingStore(String jwt) {
-        Mono<Void> locations = Flux.just(
+        // Stock is seeded into the first location created (Main Store); the others exist as
+        // valid transfer/receiving destinations but start empty, matching a real store rollout.
+        Mono<UUID> locations = Flux.just(
                 new String[]{"Main Store", "WH-01"},
                 new String[]{"Branch", "WH-02"},
                 new String[]{"Stockroom", "WH-03"}
-        ).flatMap(l -> bimeClient.createLocation(jwt, l[0], l[1])).then();
+        ).concatMap(l -> bimeClient.createLocation(jwt, l[0], l[1])).collectList().map(ids -> ids.get(0));
 
-        Mono<Void> catalog = Mono.zip(
+        return locations.flatMap(stockLocationId -> Mono.zip(
                 createMetadataWithOptions(jwt, "Size", List.of("S", "M", "L", "XL")),
                 createMetadataWithOptions(jwt, "Colour", List.of("Black", "White", "Red"))
         ).flatMap(tuple -> {
@@ -79,25 +91,23 @@ public class BimeOnboardingStrategy implements OnboardingStrategy {
             // size options: S=0, M=1, L=2, XL=3 | colour options: Black=0, White=1, Red=2
             return Mono.when(
                     seedProduct(jwt, "TSHIRT-001", "T-Shirt", "Classic cotton t-shirt", assignments, List.of(
-                            new Variant(List.of(size.optionIds().get(0), colour.optionIds().get(0)), "TSHIRT-001-S-BLK"),
-                            new Variant(List.of(size.optionIds().get(1), colour.optionIds().get(1)), "TSHIRT-001-M-WHT"),
-                            new Variant(List.of(size.optionIds().get(2), colour.optionIds().get(2)), "TSHIRT-001-L-RED")
-                    )),
+                            new Variant(List.of(size.optionIds().get(0), colour.optionIds().get(0)), "TSHIRT-001-S-BLK", 40),
+                            new Variant(List.of(size.optionIds().get(1), colour.optionIds().get(1)), "TSHIRT-001-M-WHT", 35),
+                            new Variant(List.of(size.optionIds().get(2), colour.optionIds().get(2)), "TSHIRT-001-L-RED", 25)
+                    ), stockLocationId),
                     seedProduct(jwt, "JEANS-001", "Jeans", "Slim fit denim jeans", assignments, List.of(
-                            new Variant(List.of(size.optionIds().get(0), colour.optionIds().get(0)), "JEANS-001-S-BLK"),
-                            new Variant(List.of(size.optionIds().get(1), colour.optionIds().get(0)), "JEANS-001-M-BLK"),
-                            new Variant(List.of(size.optionIds().get(2), colour.optionIds().get(1)), "JEANS-001-L-WHT")
-                    ))
+                            new Variant(List.of(size.optionIds().get(0), colour.optionIds().get(0)), "JEANS-001-S-BLK", 20),
+                            new Variant(List.of(size.optionIds().get(1), colour.optionIds().get(0)), "JEANS-001-M-BLK", 30),
+                            new Variant(List.of(size.optionIds().get(2), colour.optionIds().get(1)), "JEANS-001-L-WHT", 15)
+                    ), stockLocationId)
             );
-        });
-
-        return locations.then(catalog);
+        }));
     }
 
     private Mono<Void> bookStore(String jwt) {
-        Mono<Void> locations = bimeClient.createLocation(jwt, "Store", "BS-01").then();
+        Mono<UUID> locations = bimeClient.createLocation(jwt, "Store", "BS-01");
 
-        Mono<Void> catalog = Mono.zip(
+        return locations.flatMap(stockLocationId -> Mono.zip(
                 createMetadataWithOptions(jwt, "Format", List.of("Hardcover", "Paperback", "eBook")),
                 createMetadataWithOptions(jwt, "Genre", List.of("Fiction", "Non-Fiction", "Science"))
         ).flatMap(tuple -> {
@@ -114,26 +124,24 @@ public class BimeOnboardingStrategy implements OnboardingStrategy {
             );
             return Mono.when(
                     seedProduct(jwt, "BOOK-001", "Sample Novel", "A demo fiction novel", novelAssignments, List.of(
-                            new Variant(List.of(format.optionIds().get(0), genre.optionIds().get(0)), "BOOK-001-HC"),
-                            new Variant(List.of(format.optionIds().get(1), genre.optionIds().get(0)), "BOOK-001-PB")
-                    )),
+                            new Variant(List.of(format.optionIds().get(0), genre.optionIds().get(0)), "BOOK-001-HC", 15),
+                            new Variant(List.of(format.optionIds().get(1), genre.optionIds().get(0)), "BOOK-001-PB", 50)
+                    ), stockLocationId),
                     seedProduct(jwt, "BOOK-002", "Sample Guide", "A demo non-fiction guide", guideAssignments, List.of(
-                            new Variant(List.of(format.optionIds().get(1), genre.optionIds().get(1)), "BOOK-002-PB"),
-                            new Variant(List.of(format.optionIds().get(2), genre.optionIds().get(1)), "BOOK-002-EB")
-                    ))
+                            new Variant(List.of(format.optionIds().get(1), genre.optionIds().get(1)), "BOOK-002-PB", 40),
+                            new Variant(List.of(format.optionIds().get(2), genre.optionIds().get(1)), "BOOK-002-EB", 60)
+                    ), stockLocationId)
             );
-        });
-
-        return locations.then(catalog);
+        }));
     }
 
     private Mono<Void> repairShop(String jwt) {
-        Mono<Void> locations = Flux.just(
+        Mono<UUID> locations = Flux.just(
                 new String[]{"Workshop", "WS-01"},
                 new String[]{"Parts Storage", "PS-01"}
-        ).flatMap(l -> bimeClient.createLocation(jwt, l[0], l[1])).then();
+        ).concatMap(l -> bimeClient.createLocation(jwt, l[0], l[1])).collectList().map(ids -> ids.get(1));
 
-        Mono<Void> catalog = createMetadataWithOptions(jwt, "Condition", List.of("New", "Used", "Refurbished"))
+        return locations.flatMap(stockLocationId -> createMetadataWithOptions(jwt, "Condition", List.of("New", "Used", "Refurbished"))
                 .flatMap(condition -> {
                     List<MetadataAssignmentItem> screenAssignments = List.of(
                             new MetadataAssignmentItem(condition.metaId(),
@@ -145,29 +153,27 @@ public class BimeOnboardingStrategy implements OnboardingStrategy {
                     // condition: New=0, Used=1, Refurbished=2
                     return Mono.when(
                             seedProduct(jwt, "PART-001", "Replacement Screen", "Display panel replacement", screenAssignments, List.of(
-                                    new Variant(List.of(condition.optionIds().get(0)), "PART-001-NEW"),
-                                    new Variant(List.of(condition.optionIds().get(2)), "PART-001-REF")
-                            )),
+                                    new Variant(List.of(condition.optionIds().get(0)), "PART-001-NEW", 12),
+                                    new Variant(List.of(condition.optionIds().get(2)), "PART-001-REF", 6)
+                            ), stockLocationId),
                             seedProduct(jwt, "PART-002", "Battery", "Standard battery pack", batteryAssignments, List.of(
-                                    new Variant(List.of(condition.optionIds().get(0)), "PART-002-NEW"),
-                                    new Variant(List.of(condition.optionIds().get(1)), "PART-002-USED"),
-                                    new Variant(List.of(condition.optionIds().get(2)), "PART-002-REF")
-                            ))
+                                    new Variant(List.of(condition.optionIds().get(0)), "PART-002-NEW", 25),
+                                    new Variant(List.of(condition.optionIds().get(1)), "PART-002-USED", 8),
+                                    new Variant(List.of(condition.optionIds().get(2)), "PART-002-REF", 10)
+                            ), stockLocationId)
                     );
-                });
-
-        return locations.then(catalog);
+                }));
     }
 
     private Mono<Void> storageWarehouse(String jwt) {
-        Mono<Void> locations = Flux.just(
+        Mono<UUID> locations = Flux.just(
                 new String[]{"Receiving", "RCV-01"},
                 new String[]{"Zone A", "ZA-01"},
                 new String[]{"Zone B", "ZB-01"},
                 new String[]{"Dispatch", "DSP-01"}
-        ).flatMap(l -> bimeClient.createLocation(jwt, l[0], l[1])).then();
+        ).concatMap(l -> bimeClient.createLocation(jwt, l[0], l[1])).collectList().map(ids -> ids.get(1));
 
-        Mono<Void> catalog = createMetadataWithOptions(jwt, "Category", List.of("Electronics", "Furniture", "Supplies"))
+        return locations.flatMap(stockLocationId -> createMetadataWithOptions(jwt, "Category", List.of("Electronics", "Furniture", "Supplies"))
                 .flatMap(category -> {
                     // category: Electronics=0, Furniture=1, Supplies=2
                     List<MetadataAssignmentItem> electronicsAssignments = List.of(
@@ -179,16 +185,14 @@ public class BimeOnboardingStrategy implements OnboardingStrategy {
                     return Mono.when(
                             seedProduct(jwt, "ITEM-001", "Electronic Component", "General electronic component",
                                     electronicsAssignments, List.of(
-                                            new Variant(List.of(category.optionIds().get(0)), "ITEM-001-ELEC")
-                                    )),
+                                            new Variant(List.of(category.optionIds().get(0)), "ITEM-001-ELEC", 200)
+                                    ), stockLocationId),
                             seedProduct(jwt, "ITEM-002", "Storage Box", "Standard storage box",
                                     suppliesAssignments, List.of(
-                                            new Variant(List.of(category.optionIds().get(2)), "ITEM-002-SUPP")
-                                    ))
+                                            new Variant(List.of(category.optionIds().get(2)), "ITEM-002-SUPP", 500)
+                                    ), stockLocationId)
                     );
-                });
-
-        return locations.then(catalog);
+                }));
     }
 
     // -------------------------------------------------------------------------
@@ -205,15 +209,16 @@ public class BimeOnboardingStrategy implements OnboardingStrategy {
     }
 
     private Mono<Void> seedProduct(String jwt, String sku, String name, String description,
-                                   List<MetadataAssignmentItem> assignments, List<Variant> variants) {
+                                   List<MetadataAssignmentItem> assignments, List<Variant> variants, UUID stockLocationId) {
         return bimeClient.createProduct(jwt, sku, name, description)
                 .flatMap(productId -> bimeClient.assignMetadata(jwt, productId, assignments)
                         .thenMany(Flux.fromIterable(variants)
-                                .concatMap(v -> bimeClient.createVariant(jwt, productId, v.optionIds(), v.sku())))
+                                .concatMap(v -> bimeClient.createVariant(jwt, productId, v.optionIds(), v.sku())
+                                        .flatMap(variantId -> bimeClient.recordStockMovement(jwt, variantId, stockLocationId, v.quantity()))))
                         .then()
                 );
     }
 
     private record MetaResult(UUID metaId, List<UUID> optionIds) {}
-    private record Variant(List<UUID> optionIds, String sku) {}
+    private record Variant(List<UUID> optionIds, String sku, int quantity) {}
 }

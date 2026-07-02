@@ -2,8 +2,6 @@ package raum.onboarding;
 
 import common.dto.CredentialsDTO;
 import common.utils.RolesUtils;
-import io.r2dbc.spi.ConnectionFactories;
-import io.r2dbc.spi.ConnectionFactoryOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.r2dbc.core.DatabaseClient;
@@ -22,13 +20,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static io.r2dbc.spi.ConnectionFactoryOptions.*;
-
 @Component
 @Order(1)
 public class VassagoOnboardingStrategy implements OnboardingStrategy {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final String SCHEMA_RESOURCE = "users.sql";
 
     private final VassagoClient vassagoClient;
     private final PasswordEncoder passwordEncoder;
@@ -86,28 +83,31 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
                 bimeServiceId.toString(), List.of("BIME_ADMIN")
         ));
 
-        DatabaseClient client = buildClient(vassagoCredentials);
+        DatabaseClient client = SchemaProvisioner.buildClient(vassagoCredentials);
 
-        return client.sql("""
+        return SchemaProvisioner.staticClientFor(credentialsRepository, openBaoService, orgId, vassagoServiceId, vassagoCredentials)
+                .flatMap(schemaClient -> SchemaProvisioner.applySchema(schemaClient, SCHEMA_RESOURCE)
+                        .then(SchemaProvisioner.grantDml(schemaClient, vassagoCredentials.getUserName())))
+                .then(Mono.defer(() -> client.sql("""
                         INSERT INTO users (name, last_name, email, username, password, roles, is_ready, created_at, modified_at)
                         VALUES (:name, :lastName, :email, :username, :password, :roles, true, :now, :now)
                         RETURNING id
                         """)
-                .bind("name", "_Onboarding")
-                .bind("lastName", "Temp")
-                .bind("email", tempEmail)
-                .bind("username", tempUsername)
-                .bind("password", passwordHash)
-                .bind("roles", roles)
-                .bind("now", Instant.now())
-                .fetch()
-                .one()
+                        .bind("name", "_Onboarding")
+                        .bind("lastName", "Temp")
+                        .bind("email", tempEmail)
+                        .bind("username", tempUsername)
+                        .bind("password", passwordHash)
+                        .bind("roles", roles)
+                        .bind("now", Instant.now())
+                        .fetch()
+                        .one()))
                 .flatMap(row -> {
                     UUID tempAdminId = (UUID) row.get("id");
                     Mono<Void> cleanup = deleteUser(client, tempAdminId)
                             .onErrorResume(e -> credentialsRepository.findByOrgIdAndServiceId(orgId, vassagoServiceId)
                                     .flatMap(creds -> openBaoService.issueEphemeralCredentials(creds.getId()))
-                                    .flatMap(fresh -> deleteUser(buildClient(fresh), tempAdminId)));
+                                    .flatMap(fresh -> deleteUser(SchemaProvisioner.buildClient(fresh), tempAdminId)));
                     return vassagoClient.login(orgId, tempUsername, tempPassword)
                             .map(jwt -> new TempSession(jwt, cleanup));
                 });
@@ -121,18 +121,6 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
                 .fetch()
                 .rowsUpdated()
                 .then();
-    }
-
-    private DatabaseClient buildClient(CredentialsDTO credentials) {
-        ConnectionFactoryOptions opts = ConnectionFactoryOptions.builder()
-                .option(DRIVER, "postgresql")
-                .option(HOST, credentials.getDbHost())
-                .option(PORT, credentials.getDbPort())
-                .option(USER, credentials.getUserName())
-                .option(PASSWORD, credentials.getPassword())
-                .option(DATABASE, credentials.getDbName())
-                .build();
-        return DatabaseClient.create(ConnectionFactories.get(opts));
     }
 
     private static String generateToken() {
