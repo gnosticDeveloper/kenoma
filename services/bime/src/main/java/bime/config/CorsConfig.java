@@ -1,4 +1,4 @@
-package vassago.config;
+package bime.config;
 
 import common.security.CorsConfigFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,7 +9,7 @@ import org.springframework.web.cors.reactive.CorsConfigurationSource;
 @Configuration
 public class CorsConfig {
 
-    @Value("${vassago.cors.allowed-origins:}")
+    @Value("${bime.cors.allowed-origins:}")
     private String allowedOrigins;
 
     @Bean

@@ -28,7 +28,7 @@ vassago:
   cookie:
     domain: ${VASSAGO_COOKIE_DOMAIN:}
   cors:
-    allowed-origins: ${VASSAGO_CORS_ALLOWED_ORIGINS:}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
 openbao:
   base-url: ${OPENBAO_BASE_URL:http://localhost:8200}
 mailgun:
