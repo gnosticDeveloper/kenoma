@@ -1,0 +1,607 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  color: #212529;
+  background: #f1f3f5;
+  min-height: 100vh;
+}
+
+/* ── App layout ── */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 196px;
+  flex-shrink: 0;
+  background: #1c1c1e;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  padding: 18px 18px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #fff;
+  border-bottom: 1px solid #3a3a3c;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 6px 0;
+}
+
+.sidebar-group {
+  margin-bottom: 2px;
+}
+
+.sidebar-group-label {
+  padding: 10px 18px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #636366;
+}
+
+.sidebar-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 18px 8px 26px;
+  background: none;
+  border: none;
+  color: #aeaeb2;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.sidebar-item:hover { color: #fff; background: #2c2c2e; }
+.sidebar-item.active { color: #fff; background: #3a3a3c; font-weight: 500; }
+
+.sidebar-empty {
+  padding: 16px 18px;
+  font-size: 12px;
+  color: #636366;
+  font-style: italic;
+}
+
+.sidebar-footer {
+  padding: 14px 18px;
+  border-top: 1px solid #3a3a3c;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.session-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #40c057;
+  flex-shrink: 0;
+}
+
+/* ── Main content ── */
+.content {
+  margin-left: 196px;
+  flex: 1;
+  min-height: 100vh;
+  background: #f1f3f5;
+}
+
+/* ── Login page ── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f3f5;
+}
+
+.login-card {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+  padding: 36px 32px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1c1c1e;
+  margin-bottom: 4px;
+}
+
+.login-card > p {
+  font-size: 13px;
+  color: #6c757d;
+  margin-bottom: 24px;
+}
+
+.login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+
+/* ── Page layout ── */
+.page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 860px;
+}
+
+/* ── Panel (card) ── */
+.panel {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.panel h2 {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 16px;
+}
+
+/* ── Form fields ── */
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.field input,
+.field select {
+  padding: 7px 10px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #212529;
+  background: #fff;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.12);
+}
+
+/* ── Action buttons row ── */
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* ── Buttons ── */
+.btn {
+  padding: 7px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  letter-spacing: 0.2px;
+}
+
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.btn-primary { background: #0d6efd; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #0b5ed7; }
+
+.btn-danger { background: #dc3545; color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #bb2d3b; }
+
+.btn-outline {
+  background: #fff;
+  color: #0d6efd;
+  border: 1px solid #0d6efd;
+}
+.btn-outline:hover:not(:disabled) { background: #e7f1ff; }
+
+.btn-full { width: 100%; }
+
+.btn-ghost {
+  background: transparent;
+  color: #adb5bd;
+  border: 1px solid #3a3a3c;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.btn-ghost:hover:not(:disabled) { color: #fff; border-color: #636366; }
+
+/* ── Response / feedback ── */
+.response {
+  background: #1c1c1e;
+  color: #a8ff78;
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 12px;
+}
+
+.error {
+  background: #fff5f5;
+  color: #c92a2a;
+  border: 1px solid #ffc9c9;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  margin-top: 12px;
+  word-break: break-all;
+}
+
+.success {
+  background: #ebfbee;
+  color: #2f9e44;
+  border: 1px solid #b2f2bb;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+/* ── Panel hint ── */
+.panel-hint {
+  font-size: 12px;
+  color: #6c757d;
+  margin-bottom: 16px;
+  margin-top: -8px;
+  line-height: 1.5;
+}
+
+/* ── Entity card ── */
+.entity-card {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-left: 3px solid #0d6efd;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-top: 12px;
+}
+
+.entity-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #212529;
+  margin-bottom: 3px;
+}
+
+.entity-detail {
+  font-size: 13px;
+  color: #6c757d;
+  margin-bottom: 10px;
+}
+
+.entity-id-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.entity-id-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #adb5bd;
+  flex-shrink: 0;
+}
+
+.entity-id-value {
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: #6c757d;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Credential card ── */
+.entity-card.cred-card {
+  border-left-color: #f59f00;
+}
+
+.cred-section {
+  margin-bottom: 4px;
+}
+
+.cred-divider {
+  border: none;
+  border-top: 1px solid #dee2e6;
+  margin: 10px 0;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.field-label {
+  min-width: 80px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #adb5bd;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+.field-value {
+  font-size: 13px;
+  color: #212529;
+  flex: 1;
+}
+
+.field-value.mono {
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+}
+
+.lease-id {
+  font-size: 11px;
+  color: #6c757d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Copy button ── */
+.copy-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #6c757d;
+  flex-shrink: 0;
+  line-height: 1.6;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.copy-btn:hover { background: #f1f3f5; color: #343a40; border-color: #ced4da; }
+.copy-btn.copied { background: #ebfbee; border-color: #b2f2bb; color: #2f9e44; }
+
+/* ── Service table ── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.data-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 2px solid #dee2e6;
+  background: #f8f9fa;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f3f5;
+  color: #212529;
+  vertical-align: middle;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: #f8f9fa; }
+.td-muted { color: #6c757d; font-size: 12px; }
+.td-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.td-id span {
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: #6c757d;
+}
+
+/* ── Status badge (test-db result) ── */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 12px;
+}
+.status-badge::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-ok { background: #ebfbee; color: #2f9e44; border: 1px solid #b2f2bb; }
+.status-ok::before { background: #40c057; }
+.status-fail { background: #fff5f5; color: #c92a2a; border: 1px solid #ffc9c9; }
+.status-fail::before { background: #fa5252; }
+
+/* ── Empty / no-perms states ── */
+.empty-state {
+  padding: 20px 12px;
+  color: #6c757d;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.no-perms {
+  padding: 64px 24px;
+  text-align: center;
+  color: #6c757d;
+}
+.no-perms p { font-size: 14px; }
+
+/* ── Small button ── */
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* ── Role chips (in table and cards) ── */
+.role-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  background: #e7f1ff;
+  color: #0d6efd;
+  border: 1px solid #c1d8ff;
+  white-space: nowrap;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* ── User card roles section ── */
+.user-roles {
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.role-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.role-svc-id {
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: #adb5bd;
+  flex-shrink: 0;
+  min-width: 70px;
+  cursor: default;
+}
+
+/* ── Role assignment input ── */
+.roles-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.role-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.role-row-svc {
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  color: #212529;
+  flex: 2;
+  min-width: 0;
+}
+
+.role-row-name {
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #212529;
+  flex: 1;
+  min-width: 0;
+}
+
+.role-row-svc:focus, .role-row-name:focus {
+  outline: none;
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.12);
+}
+
+/* ── Public key display ── */
+.pubkey-block {
+  margin-top: 12px;
+  background: #1c1c1e;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.pubkey-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 10px 0;
+}
+
+.pubkey-pre {
+  padding: 10px 14px 14px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: #a8ff78;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
