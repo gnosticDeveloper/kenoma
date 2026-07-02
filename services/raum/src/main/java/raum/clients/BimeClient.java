@@ -90,11 +90,23 @@ public class BimeClient {
                 .map(IdResponse::id);
     }
 
+    public Mono<Void> recordStockMovement(String jwt, UUID variantId, UUID locationId, int delta) {
+        return webClient.post()
+                .uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwt)
+                .bodyValue(new StockMovementRequest(variantId, locationId, "INBOUND", delta, "Initial preset stock"))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, resp -> resp.bodyToMono(String.class)
+                        .flatMap(body -> Mono.error(new RuntimeException("Bime recordStockMovement failed: " + body))))
+                .bodyToMono(Void.class);
+    }
+
     record LocationRequest(String name, String code, Boolean isActive) {}
     record ProductRequest(String sku, String name, String description, Boolean isActive) {}
     record MetadataRequest(String name) {}
     record OptionRequest(String value) {}
     record VariantRequest(List<UUID> optionIds, String sku, Boolean isActive) {}
+    record StockMovementRequest(UUID variantId, UUID locationId, String movementType, int delta, String note) {}
     public record MetadataAssignmentItem(UUID metadataId, List<UUID> optionIds) {}
     record IdResponse(UUID id) {}
 }

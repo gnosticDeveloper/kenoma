@@ -99,10 +99,10 @@ public class OpenBaoService {
                         })
                 )
                 .bodyToMono(Void.class)
-                .then(createRole(connectionName, roleName, dbName));
+                .then(createRole(connectionName, roleName, dbName, username));
     }
 
-    private Mono<Void> createRole(String connectionName, String roleName, String dbName) {
+    private Mono<Void> createRole(String connectionName, String roleName, String dbName, String ownerUsername) {
         return webClient.post()
                 .uri("/v1/database/roles/{role}", roleName)
                 .bodyValue(Map.of(
@@ -111,6 +111,13 @@ public class OpenBaoService {
                                 "GRANT CONNECT ON DATABASE \"" + dbName + "\" TO \"{{name}}\"; " +
                                 "GRANT USAGE ON SCHEMA public TO \"{{name}}\"; " +
                                 "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
+                        // Defensive: ephemeral roles are not expected to own any objects (schema DDL runs under the
+                        // static credentials — see SchemaProvisioner.staticClientFor), but REASSIGN OWNED BY is a
+                        // no-op if the role owns nothing, so this protects against the role ever ending up owning
+                        // something and blocking its own revocation ("cannot be dropped because objects depend on it").
+                        "revocation_statements", "REASSIGN OWNED BY \"{{name}}\" TO \"" + ownerUsername + "\"; " +
+                                "DROP OWNED BY \"{{name}}\"; " +
+                                "DROP ROLE IF EXISTS \"{{name}}\";",
                         "default_ttl", "1h",
                         "max_ttl", "24h"
                 ))
@@ -122,6 +129,29 @@ public class OpenBaoService {
                         })
                 )
                 .bodyToMono(Void.class);
+    }
+
+    public Mono<CredentialsDTO> getStaticCredentials(UUID id) {
+        return webClient.get()
+                .uri("/v1/{mount}/data/credentials/{id}", kvMount, id)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            System.err.println("getStaticCredentials FAILED [" + response.statusCode() + "]: " + body);
+                            return Mono.error(new RuntimeException("getStaticCredentials failed: " + body));
+                        })
+                )
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .map(response -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> outer = (Map<String, Object>) response.get("data");
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) outer.get("data");
+                    CredentialsDTO dto = new CredentialsDTO();
+                    dto.setUserName((String) data.get("username"));
+                    dto.setPassword((String) data.get("password"));
+                    return dto;
+                });
     }
 
     public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id) {

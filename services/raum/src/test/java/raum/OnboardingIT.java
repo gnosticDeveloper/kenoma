@@ -152,6 +152,18 @@ class OnboardingIT {
                 .bodyValue(Map.of("type", "database"))
                 .retrieve().bodyToMono(Void.class).onErrorResume(e -> Mono.empty()).block();
 
+        // Static (superuser) credentials in KV, mirroring OpenBaoService.storeCredentials — SchemaProvisioner
+        // reads these to run schema DDL under the DB owner rather than a short-lived ephemeral role.
+        bao.post().uri("/v1/secret/data/credentials/{id}", vassagoCredId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("data", Map.of("username", "admin", "password", "adminpass")))
+                .retrieve().bodyToMono(Void.class).block();
+
+        bao.post().uri("/v1/secret/data/credentials/{id}", bimeCredId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("data", Map.of("username", "admin", "password", "adminpass")))
+                .retrieve().bodyToMono(Void.class).block();
+
         bao.post().uri("/v1/database/config/{id}", vassagoCredId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
@@ -526,6 +538,8 @@ class OnboardingIT {
                 .thenReturn(Mono.empty());
         when(bimeClient.createVariant(anyString(), any(UUID.class), anyList(), anyString()))
                 .thenReturn(Mono.just(UUID.randomUUID()));
+        when(bimeClient.recordStockMovement(anyString(), any(UUID.class), any(UUID.class), anyInt()))
+                .thenReturn(Mono.empty());
     }
 
     @SuppressWarnings("unchecked")
