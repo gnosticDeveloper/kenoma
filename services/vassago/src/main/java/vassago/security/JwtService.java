@@ -111,6 +111,19 @@ public class JwtService {
                         + "\n-----END PUBLIC KEY-----\n");
     }
 
+    @Scheduled(fixedRateString = "${vassago.openbao.token-renewal-rate-ms:1200000}")
+    public void scheduledTokenRenewal() {
+        openBaoClient.post()
+                .uri("/v1/auth/token/renew-self")
+                .retrieve()
+                .bodyToMono(Void.class)
+                .retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(2)))
+                .doOnSuccess(v -> System.out.println("OpenBao token renewed successfully"))
+                .doOnError(error -> System.err.println("OpenBao token renewal failed after retries: " + error.getMessage()))
+                .onErrorResume(error -> Mono.empty())
+                .block();
+    }
+
     @Scheduled(cron = "${vassago.jwt.key-rotation-cron:0 0 0 * * *}")
     public void scheduledKeyRotation() {
         openBaoClient.post()

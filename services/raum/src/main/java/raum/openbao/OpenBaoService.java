@@ -28,6 +28,19 @@ public class OpenBaoService {
         this.kvMount = kvMount;
     }
 
+    public Mono<Void> renewSelf() {
+        return webClient.post()
+                .uri("/v1/auth/token/renew-self")
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            System.err.println("renewSelf FAILED [" + response.statusCode() + "]: " + body);
+                            return Mono.error(new RuntimeException("renewSelf failed: " + body));
+                        })
+                )
+                .bodyToMono(Void.class);
+    }
+
     public Mono<Boolean> validateToken(String token) {
         return WebClient.builder()
                 .baseUrl(host)
