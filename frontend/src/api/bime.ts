@@ -15,12 +15,13 @@ import type {
   StockMovementRequest,
   StockMovementResponse,
 } from '../types'
+import { API_BASE_URL } from './base'
 
 async function req<T>(path: string, init: RequestInit, token: string): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(path, { ...init, headers })
+  const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')

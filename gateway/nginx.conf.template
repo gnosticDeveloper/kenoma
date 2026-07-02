@@ -1,7 +1,10 @@
 server {
     listen 443 ssl;
-    server_name localhost;
+    server_name api.${BASE_DOMAIN};
 
+    # server.crt is self-signed for DNS:localhost only. If BASE_DOMAIN is set to
+    # anything else, reissue this cert with a SAN matching api.${BASE_DOMAIN} or
+    # browsers/clients will reject the TLS handshake.
     ssl_certificate     /etc/nginx/certs/server.crt;
     ssl_certificate_key /etc/nginx/certs/server.key;
 
@@ -68,6 +71,6 @@ server {
 
 server {
     listen 80;
-    server_name localhost;
+    server_name api.${BASE_DOMAIN};
     return 301 https://$host$request_uri;
 }
