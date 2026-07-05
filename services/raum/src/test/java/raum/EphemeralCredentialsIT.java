@@ -124,6 +124,14 @@ class EphemeralCredentialsIT {
                       -H 'X-Vault-Token: dev-root-token' \
                       -H 'Content-Type: application/json' \
                       -d '{"token_policies":"raum-policy","token_ttl":"1h","token_max_ttl":"24h"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/raum-provisioner-policy \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"policy":"path \\"sys/policies/acl/raum-service-policy\\" { capabilities = [\\"create\\",\\"read\\",\\"update\\"] } path \\"auth/approle/role/raum-service\\" { capabilities = [\\"create\\",\\"read\\",\\"update\\"] } path \\"auth/approle/role/raum-service/role-id\\" { capabilities = [\\"read\\"] } path \\"auth/approle/role/raum-service/secret-id\\" { capabilities = [\\"update\\"] }"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/auth/approle/role/raum-provisioner \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"token_policies":"raum-provisioner-policy","token_ttl":"5m","token_max_ttl":"15m"}' ;
                     echo OPENBAO_INIT_DONE
                     """)
             .waitingFor(Wait.forLogMessage(".*OPENBAO_INIT_DONE.*", 1)
@@ -131,6 +139,8 @@ class EphemeralCredentialsIT {
 
     static String vassagoToken;
     static String raumToken;
+    static String raumProvisionerRoleId;
+    static String raumProvisionerSecretId;
     static UUID credentialId;
     static UUID orgId;
     static UUID serviceId;
@@ -146,6 +156,10 @@ class EphemeralCredentialsIT {
             raumToken = loginAppRole(openBao.getMappedPort(8200), "raum");
             assertThat(vassagoToken).isNotBlank();
             assertThat(raumToken).isNotBlank();
+
+            String[] raumProvisionerCreds = fetchRoleIdAndSecretId(openBao.getMappedPort(8200), "raum-provisioner");
+            raumProvisionerRoleId = raumProvisionerCreds[0];
+            raumProvisionerSecretId = raumProvisionerCreds[1];
 
             String raumServiceIdStr;
             String vassagoServiceIdStr;
@@ -171,10 +185,10 @@ class EphemeralCredentialsIT {
                     "spring.r2dbc.username=postgres",
                     "spring.r2dbc.password=postgres",
                     "openbao.host=http://localhost:%d".formatted(openBao.getMappedPort(8200)),
-                    "openbao.token=dev-root-token",
+                    "openbao.provisioner.role-id=" + raumProvisionerRoleId,
+                    "openbao.provisioner.secret-id=" + raumProvisionerSecretId,
                     "openbao.kv.mount=secret",
                     "RAUM_SERVICE_ID=" + raumServiceIdStr,
-                    "RAUM_OPENBAO_TOKEN=" + raumToken,
                     "RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt",
                     "vassago.service-id=" + vassagoServiceIdStr,
                     "bime.service-id=" + bimeServiceIdStr,
@@ -267,6 +281,30 @@ class EphemeralCredentialsIT {
                 .retrieve().bodyToMono(Map.class).block();
         assertThat(loginResponse).isNotNull();
         return (String) ((Map<String, Object>) loginResponse.get("auth")).get("client_token");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String[] fetchRoleIdAndSecretId(int baoPort, String roleName) {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(baoPort))
+                .defaultHeader("X-Vault-Token", "dev-root-token")
+                .build();
+
+        Map<String, Object> roleIdResponse = client.get()
+                .uri("/v1/auth/approle/role/{role}/role-id", roleName)
+                .retrieve().bodyToMono(Map.class).block();
+        assertThat(roleIdResponse).isNotNull();
+        String roleId = (String) ((Map<String, Object>) roleIdResponse.get("data")).get("role_id");
+
+        Map<String, Object> secretIdResponse = client.post()
+                .uri("/v1/auth/approle/role/{role}/secret-id", roleName)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of())
+                .retrieve().bodyToMono(Map.class).block();
+        assertThat(secretIdResponse).isNotNull();
+        String secretId = (String) ((Map<String, Object>) secretIdResponse.get("data")).get("secret_id");
+
+        return new String[]{roleId, secretId};
     }
 
     @SuppressWarnings("unchecked")

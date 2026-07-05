@@ -4,28 +4,38 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 import common.dto.CredentialsDTO;
 import reactor.core.publisher.Mono;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class OpenBaoService {
     private final WebClient webClient;
     private final String kvMount;
     private final String host;
+    private final AtomicReference<String> token = new AtomicReference<>();
 
     public OpenBaoService(
             @Value("${openbao.host}") String host,
-            @Value("${openbao.token}") String token,
             @Value("${openbao.kv.mount}") String kvMount) {
         this.host = host;
         this.webClient = WebClient.builder()
                 .baseUrl(host)
-                .defaultHeader("X-Vault-Token", token)
+                .filter((request, next) -> next.exchange(
+                        ClientRequest.from(request)
+                                .headers(headers -> headers.set("X-Vault-Token", token.get()))
+                                .build()))
                 .build();
         this.kvMount = kvMount;
+    }
+
+    /** Replaces the token used for subsequent requests, following a (re)provisioning login or renewal. */
+    public void setToken(String newToken) {
+        token.set(newToken);
     }
 
     public Mono<Void> renewSelf() {

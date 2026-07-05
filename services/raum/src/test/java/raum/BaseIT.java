@@ -13,6 +13,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import raum.openbao.OpenBaoProvisioner;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -29,6 +30,11 @@ public abstract class BaseIT {
 
     @MockitoBean
     protected JwtValidator jwtValidator;
+
+    // No live OpenBao in this suite (openbao.host points at a placeholder); disable
+    // real AppRole provisioning so context startup doesn't retry against nothing.
+    @MockitoBean
+    protected OpenBaoProvisioner openBaoProvisioner;
 
     static final Network network = Network.newNetwork();
 
@@ -116,7 +122,6 @@ public abstract class BaseIT {
                     "spring.r2dbc.username=postgres",
                     "spring.r2dbc.password=postgres",
                     "openbao.host=http://fake-openbao:8200",
-                    "openbao.token=fake-token",
                     "openbao.kv.mount=secret",
                     "RAUM_SERVICE_ID=" + raumServiceIdStr,
                     "vassago.base-url=http://fake-vassago:8081",
