@@ -103,14 +103,22 @@ public abstract class BaseIT {
                       -H 'X-Vault-Token: dev-root-token' \
                       -H 'Content-Type: application/json' \
                       -d '{"type":"approle"}' || true ;
-                    curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/vassago-policy \
+                    curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/vassago-provisioner-policy \
                       -H 'X-Vault-Token: dev-root-token' \
                       -H 'Content-Type: application/json' \
-                      -d '{"policy":"path \\"database/creds/*\\" { capabilities = [\\"read\\"] } path \\"transit/sign/vassago-jwt\\" { capabilities = [\\"update\\"] } path \\"transit/keys/vassago-jwt\\" { capabilities = [\\"read\\"] } path \\"transit/keys/vassago-jwt/rotate\\" { capabilities = [\\"update\\"] }"}' ;
-                    curl -sf -X POST http://openbao:8200/v1/auth/approle/role/vassago \
+                      -d '{"policy":"path \\"sys/policies/acl/vassago-policy\\" { capabilities = [\\"create\\",\\"read\\",\\"update\\"] } path \\"auth/approle/role/vassago\\" { capabilities = [\\"create\\",\\"read\\",\\"update\\"] } path \\"auth/approle/role/vassago/role-id\\" { capabilities = [\\"read\\"] } path \\"auth/approle/role/vassago/secret-id\\" { capabilities = [\\"update\\"] }"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/auth/approle/role/vassago-provisioner \
                       -H 'X-Vault-Token: dev-root-token' \
                       -H 'Content-Type: application/json' \
-                      -d '{"token_policies":"vassago-policy","token_ttl":"1h","token_max_ttl":"24h"}' ;
+                      -d '{"token_policies":"vassago-provisioner-policy","token_ttl":"5m","token_max_ttl":"15m"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/raum-provisioner-policy \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"policy":"path \\"sys/policies/acl/raum-service-policy\\" { capabilities = [\\"create\\",\\"read\\",\\"update\\"] } path \\"auth/approle/role/raum-service\\" { capabilities = [\\"create\\",\\"read\\",\\"update\\"] } path \\"auth/approle/role/raum-service/role-id\\" { capabilities = [\\"read\\"] } path \\"auth/approle/role/raum-service/secret-id\\" { capabilities = [\\"update\\"] }"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/auth/approle/role/raum-provisioner \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"token_policies":"raum-provisioner-policy","token_ttl":"5m","token_max_ttl":"15m"}' ;
                     echo OPENBAO_INIT_DONE
                     """)
             .waitingFor(Wait.forLogMessage(".*OPENBAO_INIT_DONE.*", 1)
@@ -127,7 +135,6 @@ public abstract class BaseIT {
             .withEnv("RAUM_DB_USER", "postgres")
             .withEnv("RAUM_DB_PASSWORD", "postgres")
             .withEnv("OPENBAO_HOST", "http://openbao:8200")
-            .withEnv("OPENBAO_TOKEN", "dev-root-token")
             .withEnv("OPENBAO_KV_MOUNT", "secret")
             .withEnv("VASSAGO_BASE_URL", "http://localhost:8081")
             .waitingFor(Wait.forHttp("/actuator/health").forPort(8080)
@@ -143,7 +150,10 @@ public abstract class BaseIT {
 
     protected static UUID orgId;
     protected static UUID vassagoServiceId;
-    private static volatile String vassagoToken;
+    private static volatile String vassagoProvisionerRoleId;
+    private static volatile String vassagoProvisionerSecretId;
+    private static volatile String raumProvisionerRoleId;
+    private static volatile String raumProvisionerSecretId;
 
     protected static final String BOOTSTRAP_USERNAME = "bootstrap_admin";
     protected static final String BOOTSTRAP_PASSWORD = "B00tstr@pPass1";
@@ -258,40 +268,13 @@ public abstract class BaseIT {
         }
 
         private static void doSetup() {
-            WebClient bao = WebClient.builder()
-                    .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
-                    .defaultHeader("X-Vault-Token", "dev-root-token")
-                    .build();
+            String[] vassagoProvisionerCreds = fetchRoleIdAndSecretId(openBao.getMappedPort(8200), "vassago-provisioner");
+            vassagoProvisionerRoleId = vassagoProvisionerCreds[0];
+            vassagoProvisionerSecretId = vassagoProvisionerCreds[1];
 
-            @SuppressWarnings("unchecked")
-            Map<String, Object> roleIdResponse = bao.get()
-                    .uri("/v1/auth/approle/role/vassago/role-id")
-                    .retrieve().bodyToMono(Map.class).block();
-            assertThat(roleIdResponse).isNotNull();
-            @SuppressWarnings("unchecked")
-            String roleId = (String) ((Map<String, Object>) roleIdResponse.get("data")).get("role_id");
-
-            @SuppressWarnings("unchecked")
-            Map<String, Object> secretIdResponse = bao.post()
-                    .uri("/v1/auth/approle/role/vassago/secret-id")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(Map.of())
-                    .retrieve().bodyToMono(Map.class).block();
-            assertThat(secretIdResponse).isNotNull();
-            @SuppressWarnings("unchecked")
-            String secretId = (String) ((Map<String, Object>) secretIdResponse.get("data")).get("secret_id");
-
-            @SuppressWarnings("unchecked")
-            Map<String, Object> loginResponse = bao.post()
-                    .uri("/v1/auth/approle/login")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(Map.of("role_id", roleId, "secret_id", secretId))
-                    .retrieve().bodyToMono(Map.class).block();
-            assertThat(loginResponse).isNotNull();
-            @SuppressWarnings("unchecked")
-            String token = (String) ((Map<String, Object>) loginResponse.get("auth")).get("client_token");
-            assertThat(token).isNotBlank();
-            vassagoToken = token;
+            String[] raumProvisionerCreds = fetchRoleIdAndSecretId(openBao.getMappedPort(8200), "raum-provisioner");
+            raumProvisionerRoleId = raumProvisionerCreds[0];
+            raumProvisionerSecretId = raumProvisionerCreds[1];
 
             String vassagoServiceIdStr;
             String raumServiceIdStr;
@@ -309,12 +292,37 @@ public abstract class BaseIT {
             vassagoServiceId = UUID.fromString(vassagoServiceIdStr);
 
             raum.withEnv("RAUM_SERVICE_ID", raumServiceIdStr)
-                    .withEnv("RAUM_OPENBAO_TOKEN", vassagoToken)
+                    .withEnv("RAUM_PROVISIONER_ROLE_ID", raumProvisionerRoleId)
+                    .withEnv("RAUM_PROVISIONER_SECRET_ID", raumProvisionerSecretId)
                     .withEnv("VASSAGO_SERVICE_ID", vassagoServiceIdStr)
                     .withEnv("BIME_SERVICE_ID", "00000000-0000-0000-0000-000000000099")
                     .withEnv("REDIS_HOST", "redis")
                     .withEnv("ONBOARDING_RETRY_CRON", "-");
             raum.start();
+        }
+
+        @SuppressWarnings("unchecked")
+        private static String[] fetchRoleIdAndSecretId(int baoPort, String roleName) {
+            WebClient client = WebClient.builder()
+                    .baseUrl("http://localhost:%d".formatted(baoPort))
+                    .defaultHeader("X-Vault-Token", "dev-root-token")
+                    .build();
+
+            Map<String, Object> roleIdResponse = client.get()
+                    .uri("/v1/auth/approle/role/{role}/role-id", roleName)
+                    .retrieve().bodyToMono(Map.class).block();
+            assertThat(roleIdResponse).isNotNull();
+            String roleId = (String) ((Map<String, Object>) roleIdResponse.get("data")).get("role_id");
+
+            Map<String, Object> secretIdResponse = client.post()
+                    .uri("/v1/auth/approle/role/{role}/secret-id", roleName)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of())
+                    .retrieve().bodyToMono(Map.class).block();
+            assertThat(secretIdResponse).isNotNull();
+            String secretId = (String) ((Map<String, Object>) secretIdResponse.get("data")).get("secret_id");
+
+            return new String[]{roleId, secretId};
         }
 
         private static void injectProperties(ConfigurableApplicationContext ctx) {
@@ -324,7 +332,8 @@ public abstract class BaseIT {
                     "openbao.base-url=http://localhost:%d".formatted(openBao.getMappedPort(8200)),
                     "vassago.jwt.transit-key-name=vassago-jwt",
                     "vassago.jwt.key-rotation-cron=-",
-                    "vassago.openbao.token=" + vassagoToken,
+                    "vassago.openbao.provisioner.role-id=" + vassagoProvisionerRoleId,
+                    "vassago.openbao.provisioner.secret-id=" + vassagoProvisionerSecretId,
                     "spring.data.redis.host=localhost",
                     "spring.data.redis.port=" + redis.getMappedPort(6379)
             );

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
+import vassago.openbao.OpenBaoService;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -34,14 +35,10 @@ public class JwtService {
     private final AtomicReference<PublicKey> cachedPublicKey = new AtomicReference<>();
 
     public JwtService(
-            @Value("${openbao.base-url}") String openBaoBaseUrl,
-            @Value("${vassago.openbao.token}") String openBaoToken,
+            OpenBaoService openBaoService,
             @Value("${vassago.jwt.transit-key-name}") String transitKeyName,
             @Value("${vassago.jwt.ttl-seconds:300}") long ttlSeconds) {
-        this.openBaoClient = WebClient.builder()
-                .baseUrl(openBaoBaseUrl)
-                .defaultHeader("X-Vault-Token", openBaoToken)
-                .build();
+        this.openBaoClient = openBaoService.client();
         this.transitKeyName = transitKeyName;
         this.ttlSeconds = ttlSeconds;
     }
@@ -109,19 +106,6 @@ public class JwtService {
                 "-----BEGIN PUBLIC KEY-----\n"
                         + Base64.getMimeEncoder(64, new byte[]{'\n'}).encodeToString(key.getEncoded())
                         + "\n-----END PUBLIC KEY-----\n");
-    }
-
-    @Scheduled(fixedRateString = "${vassago.openbao.token-renewal-rate-ms:1200000}")
-    public void scheduledTokenRenewal() {
-        openBaoClient.post()
-                .uri("/v1/auth/token/renew-self")
-                .retrieve()
-                .bodyToMono(Void.class)
-                .retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(2)))
-                .doOnSuccess(v -> System.out.println("OpenBao token renewed successfully"))
-                .doOnError(error -> System.err.println("OpenBao token renewal failed after retries: " + error.getMessage()))
-                .onErrorResume(error -> Mono.empty())
-                .block();
     }
 
     @Scheduled(cron = "${vassago.jwt.key-rotation-cron:0 0 0 * * *}")

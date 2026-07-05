@@ -18,7 +18,9 @@ spring:
 
 openbao:
   host: ${OPENBAO_HOST:http://localhost:8200}
-  token: ${RAUM_OPENBAO_TOKEN:dev-root-token}
+  provisioner:
+    role-id: ${RAUM_PROVISIONER_ROLE_ID}
+    secret-id: ${RAUM_PROVISIONER_SECRET_ID}
   kv:
     mount: ${OPENBAO_KV_MOUNT:secret}
   token-renewal-rate-ms: ${OPENBAO_TOKEN_RENEWAL_RATE_MS:1200000}

@@ -104,6 +104,14 @@ class OnboardingIT {
     @MockitoBean
     BimeClient bimeClient;
 
+    // This suite's OpenBao container never has AppRole auth enabled, so real
+    // provisioning has nothing to log into; the token is seeded directly below.
+    @MockitoBean
+    raum.openbao.OpenBaoProvisioner openBaoProvisioner;
+
+    @Autowired
+    raum.openbao.OpenBaoService openBaoService;
+
     @Autowired
     OnboardingConfigStore configStore;
 
@@ -219,6 +227,7 @@ class OnboardingIT {
 
     @BeforeEach
     void setUp() throws Exception {
+        openBaoService.setToken("dev-root-token");
         client = WebTestClient.bindToServer()
                 .baseUrl("http://localhost:" + port)
                 .responseTimeout(Duration.ofSeconds(30))
@@ -633,7 +642,6 @@ class OnboardingIT {
                     "spring.r2dbc.username=postgres",
                     "spring.r2dbc.password=postgres",
                     "openbao.host=http://localhost:%d".formatted(openBao.getMappedPort(8200)),
-                    "openbao.token=dev-root-token",
                     "openbao.kv.mount=secret",
                     "RAUM_SERVICE_ID=" + raumServiceIdStr,
                     "vassago.base-url=http://fake-vassago:8081",

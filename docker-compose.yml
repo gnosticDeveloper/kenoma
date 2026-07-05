@@ -1,6 +1,6 @@
 services:
   # The three databases are kept as separate containers to enforce tenant isolation during
-  # development and testing. In production they can share a single PostgreSQL instance.
+  # development and testing. In production, they can share a single PostgreSQL instance.
   #
   # Dependency note (toward multi-host distributability): the one-shot init containers'
   # `depends_on` on postgres/redis/openbao readiness are single-host-only by construction
@@ -222,6 +222,7 @@ services:
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
       - "5005:5005"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/actuator/health"]
       interval: 5s
@@ -255,7 +256,7 @@ services:
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
       - "5006:5006"
-    restart: on-failure:3
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8081/actuator/health"]
       interval: 5s
@@ -294,7 +295,7 @@ services:
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
       - "5007:5007"
-    restart: on-failure:3
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8082/actuator/health"]
       interval: 5s

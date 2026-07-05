@@ -88,34 +88,36 @@ if [ -f /approle-out/approle.env ]; then
   . /approle-out/approle.env
 fi
 
-# ── Vassago ──────────────────────────────────────────────────────────────────
+# ── Vassago provisioner (Vassago creates its own working policy/role at boot) ─
 
-echo "Writing Vassago policy..."
-bao policy write vassago-policy - << POLICY
-path "database/creds/*" {
+echo "Writing Vassago provisioner policy..."
+bao policy write vassago-provisioner-policy - << POLICY
+path "sys/policies/acl/vassago-policy" {
+  capabilities = ["create", "read", "update"]
+}
+path "auth/approle/role/vassago" {
+  capabilities = ["create", "read", "update"]
+}
+path "auth/approle/role/vassago/role-id" {
   capabilities = ["read"]
 }
-path "transit/sign/vassago-jwt" {
+path "auth/approle/role/vassago/secret-id" {
   capabilities = ["update"]
-}
-path "transit/keys/vassago-jwt" {
-  capabilities = ["read"]
 }
 POLICY
 
-echo "Creating Vassago AppRole..."
-bao write auth/approle/role/vassago \
-  token_policies="vassago-policy" \
-  token_ttl=1h \
-  token_max_ttl=24h \
+echo "Creating Vassago provisioner AppRole..."
+bao write auth/approle/role/vassago-provisioner \
+  token_policies="vassago-provisioner-policy" \
+  token_ttl=5m \
+  token_max_ttl=15m \
   secret_id_ttl=0
 
-VASSAGO_ROLE_ID=$(bao read -field=role_id auth/approle/role/vassago/role-id)
-if [ -n "${VASSAGO_APPROLE_SECRET_ID:-}" ]; then
-  echo "Reusing existing Vassago AppRole secret ID."
-  VASSAGO_SECRET_ID="${VASSAGO_APPROLE_SECRET_ID}"
+VASSAGO_PROVISIONER_ROLE_ID=$(bao read -field=role_id auth/approle/role/vassago-provisioner/role-id)
+if [ -n "${VASSAGO_PROVISIONER_SECRET_ID:-}" ]; then
+  echo "Reusing existing Vassago provisioner secret ID."
 else
-  VASSAGO_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/vassago/secret-id)
+  VASSAGO_PROVISIONER_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/vassago-provisioner/secret-id)
 fi
 
 # ── Raum (external callers authenticating to Raum's credential API) ───────────
@@ -142,55 +144,48 @@ else
   RAUM_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/raum/secret-id)
 fi
 
-# ── Raum service (Raum's own OpenBao operations) ──────────────────────────────
+# ── Raum service provisioner (Raum creates its own working policy/role at boot)
 
-echo "Writing Raum service policy..."
-bao policy write raum-service-policy - << POLICY
-path "secret/data/credentials/*" {
-  capabilities = ["create", "update", "read"]
+echo "Writing Raum service provisioner policy..."
+bao policy write raum-provisioner-policy - << POLICY
+path "sys/policies/acl/raum-service-policy" {
+  capabilities = ["create", "read", "update"]
 }
-path "secret/metadata/credentials/*" {
-  capabilities = ["read", "list"]
+path "auth/approle/role/raum-service" {
+  capabilities = ["create", "read", "update"]
 }
-path "database/config/*" {
-  capabilities = ["create", "update", "read"]
-}
-path "database/roles/*" {
-  capabilities = ["create", "update", "read"]
-}
-path "database/creds/*" {
+path "auth/approle/role/raum-service/role-id" {
   capabilities = ["read"]
 }
-path "transit/keys/vassago-jwt" {
-  capabilities = ["read"]
+path "auth/approle/role/raum-service/secret-id" {
+  capabilities = ["update"]
 }
 POLICY
 
-echo "Creating Raum service AppRole..."
-bao write auth/approle/role/raum-service \
-  token_policies="raum-service-policy" \
-  token_ttl=1h \
-  token_max_ttl=24h \
+echo "Creating Raum service provisioner AppRole..."
+bao write auth/approle/role/raum-provisioner \
+  token_policies="raum-provisioner-policy" \
+  token_ttl=5m \
+  token_max_ttl=15m \
   secret_id_ttl=0
 
-RAUM_SERVICE_ROLE_ID=$(bao read -field=role_id auth/approle/role/raum-service/role-id)
-if [ -n "${RAUM_SERVICE_APPROLE_SECRET_ID:-}" ]; then
-  echo "Reusing existing Raum service AppRole secret ID."
-  RAUM_SERVICE_SECRET_ID="${RAUM_SERVICE_APPROLE_SECRET_ID}"
+RAUM_PROVISIONER_ROLE_ID=$(bao read -field=role_id auth/approle/role/raum-provisioner/role-id)
+if [ -n "${RAUM_PROVISIONER_SECRET_ID:-}" ]; then
+  echo "Reusing existing Raum service provisioner secret ID."
 else
-  RAUM_SERVICE_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/raum-service/secret-id)
+  RAUM_PROVISIONER_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/raum-provisioner/secret-id)
 fi
 
 # ── Write AppRole credentials ─────────────────────────────────────────────────
 
 mkdir -p /approle-out
 cat > /approle-out/approle.env << ENVEOF
-VASSAGO_APPROLE_ROLE_ID=${VASSAGO_ROLE_ID}
-VASSAGO_APPROLE_SECRET_ID=${VASSAGO_SECRET_ID}
+VASSAGO_PROVISIONER_ROLE_ID=${VASSAGO_PROVISIONER_ROLE_ID}
+VASSAGO_PROVISIONER_SECRET_ID=${VASSAGO_PROVISIONER_SECRET_ID}
 RAUM_APPROLE_ROLE_ID=${RAUM_ROLE_ID}
 RAUM_APPROLE_SECRET_ID=${RAUM_SECRET_ID}
-RAUM_SERVICE_APPROLE_ROLE_ID=${RAUM_SERVICE_ROLE_ID}
-RAUM_SERVICE_APPROLE_SECRET_ID=${RAUM_SERVICE_SECRET_ID}
+RAUM_PROVISIONER_ROLE_ID=${RAUM_PROVISIONER_ROLE_ID}
+RAUM_PROVISIONER_SECRET_ID=${RAUM_PROVISIONER_SECRET_ID}
 ENVEOF
 echo "AppRole credentials written to /approle-out/approle.env"
 echo "OpenBao initialized."

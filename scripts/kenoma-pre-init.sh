@@ -61,15 +61,6 @@ if [ ! -f /approle-out/approle.env ]; then
 fi
 . /approle-out/approle.env
 
-echo "Logging in with Vassago AppRole..."
-VASSAGO_LOGIN=$(wget -q -O - \
-  --header="Content-Type: application/json" \
-  --post-data="{\"role_id\":\"${VASSAGO_APPROLE_ROLE_ID}\",\"secret_id\":\"${VASSAGO_APPROLE_SECRET_ID}\"}" \
-  "${OPENBAO_BASE_URL}/v1/auth/approle/login")
-VASSAGO_TOKEN=$(echo "$VASSAGO_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -f4)
-[ -z "$VASSAGO_TOKEN" ] && echo "ERROR: Failed to obtain Vassago AppRole token." && exit 1
-echo "Vassago AppRole login successful."
-
 echo "Logging in with Raum AppRole..."
 RAUM_LOGIN=$(wget -q -O - \
   --header="Content-Type: application/json" \
@@ -78,15 +69,6 @@ RAUM_LOGIN=$(wget -q -O - \
 RAUM_TOKEN=$(echo "$RAUM_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -f4)
 [ -z "$RAUM_TOKEN" ] && echo "ERROR: Failed to obtain Raum AppRole token." && exit 1
 echo "Raum AppRole login successful."
-
-echo "Logging in with Raum service AppRole..."
-RAUM_SERVICE_LOGIN=$(wget -q -O - \
-  --header="Content-Type: application/json" \
-  --post-data="{\"role_id\":\"${RAUM_SERVICE_APPROLE_ROLE_ID}\",\"secret_id\":\"${RAUM_SERVICE_APPROLE_SECRET_ID}\"}" \
-  "${OPENBAO_BASE_URL}/v1/auth/approle/login")
-RAUM_SERVICE_TOKEN=$(echo "$RAUM_SERVICE_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -f4)
-[ -z "$RAUM_SERVICE_TOKEN" ] && echo "ERROR: Failed to obtain Raum service AppRole token." && exit 1
-echo "Raum service AppRole login successful."
 
 
 echo "Provisioning Vassago database schema..."
@@ -217,9 +199,11 @@ mkdir -p "$(dirname "${ENV_OUT}")"
 cat > "${ENV_OUT}" << ENVEOF
 OPENBAO_BASE_URL=${OPENBAO_BASE_URL}
 VASSAGO_SERVICE_ID=${VASSAGO_SERVICE_ID}
-VASSAGO_OPENBAO_TOKEN=${VASSAGO_TOKEN}
+VASSAGO_PROVISIONER_ROLE_ID=${VASSAGO_PROVISIONER_ROLE_ID}
+VASSAGO_PROVISIONER_SECRET_ID=${VASSAGO_PROVISIONER_SECRET_ID}
 RAUM_SERVICE_ID=${RAUM_SERVICE_ID}
-RAUM_OPENBAO_TOKEN=${RAUM_SERVICE_TOKEN}
+RAUM_PROVISIONER_ROLE_ID=${RAUM_PROVISIONER_ROLE_ID}
+RAUM_PROVISIONER_SECRET_ID=${RAUM_PROVISIONER_SECRET_ID}
 RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt
 BIME_SERVICE_ID=${BIME_SERVICE_ID}
 BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
@@ -229,9 +213,11 @@ echo "Wrote env file to ${ENV_OUT}."
 cat > "${ENV_OUT}.local" << LOCALEOF
 # Dynamic values generated at startup — regenerated every time pre-init runs
 RAUM_SERVICE_ID=${RAUM_SERVICE_ID}
-RAUM_OPENBAO_TOKEN=${RAUM_SERVICE_TOKEN}
+RAUM_PROVISIONER_ROLE_ID=${RAUM_PROVISIONER_ROLE_ID}
+RAUM_PROVISIONER_SECRET_ID=${RAUM_PROVISIONER_SECRET_ID}
 VASSAGO_SERVICE_ID=${VASSAGO_SERVICE_ID}
-VASSAGO_OPENBAO_TOKEN=${VASSAGO_TOKEN}
+VASSAGO_PROVISIONER_ROLE_ID=${VASSAGO_PROVISIONER_ROLE_ID}
+VASSAGO_PROVISIONER_SECRET_ID=${VASSAGO_PROVISIONER_SECRET_ID}
 VASSAGO_JWT_TRANSIT_KEY_NAME=vassago-jwt
 BIME_SERVICE_ID=${BIME_SERVICE_ID}
 BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
