@@ -1,5 +1,8 @@
 set -e
 
+MODE="${KENOMA_INIT_MODE:-seeded}"
+echo "Init mode: ${MODE}"
+
 echo "Reading OpenBao root token from init volume..."
 if [ ! -f /init-out/unseal-keys.env ]; then
   echo "ERROR: /init-out/unseal-keys.env not found" && exit 1
@@ -93,21 +96,39 @@ PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
   -f /users.sql
 echo "Operational database schema provisioned."
 
-echo "Seeding operator user..."
-OPERATOR_ROLES="{\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\",\"RAUM_ONBOARDING\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
-BCRYPT_HASH=$(python3 -c "
+SHOULD_SEED_OPERATOR=true
+if [ "$MODE" = "clean" ]; then
+  USER_COUNT=$(PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
+    -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
+    -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
+    -t -A -c "SELECT count(*) FROM users;")
+  if [ "$USER_COUNT" -ne 0 ]; then
+    SHOULD_SEED_OPERATOR=false
+    echo "Clean mode: users already exist, skipping operator seed."
+  fi
+fi
+
+if [ "$SHOULD_SEED_OPERATOR" = true ]; then
+  echo "Seeding operator user..."
+  OPERATOR_ROLES="{\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\",\"RAUM_ONBOARDING\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
+  BCRYPT_HASH=$(python3 -c "
 import bcrypt
 pwd = '${OPERATOR_PASSWORD}'.encode()
 print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '\$2a\$'))
 ")
-PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
-  -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
-  -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
-  -c "INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
-      VALUES ('${OPERATOR_NAME}', '${OPERATOR_LAST_NAME}', '${OPERATOR_EMAIL}',
-              '${OPERATOR_USERNAME}', '${BCRYPT_HASH}', '${OPERATOR_ROLES}', true)
-      ON CONFLICT (username) DO NOTHING;"
-echo "Operator user seeded."
+  PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
+    -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
+    -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
+    -c "INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
+        VALUES ('${OPERATOR_NAME}', '${OPERATOR_LAST_NAME}', '${OPERATOR_EMAIL}',
+                '${OPERATOR_USERNAME}', '${BCRYPT_HASH}', '${OPERATOR_ROLES}', true)
+        ON CONFLICT (username) DO NOTHING;"
+  echo "Operator user seeded."
+fi
+
+if [ "$MODE" = "clean" ]; then
+  echo "Clean mode: skipping OpenBao database credential/connection/role registration for Vassago and Bime."
+else
 
 echo "Storing credentials in OpenBao KV..."
 wget -q -O - \
@@ -189,6 +210,8 @@ PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
   -U "${RAUM_DB_USER}" -d "${RAUM_DB_NAME}" \
   -c "UPDATE credentials SET is_initialized = true WHERE id IN ('${CREDENTIAL_ID}', '${BIME_CREDENTIAL_ID}');"
 echo "Credentials marked as initialized."
+
+fi
 
 mkdir -p "$(dirname "${ENV_OUT}")"
 cat > "${ENV_OUT}" << ENVEOF

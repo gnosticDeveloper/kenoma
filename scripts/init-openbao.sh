@@ -83,6 +83,11 @@ else
   bao auth enable approle
 fi
 
+if [ -f /approle-out/approle.env ]; then
+  echo "Found existing AppRole credentials, will reuse stored secret IDs..."
+  . /approle-out/approle.env
+fi
+
 # ── Vassago ──────────────────────────────────────────────────────────────────
 
 echo "Writing Vassago policy..."
@@ -106,7 +111,12 @@ bao write auth/approle/role/vassago \
   secret_id_ttl=0
 
 VASSAGO_ROLE_ID=$(bao read -field=role_id auth/approle/role/vassago/role-id)
-VASSAGO_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/vassago/secret-id)
+if [ -n "${VASSAGO_APPROLE_SECRET_ID:-}" ]; then
+  echo "Reusing existing Vassago AppRole secret ID."
+  VASSAGO_SECRET_ID="${VASSAGO_APPROLE_SECRET_ID}"
+else
+  VASSAGO_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/vassago/secret-id)
+fi
 
 # ── Raum (external callers authenticating to Raum's credential API) ───────────
 
@@ -125,7 +135,12 @@ bao write auth/approle/role/raum \
   secret_id_ttl=0
 
 RAUM_ROLE_ID=$(bao read -field=role_id auth/approle/role/raum/role-id)
-RAUM_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/raum/secret-id)
+if [ -n "${RAUM_APPROLE_SECRET_ID:-}" ]; then
+  echo "Reusing existing Raum AppRole secret ID."
+  RAUM_SECRET_ID="${RAUM_APPROLE_SECRET_ID}"
+else
+  RAUM_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/raum/secret-id)
+fi
 
 # ── Raum service (Raum's own OpenBao operations) ──────────────────────────────
 
@@ -159,7 +174,12 @@ bao write auth/approle/role/raum-service \
   secret_id_ttl=0
 
 RAUM_SERVICE_ROLE_ID=$(bao read -field=role_id auth/approle/role/raum-service/role-id)
-RAUM_SERVICE_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/raum-service/secret-id)
+if [ -n "${RAUM_SERVICE_APPROLE_SECRET_ID:-}" ]; then
+  echo "Reusing existing Raum service AppRole secret ID."
+  RAUM_SERVICE_SECRET_ID="${RAUM_SERVICE_APPROLE_SECRET_ID}"
+else
+  RAUM_SERVICE_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/raum-service/secret-id)
+fi
 
 # ── Write AppRole credentials ─────────────────────────────────────────────────
 
