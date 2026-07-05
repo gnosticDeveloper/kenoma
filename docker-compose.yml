@@ -1,6 +1,18 @@
 services:
   # The three databases are kept as separate containers to enforce tenant isolation during
   # development and testing. In production they can share a single PostgreSQL instance.
+  #
+  # Dependency note (toward multi-host distributability): the one-shot init containers'
+  # `depends_on` on postgres/redis/openbao readiness are single-host-only by construction
+  # (Compose can't express "wait for a service on another machine"), but they're low-risk to
+  # keep as-is — the init scripts already retry-loop against their targets (e.g.
+  # scripts/init-openbao.sh's `until wget ...`) rather than assuming Compose ordering alone,
+  # and all hostnames are already parameterized via env vars. The long-running services'
+  # `depends_on` on each other (raum/vassago/bime waiting on their DB/redis/openbao/each other)
+  # are a heavier single-host crutch: none of the three retry their initial DB/redis/OpenBao
+  # connection, so they fail fast at boot if a dependency isn't ready yet. Relaxing those
+  # further requires adding startup retry/backoff in the services themselves — out of scope
+  # here, tracked as follow-up work.
   raum-postgres:
     image: postgres:18.1-alpine3.23
     container_name: raum-postgres
@@ -162,6 +174,7 @@ services:
       OPERATOR_EMAIL: ${OPERATOR_EMAIL:-operator@internal}
       OPERATOR_USERNAME: ${OPERATOR_USERNAME:-platform_operator}
       OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-Ch4ng3me!Ops#}
+      KENOMA_INIT_MODE: ${KENOMA_INIT_MODE:-seeded}
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/kenoma-pre-init.sh:/kenoma-pre-init.sh
@@ -266,7 +279,10 @@ services:
       kenoma-pre-init:
         condition: service_completed_successfully
       raum:
-        condition: service_healthy
+        # Bime only calls Raum lazily at request time (see ConnectionPoolService), never
+        # synchronously at boot, so waiting for full health rather than just process start
+        # is an unnecessary single-host coupling.
+        condition: service_started
     environment:
       OPENBAO_HOST: http://openbao:8200
       RAUM_BASE_URL: http://raum:8080

@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS organizations (
                                              id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-                                             name               varchar(255) NOT NULL,
+                                             name               varchar(255) NOT NULL UNIQUE,
                                              contact_name       varchar(255) NOT NULL,
                                              contact_email      varchar(255) NOT NULL,
                                              modification_lock  bool DEFAULT false,
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS organizations (
 
 CREATE TABLE IF NOT EXISTS services (
                                         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-                                        name         varchar(255) NOT NULL,
+                                        name         varchar(255) NOT NULL UNIQUE,
                                         description  varchar(255) NOT NULL,
                                         created_at   timestamp DEFAULT current_timestamp,
                                         modified_at  timestamp DEFAULT current_timestamp,
@@ -43,11 +43,11 @@ VALUES
     ('Raum', 'Credential and organisation registry'),
     ('Vassago', 'Authentication and identity service'),
     ('Bime', 'Inventory management service')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO organizations (name, contact_name, contact_email)
 VALUES ('Platform', 'Platform Operator', 'platform@internal')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO credentials (org_id, service_id, db_engine, db_host, db_port, db_name)
 SELECT
@@ -59,7 +59,7 @@ SELECT
     'vassago'
 FROM organizations o, services s
 WHERE o.name = 'Platform' AND s.name = 'Vassago'
-ON CONFLICT DO NOTHING;
+ON CONFLICT (org_id, service_id) DO NOTHING;
 
 INSERT INTO credentials (org_id, service_id, db_engine, db_host, db_port, db_name)
 SELECT
@@ -71,4 +71,4 @@ SELECT
     'bime'
 FROM organizations o, services s
 WHERE o.name = 'Platform' AND s.name = 'Bime'
-ON CONFLICT DO NOTHING;
+ON CONFLICT (org_id, service_id) DO NOTHING;
