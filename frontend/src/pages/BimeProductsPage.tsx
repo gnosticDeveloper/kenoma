@@ -1,8 +1,15 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { useApiCall } from '../hooks/useApiCall'
-import { Feedback } from '../components/Feedback'
+import { useToast } from '../components/Toast'
+import { Modal } from '../components/Modal'
+import { Tabs } from '../components/Tabs'
+import { DataTable, type Column } from '../components/DataTable'
+import { RowActionsMenu } from '../components/RowActionsMenu'
+import { Combobox, MultiCombobox } from '../components/Combobox'
 import { CopyButton } from '../components/CopyButton'
+import { Feedback } from '../components/Feedback'
 import type { Permissions } from '../auth'
 import type {
   LocationResponse,
@@ -10,10 +17,9 @@ import type {
   ProductMetadataResponse,
   ProductRequest,
   ProductResponse,
+  ProductVariantRequest,
   ProductVariantResponse,
 } from '../types'
-
-type LocationLookup = Record<string, LocationResponse>
 
 interface Props {
   token: string
@@ -25,18 +31,8 @@ interface AssignmentRow {
   optionIds: string[]
 }
 
-function splitIds(value: string): string[] {
-  return value.split(',').map(s => s.trim()).filter(Boolean)
-}
-
 function buildAssignments(rows: AssignmentRow[]): ProductMetadataAssignmentItem[] {
-  return rows
-    .filter(r => r.metadataId)
-    .map(r => ({ metadataId: r.metadataId, optionIds: r.optionIds }))
-}
-
-function selectedValues(e: ChangeEvent<HTMLSelectElement>): string[] {
-  return Array.from(e.target.selectedOptions).map(o => o.value)
+  return rows.filter(r => r.metadataId).map(r => ({ metadataId: r.metadataId, optionIds: r.optionIds }))
 }
 
 function AssignmentsInput({ value, onChange, metadataDefs }: {
@@ -44,489 +40,368 @@ function AssignmentsInput({ value, onChange, metadataDefs }: {
   onChange: (rows: AssignmentRow[]) => void
   metadataDefs: ProductMetadataResponse[]
 }) {
+  const { t } = useTranslation()
+  const metadataItems = metadataDefs.map(m => ({ id: m.id, label: m.name }))
   return (
     <div className="roles-input">
       {value.map((row, i) => {
         const options = metadataDefs.find(m => m.id === row.metadataId)?.options ?? []
+        const optionItems = options.map(o => ({ id: o.id, label: o.value }))
         return (
           <div key={i} className="role-row">
-            <select
-              value={row.metadataId}
-              onChange={e => onChange(value.map((r, j) => j === i ? { metadataId: e.target.value, optionIds: [] } : r))}
-              className="role-row-svc"
-            >
-              <option value="">Select metadata…</option>
-              {metadataDefs.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-            <select
-              multiple
+            <Combobox
+              items={metadataItems}
+              value={row.metadataId || null}
+              onChange={id => onChange(value.map((r, j) => j === i ? { metadataId: id ?? '', optionIds: [] } : r))}
+              placeholder={t('bimeProductsPage.metadataPlaceholder')}
+            />
+            <MultiCombobox
+              items={optionItems}
               value={row.optionIds}
-              onChange={e => onChange(value.map((r, j) => j === i ? { ...r, optionIds: selectedValues(e) } : r))}
-              className="role-row-name"
+              onChange={ids => onChange(value.map((r, j) => j === i ? { ...r, optionIds: ids } : r))}
+              placeholder={t('bimeProductsPage.optionsPlaceholder')}
               disabled={!row.metadataId}
-              size={Math.min(4, Math.max(2, options.length))}
-            >
-              {options.map(o => <option key={o.id} value={o.id}>{o.value}</option>)}
-            </select>
+            />
             <button className="btn btn-outline btn-sm" type="button" onClick={() => onChange(value.filter((_, j) => j !== i))}>−</button>
           </div>
         )
       })}
       <button className="btn btn-outline btn-sm" type="button" onClick={() => onChange([...value, { metadataId: '', optionIds: [] }])}>
-        + Add metadata assignment
+        {t('bimeProductsPage.addAssignment')}
       </button>
     </div>
-  )
-}
-
-function ProductsTable({ products }: { products: ProductResponse[] }) {
-  if (products.length === 0) {
-    return <div className="empty-state">No products registered yet.</div>
-  }
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>SKU</th>
-          <th>Name</th>
-          <th>Active</th>
-          <th>Variants</th>
-          <th>ID</th>
-        </tr>
-      </thead>
-      <tbody>
-        {products.map(p => (
-          <tr key={p.id}>
-            <td>{p.sku}</td>
-            <td>{p.name}</td>
-            <td>
-              <span className={`status-badge ${p.isActive ? 'status-ok' : 'status-fail'}`}>
-                {p.isActive ? 'Active' : 'Inactive'}
-              </span>
-            </td>
-            <td className="td-muted">{p.variants?.length ?? '—'}</td>
-            <td>
-              <div className="td-id">
-                <span>{p.id}</span>
-                <CopyButton text={p.id} />
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
-function VariantsTable({ variants, locationLookup }: { variants: ProductVariantResponse[]; locationLookup: LocationLookup }) {
-  if (variants.length === 0) {
-    return <div className="empty-state">No variants yet.</div>
-  }
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>SKU</th>
-          <th>Options</th>
-          <th>Active</th>
-          <th>Stock</th>
-          <th>ID</th>
-        </tr>
-      </thead>
-      <tbody>
-        {variants.map(v => (
-          <tr key={v.id}>
-            <td className="td-muted">{v.sku ?? '—'}</td>
-            <td>
-              {v.options.map(o => (
-                <span key={o.id} className="role-badge" title={o.id} style={{ marginRight: '6px' }}>{o.value}</span>
-              ))}
-            </td>
-            <td>
-              <span className={`status-badge ${v.isActive ? 'status-ok' : 'status-fail'}`}>
-                {v.isActive ? 'Active' : 'Inactive'}
-              </span>
-            </td>
-            <td className="td-muted">
-              {v.stock.length === 0 ? '—' : v.stock.map(s => {
-                const loc = locationLookup[s.locationId]
-                return `${s.quantity} @ ${loc ? `${loc.name} (${loc.code})` : s.locationId.slice(0, 8) + '…'}`
-              }).join(', ')}
-            </td>
-            <td>
-              <div className="td-id">
-                <span>{v.id}</span>
-                <CopyButton text={v.id} />
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   )
 }
 
 const EMPTY_PRODUCT_FORM: ProductRequest = { sku: '', name: '', description: '' }
 
 export default function BimeProductsPage({ token, permissions }: Props) {
-  // Locations, loaded once to translate location IDs into names in stock summaries.
-  const locations = useApiCall<LocationResponse[]>()
-  useEffect(() => {
-    locations.call(() => bime.locations.list(token))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  const locationLookup: LocationLookup = {}
-  if (locations.state.status === 'success') {
-    locations.state.data.forEach(l => { locationLookup[l.id] = l })
-  }
+  const { t } = useTranslation()
+  const toast = useToast()
+  const [activeTab, setActiveTab] = useState('products')
 
-  // Metadata definitions, loaded once to power the Assign Metadata dropdowns.
+  const locations = useApiCall<LocationResponse[]>()
+  useEffect(() => { locations.call(() => bime.locations.list(token)) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
+  const locationLookup: Record<string, LocationResponse> = {}
+  if (locations.state.status === 'success') locations.state.data.forEach(l => { locationLookup[l.id] = l })
+
   const metadataDefs = useApiCall<ProductMetadataResponse[]>()
-  useEffect(() => {
-    metadataDefs.call(() => bime.metadata.list(token))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  useEffect(() => { metadataDefs.call(() => bime.metadata.list(token)) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
   const metadataDefsList = metadataDefs.state.status === 'success' ? metadataDefs.state.data : []
 
-  // All Products
   const list = useApiCall<ProductResponse[]>()
+  function reload() { list.call(() => bime.products.list(token)) }
+  useEffect(reload, [token])
+  const products = list.state.status === 'success' ? list.state.data : []
 
-  // Create Product
-  const create = useApiCall<ProductResponse>()
-  const [createForm, setCreateForm] = useState<ProductRequest>(EMPTY_PRODUCT_FORM)
-
-  // Look Up Product
-  const lookup = useApiCall<ProductResponse>()
-  const [lookupId, setLookupId] = useState('')
-
-  // Update Product
-  const update = useApiCall<ProductResponse>()
-  const [updateId, setUpdateId] = useState('')
-  const [updateForm, setUpdateForm] = useState<ProductRequest>(EMPTY_PRODUCT_FORM)
-
-  // Deactivate Product
+  // ── Create / Edit product ──
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<ProductResponse | null>(null)
+  const [form, setForm] = useState<ProductRequest>(EMPTY_PRODUCT_FORM)
+  const save = useApiCall<ProductResponse>()
   const deactivate = useApiCall<void>()
-  const [deactivateId, setDeactivateId] = useState('')
 
-  // Assign Metadata
-  const assignMetadata = useApiCall<void>()
-  const [assignProductId, setAssignProductId] = useState('')
-  const [assignRows, setAssignRows] = useState<AssignmentRow[]>([])
+  useEffect(() => {
+    if (save.state.status !== 'success') return
+    setModalOpen(false)
+    reload()
+    toast.show(t(editing ? 'bimeProductsPage.updated' : 'bimeProductsPage.created'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [save.state])
 
-  // Create Variant
-  const createVariant = useApiCall<ProductVariantResponse>()
-  const [variantProductId, setVariantProductId] = useState('')
-  const [variantOptionIds, setVariantOptionIds] = useState('')
-  const [variantSku, setVariantSku] = useState('')
-
-  // List Variants for a Product
-  const listVariants = useApiCall<ProductVariantResponse[]>()
-  const [listVariantsProductId, setListVariantsProductId] = useState('')
-
-  // Deactivate Variant
-  const deactivateVariant = useApiCall<void>()
-  const [deactivateVariantProductId, setDeactivateVariantProductId] = useState('')
-  const [deactivateVariantId, setDeactivateVariantId] = useState('')
-
-  function loadIntoUpdateForm(product: ProductResponse) {
-    setUpdateId(product.id)
-    setUpdateForm({ sku: product.sku, name: product.name, description: product.description ?? '' })
+  function openCreate() {
+    setEditing(null)
+    setForm(EMPTY_PRODUCT_FORM)
+    setModalOpen(true)
   }
+
+  function openEdit(product: ProductResponse) {
+    setEditing(product)
+    setForm({ sku: product.sku, name: product.name, description: product.description ?? '' })
+    setModalOpen(true)
+  }
+
+  function submit() {
+    save.call(() => editing ? bime.products.update(editing.id, form, token) : bime.products.create(form, token))
+  }
+
+  function remove(product: ProductResponse) {
+    if (!window.confirm(t('bimeProductsPage.deactivateConfirm', { name: product.name }))) return
+    deactivate.call(() => bime.products.deactivate(product.id, token)).then(() => {
+      reload()
+      toast.show(t('bimeProductsPage.deactivated'))
+    })
+  }
+
+  // ── Assign metadata ──
+  const [assignTarget, setAssignTarget] = useState<ProductResponse | null>(null)
+  const [assignRows, setAssignRows] = useState<AssignmentRow[]>([])
+  const assignMetadata = useApiCall<void>()
+
+  useEffect(() => {
+    if (assignMetadata.state.status !== 'success') return
+    setAssignTarget(null)
+    reload()
+    toast.show(t('bimeProductsPage.assignmentsSaved'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignMetadata.state])
+
+  function openAssign(product: ProductResponse) {
+    setAssignTarget(product)
+    setAssignRows((product.metadata ?? []).map(m => ({
+      metadataId: m.metadataId,
+      optionIds: m.selectedOptions.map(o => o.id),
+    })))
+  }
+
+  // ── Variants tab ──
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
+  const variants = useApiCall<ProductVariantResponse[]>()
+  useEffect(() => {
+    if (selectedProductId) variants.call(() => bime.variants.list(selectedProductId, token))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProductId])
+  const variantList = variants.state.status === 'success' ? variants.state.data : []
+
+  const [variantModalOpen, setVariantModalOpen] = useState(false)
+  const [variantSku, setVariantSku] = useState('')
+  const [variantRows, setVariantRows] = useState<AssignmentRow[]>([])
+  const createVariant = useApiCall<ProductVariantResponse>()
+  const deactivateVariant = useApiCall<void>()
+
+  useEffect(() => {
+    if (createVariant.state.status !== 'success' || !selectedProductId) return
+    setVariantModalOpen(false)
+    setVariantSku('')
+    setVariantRows([])
+    variants.call(() => bime.variants.list(selectedProductId, token))
+    toast.show(t('bimeProductsPage.variantCreated'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createVariant.state])
+
+  function submitVariant() {
+    if (!selectedProductId) return
+    const optionIds = buildAssignments(variantRows).flatMap(a => a.optionIds)
+    const dto: ProductVariantRequest = { optionIds, sku: variantSku.trim() || undefined }
+    createVariant.call(() => bime.variants.create(selectedProductId, dto, token))
+  }
+
+  function removeVariant(v: ProductVariantResponse) {
+    if (!selectedProductId) return
+    if (!window.confirm(t('bimeProductsPage.deactivateVariantConfirm'))) return
+    deactivateVariant.call(() => bime.variants.deactivate(selectedProductId, v.id, token)).then(() => {
+      variants.call(() => bime.variants.list(selectedProductId, token))
+      toast.show(t('bimeProductsPage.variantDeactivated'))
+    })
+  }
+
+  const productColumns: Column<ProductResponse>[] = [
+    { key: 'sku', header: t('bimeProductsPage.sku'), render: p => <span className="td-muted">{p.sku}</span> },
+    { key: 'name', header: t('bimeProductsPage.name'), render: p => p.name, sortValue: p => p.name },
+    {
+      key: 'active',
+      header: t('bimeProductsPage.active'),
+      render: p => (
+        <span className={`status-badge ${p.isActive ? 'status-ok' : 'status-fail'}`}>
+          {p.isActive ? t('bimeProductsPage.active') : t('bimeProductsPage.inactive')}
+        </span>
+      ),
+    },
+    { key: 'variants', header: t('bimeProductsPage.variants'), render: p => <span className="td-muted">{p.variants?.length ?? '—'}</span> },
+    ...(permissions.canManageBime ? [{
+      key: 'actions',
+      header: '',
+      render: (p: ProductResponse) => (
+        <RowActionsMenu actions={[
+          { label: t('common.actions.edit'), onClick: () => openEdit(p) },
+          { label: t('bimeProductsPage.assignMetadata'), onClick: () => openAssign(p) },
+          { label: t('bimeProductsPage.manageVariants'), onClick: () => { setSelectedProductId(p.id); setActiveTab('variants') } },
+          { label: t('common.actions.deactivate'), onClick: () => remove(p), danger: true },
+        ]} />
+      ),
+    }] : []),
+  ]
+
+  const variantColumns: Column<ProductVariantResponse>[] = [
+    { key: 'sku', header: t('bimeProductsPage.sku'), render: v => <span className="td-muted">{v.sku ?? '—'}</span> },
+    {
+      key: 'options',
+      header: t('bimeProductsPage.options'),
+      render: v => (
+        <div className="role-chips">
+          {v.options.map(o => <span key={o.id} className="role-badge">{o.value}</span>)}
+        </div>
+      ),
+    },
+    {
+      key: 'active',
+      header: t('bimeProductsPage.active'),
+      render: v => (
+        <span className={`status-badge ${v.isActive ? 'status-ok' : 'status-fail'}`}>
+          {v.isActive ? t('bimeProductsPage.active') : t('bimeProductsPage.inactive')}
+        </span>
+      ),
+    },
+    {
+      key: 'stock',
+      header: t('bimeProductsPage.stock'),
+      render: v => v.stock.length === 0 ? (
+        <span className="td-muted">{t('bimeProductsPage.noStock')}</span>
+      ) : (
+        <span className="td-muted">
+          {v.stock.map(s => `${s.quantity} @ ${locationLookup[s.locationId]?.name ?? '—'}`).join(', ')}
+        </span>
+      ),
+    },
+    ...(permissions.canManageBime ? [{
+      key: 'actions',
+      header: '',
+      render: (v: ProductVariantResponse) => (
+        <RowActionsMenu actions={[{ label: t('common.actions.deactivate'), onClick: () => removeVariant(v), danger: true }]} />
+      ),
+    }] : []),
+  ]
+
+  const productItems = products.map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))
 
   return (
     <div className="page">
-
-      {/* ── All Products ── */}
-      <div className="panel">
-        <h2>All Products</h2>
-        <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={list.state.status === 'loading'}
-            onClick={() => list.call(() => bime.products.list(token))}
-          >
-            {list.state.status === 'loading' ? 'Loading…' : 'Load'}
-          </button>
+      <div className="page-header">
+        <div>
+          <h1>{t('bimeProductsPage.title')}</h1>
+          <p>{t('bimeProductsPage.subtitle')}</p>
         </div>
-        {list.state.status === 'success' && <ProductsTable products={list.state.data} />}
-        {list.state.status === 'error' && <div className="error">{list.state.message}</div>}
       </div>
 
-      {/* ── Create Product ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Create Product</h2>
-          <div className="fields">
-            <div className="field">
-              <label>SKU</label>
-              <input value={createForm.sku} onChange={e => setCreateForm(f => ({ ...f, sku: e.target.value }))} placeholder="WIDGET-001" />
-            </div>
-            <div className="field">
-              <label>Name</label>
-              <input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} placeholder="Widget" />
-            </div>
-            <div className="field">
-              <label>Description</label>
-              <input value={createForm.description} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))} />
-            </div>
+      <Tabs
+        tabs={[
+          { id: 'products', label: t('bimeProductsPage.tabProducts') },
+          { id: 'variants', label: t('bimeProductsPage.tabVariants') },
+        ]}
+        active={activeTab}
+        onChange={setActiveTab}
+      >
+        {activeTab === 'products' && (
+          <div className="panel">
+            {list.state.status === 'error' && <Feedback state={list.state} />}
+            <DataTable
+              columns={productColumns}
+              rows={products}
+              rowKey={p => p.id}
+              searchable
+              searchText={p => `${p.sku} ${p.name}`}
+              onRowClick={permissions.canManageBime ? openEdit : undefined}
+              emptyLabel={t('bimeProductsPage.emptyState')}
+              headerAction={permissions.canManageBime
+                ? <button className="btn btn-primary" onClick={openCreate} type="button">{t('bimeProductsPage.createAction')}</button>
+                : undefined}
+            />
           </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={create.state.status === 'loading' || !createForm.sku.trim() || !createForm.name.trim()}
-              onClick={() => create.call(() => bime.products.create(createForm, token))}
-            >
-              {create.state.status === 'loading' ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-          {create.state.status === 'success' && <div className="success">Product created: {create.state.data.id}</div>}
-          {create.state.status === 'error' && <div className="error">{create.state.message}</div>}
-        </div>
-      )}
+        )}
 
-      {/* ── Look Up Product ── */}
-      <div className="panel">
-        <h2>Look Up Product</h2>
+        {activeTab === 'variants' && (
+          <div className="panel">
+            <div className="field" style={{ marginBottom: '16px', maxWidth: '320px' }}>
+              <label>{t('bimeProductsPage.name')}</label>
+              <Combobox items={productItems} value={selectedProductId} onChange={setSelectedProductId} placeholder={t('bimeProductsPage.productPlaceholder')} />
+            </div>
+            {!selectedProductId ? (
+              <div className="empty-state">{t('bimeProductsPage.selectProductHint')}</div>
+            ) : (
+              <>
+              {variants.state.status === 'error' && <Feedback state={variants.state} />}
+              <DataTable
+                columns={variantColumns}
+                rows={variantList}
+                rowKey={v => v.id}
+                emptyLabel={t('bimeProductsPage.variantsEmptyState')}
+                headerAction={permissions.canManageBime
+                  ? <button className="btn btn-primary" onClick={() => { setVariantSku(''); setVariantRows([]); setVariantModalOpen(true) }} type="button">
+                      {t('bimeProductsPage.createVariantAction')}
+                    </button>
+                  : undefined}
+              />
+              </>
+            )}
+          </div>
+        )}
+      </Tabs>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={t(editing ? 'bimeProductsPage.editTitle' : 'bimeProductsPage.createTitle')}>
         <div className="fields">
           <div className="field">
-            <label>Product ID</label>
-            <input value={lookupId} onChange={e => setLookupId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
+            <label>{t('bimeProductsPage.sku')}</label>
+            <input value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} placeholder="WIDGET-001" />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.name')}</label>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Widget" />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.description')}</label>
+            <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
           </div>
         </div>
         <div className="actions">
           <button
-            className="btn btn-outline"
-            disabled={lookup.state.status === 'loading' || !lookupId.trim()}
-            onClick={() => lookup.call(() => bime.products.get(lookupId.trim(), token))}
+            className="btn btn-primary"
+            disabled={save.state.status === 'loading' || !form.sku.trim() || !form.name.trim()}
+            onClick={submit}
           >
-            {lookup.state.status === 'loading' ? 'Fetching…' : 'Fetch'}
+            {save.state.status === 'loading' ? t('common.actions.loading') : t(editing ? 'common.actions.save' : 'common.actions.create')}
           </button>
         </div>
-        {lookup.state.status === 'success' && (() => {
-          const product = lookup.state.data
-          return (
-            <>
-              <div className="entity-card">
-                <div className="entity-name">{product.name}</div>
-                <div className="entity-detail">{product.sku}{product.description ? ` — ${product.description}` : ''}</div>
-                <div className="entity-id-row">
-                  <span className="entity-id-label">ID</span>
-                  <span className="entity-id-value">{product.id}</span>
-                  <CopyButton text={product.id} />
-                </div>
-              </div>
-              {product.metadata && product.metadata.length > 0 && (
-                <div style={{ marginTop: '12px' }}>
-                  <h3 style={{ fontSize: '13px', color: '#6c757d', marginBottom: '6px' }}>Metadata</h3>
-                  {product.metadata.map(m => (
-                    <div key={m.metadataId} style={{ marginBottom: '4px' }}>
-                      <strong>{m.metadataName}:</strong>{' '}
-                      {m.selectedOptions.map(o => (
-                        <span key={o.id} className="role-badge" style={{ marginRight: '6px' }}>{o.value}</span>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div style={{ marginTop: '12px' }}>
-                <h3 style={{ fontSize: '13px', color: '#6c757d', marginBottom: '6px' }}>Variants</h3>
-                <VariantsTable variants={product.variants ?? []} locationLookup={locationLookup} />
-              </div>
-              {permissions.canManageBime && (
-                <div style={{ marginTop: '8px' }}>
-                  <button className="btn btn-outline btn-sm" onClick={() => loadIntoUpdateForm(product)}>
-                    Load into update form ↓
-                  </button>
-                </div>
-              )}
-            </>
-          )
-        })()}
-        {lookup.state.status === 'error' && <div className="error">{lookup.state.message}</div>}
-      </div>
+        {save.state.status === 'error' && <Feedback state={save.state} />}
+        {editing && (
+          <details className="id-disclosure">
+            <summary>{t('common.fields.id')}</summary>
+            <div className="id-disclosure-row">
+              <span className="id-disclosure-value">{editing.id}</span>
+              <CopyButton text={editing.id} />
+            </div>
+          </details>
+        )}
+      </Modal>
 
-      {/* ── Update Product ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Update Product</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Product ID</label>
-              <input value={updateId} onChange={e => setUpdateId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-            <div className="field">
-              <label>SKU</label>
-              <input value={updateForm.sku} onChange={e => setUpdateForm(f => ({ ...f, sku: e.target.value }))} />
-            </div>
-            <div className="field">
-              <label>Name</label>
-              <input value={updateForm.name} onChange={e => setUpdateForm(f => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div className="field">
-              <label>Description</label>
-              <input value={updateForm.description} onChange={e => setUpdateForm(f => ({ ...f, description: e.target.value }))} />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={update.state.status === 'loading' || !updateId.trim() || !updateForm.sku.trim() || !updateForm.name.trim()}
-              onClick={() => update.call(() => bime.products.update(updateId.trim(), updateForm, token))}
-            >
-              {update.state.status === 'loading' ? 'Updating…' : 'Update'}
-            </button>
-          </div>
-          <Feedback state={update.state} successLabel="Product updated." />
+      <Modal
+        open={assignTarget !== null}
+        onClose={() => setAssignTarget(null)}
+        title={assignTarget ? t('bimeProductsPage.assignMetadataTitle', { name: assignTarget.name }) : ''}
+      >
+        <p className="panel-hint">{t('bimeProductsPage.assignMetadataHint')}</p>
+        <div className="field" style={{ marginBottom: '14px' }}>
+          <AssignmentsInput value={assignRows} onChange={setAssignRows} metadataDefs={metadataDefsList} />
         </div>
-      )}
-
-      {/* ── Deactivate Product ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Deactivate Product</h2>
-          <p className="panel-hint">Soft-deletes the product. Variants and stock records are preserved.</p>
-          <div className="fields">
-            <div className="field">
-              <label>Product ID</label>
-              <input value={deactivateId} onChange={e => setDeactivateId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-danger"
-              disabled={deactivate.state.status === 'loading' || !deactivateId.trim()}
-              onClick={() => {
-                if (!window.confirm(`Deactivate product ${deactivateId.trim()}?`)) return
-                deactivate.call(() => bime.products.deactivate(deactivateId.trim(), token))
-              }}
-            >
-              {deactivate.state.status === 'loading' ? 'Deactivating…' : 'Deactivate'}
-            </button>
-          </div>
-          <Feedback state={deactivate.state} successLabel="Product deactivated." />
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={assignMetadata.state.status === 'loading' || !assignTarget}
+            onClick={() => assignTarget && assignMetadata.call(() => bime.products.assignMetadata(assignTarget.id, buildAssignments(assignRows), token))}
+          >
+            {assignMetadata.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.save')}
+          </button>
         </div>
-      )}
+        {assignMetadata.state.status === 'error' && <Feedback state={assignMetadata.state} />}
+      </Modal>
 
-      {/* ── Assign Metadata ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Assign Metadata</h2>
-          <p className="panel-hint">Replaces the full set of metadata assignments for the product.</p>
-          <div className="fields">
-            <div className="field">
-              <label>Product ID</label>
-              <input value={assignProductId} onChange={e => setAssignProductId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-          </div>
-          <div className="field" style={{ marginBottom: '14px' }}>
-            <label style={{ marginBottom: '8px' }}>Assignments</label>
-            <AssignmentsInput value={assignRows} onChange={setAssignRows} metadataDefs={metadataDefsList} />
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={assignMetadata.state.status === 'loading' || !assignProductId.trim()}
-              onClick={() => assignMetadata.call(() => bime.products.assignMetadata(
-                assignProductId.trim(), buildAssignments(assignRows), token,
-              ))}
-            >
-              {assignMetadata.state.status === 'loading' ? 'Assigning…' : 'Assign'}
-            </button>
-          </div>
-          <Feedback state={assignMetadata.state} successLabel="Metadata assignments updated." />
-        </div>
-      )}
-
-      {/* ── Create Variant ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Create Variant</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Product ID</label>
-              <input value={variantProductId} onChange={e => setVariantProductId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-            <div className="field">
-              <label>Option IDs (comma-separated)</label>
-              <input value={variantOptionIds} onChange={e => setVariantOptionIds(e.target.value)} placeholder="red-id, xl-id" spellCheck={false} />
-            </div>
-            <div className="field">
-              <label>SKU (optional)</label>
-              <input value={variantSku} onChange={e => setVariantSku(e.target.value)} placeholder="WIDGET-001-RED-XL" />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={createVariant.state.status === 'loading' || !variantProductId.trim()}
-              onClick={() => createVariant.call(() => bime.variants.create(
-                variantProductId.trim(),
-                { optionIds: splitIds(variantOptionIds), sku: variantSku.trim() || undefined },
-                token,
-              ))}
-            >
-              {createVariant.state.status === 'loading' ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-          {createVariant.state.status === 'success' && <div className="success">Variant created: {createVariant.state.data.id}</div>}
-          {createVariant.state.status === 'error' && <div className="error">{createVariant.state.message}</div>}
-        </div>
-      )}
-
-      {/* ── List Variants for a Product ── */}
-      <div className="panel">
-        <h2>List Variants</h2>
+      <Modal open={variantModalOpen} onClose={() => setVariantModalOpen(false)} title={t('bimeProductsPage.createVariantTitle')}>
         <div className="fields">
           <div className="field">
-            <label>Product ID</label>
-            <input value={listVariantsProductId} onChange={e => setListVariantsProductId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
+            <label>{t('bimeProductsPage.sku')}</label>
+            <input value={variantSku} onChange={e => setVariantSku(e.target.value)} placeholder="WIDGET-001-RED-XL" />
           </div>
+        </div>
+        <div className="field" style={{ marginBottom: '14px' }}>
+          <label style={{ marginBottom: '8px' }}>{t('bimeProductsPage.options')}</label>
+          <AssignmentsInput value={variantRows} onChange={setVariantRows} metadataDefs={metadataDefsList} />
         </div>
         <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={listVariants.state.status === 'loading' || !listVariantsProductId.trim()}
-            onClick={() => listVariants.call(() => bime.variants.list(listVariantsProductId.trim(), token))}
-          >
-            {listVariants.state.status === 'loading' ? 'Loading…' : 'Load'}
+          <button className="btn btn-primary" disabled={createVariant.state.status === 'loading'} onClick={submitVariant}>
+            {createVariant.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.create')}
           </button>
         </div>
-        {listVariants.state.status === 'success' && <VariantsTable variants={listVariants.state.data} locationLookup={locationLookup} />}
-        {listVariants.state.status === 'error' && <div className="error">{listVariants.state.message}</div>}
-      </div>
-
-      {/* ── Deactivate Variant ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Deactivate Variant</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Product ID</label>
-              <input value={deactivateVariantProductId} onChange={e => setDeactivateVariantProductId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-            <div className="field">
-              <label>Variant ID</label>
-              <input value={deactivateVariantId} onChange={e => setDeactivateVariantId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-danger"
-              disabled={deactivateVariant.state.status === 'loading' || !deactivateVariantProductId.trim() || !deactivateVariantId.trim()}
-              onClick={() => {
-                if (!window.confirm(`Deactivate variant ${deactivateVariantId.trim()}?`)) return
-                deactivateVariant.call(() => bime.variants.deactivate(
-                  deactivateVariantProductId.trim(), deactivateVariantId.trim(), token,
-                ))
-              }}
-            >
-              {deactivateVariant.state.status === 'loading' ? 'Deactivating…' : 'Deactivate'}
-            </button>
-          </div>
-          <Feedback state={deactivateVariant.state} successLabel="Variant deactivated." />
-        </div>
-      )}
-
+        {createVariant.state.status === 'error' && <Feedback state={createVariant.state} />}
+      </Modal>
     </div>
   )
 }

@@ -1,8 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { useApiCall } from '../hooks/useApiCall'
-import { Feedback } from '../components/Feedback'
+import { useToast } from '../components/Toast'
+import { Modal } from '../components/Modal'
+import { DataTable, type Column } from '../components/DataTable'
+import { RowActionsMenu } from '../components/RowActionsMenu'
 import { CopyButton } from '../components/CopyButton'
+import { Feedback } from '../components/Feedback'
+import { CloseIcon } from '../components/icons'
 import type { Permissions } from '../auth'
 import type { ProductMetadataResponse } from '../types'
 
@@ -11,188 +17,172 @@ interface Props {
   permissions: Permissions
 }
 
-function MetadataTable({ definitions }: { definitions: ProductMetadataResponse[] }) {
-  if (definitions.length === 0) {
-    return <div className="empty-state">No metadata definitions yet.</div>
-  }
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Options</th>
-          <th>ID</th>
-        </tr>
-      </thead>
-      <tbody>
-        {definitions.map(m => (
-          <tr key={m.id}>
-            <td>{m.name}</td>
-            <td className="td-muted">
-              {m.options.length === 0
-                ? '—'
-                : m.options.map(o => (
-                  <span key={o.id} className="role-badge" title={o.id} style={{ marginRight: '6px' }}>
-                    {o.value}
-                  </span>
-                ))}
-            </td>
-            <td>
-              <div className="td-id">
-                <span>{m.id}</span>
-                <CopyButton text={m.id} />
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
 export default function BimeMetadataPage({ token, permissions }: Props) {
+  const { t } = useTranslation()
+  const toast = useToast()
+
   const list = useApiCall<ProductMetadataResponse[]>()
+  function reload() { list.call(() => bime.metadata.list(token)) }
+  useEffect(reload, [token])
+  const definitions = list.state.status === 'success' ? list.state.data : []
 
-  const create = useApiCall<ProductMetadataResponse>()
+  const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
+  const create = useApiCall<ProductMetadataResponse>()
 
-  const deleteCall = useApiCall<void>()
-  const [deleteId, setDeleteId] = useState('')
-
+  const [optionTarget, setOptionTarget] = useState<ProductMetadataResponse | null>(null)
+  const [optionValue, setOptionValue] = useState('')
   const addOption = useApiCall<unknown>()
-  const [optMetadataId, setOptMetadataId] = useState('')
-  const [optValue, setOptValue] = useState('')
-
   const removeOption = useApiCall<void>()
-  const [removeMetadataId, setRemoveMetadataId] = useState('')
-  const [removeOptionId, setRemoveOptionId] = useState('')
+  const deleteCall = useApiCall<void>()
+
+  useEffect(() => {
+    if (create.state.status !== 'success') return
+    setCreateOpen(false)
+    setCreateName('')
+    reload()
+    toast.show(t('bimeMetadataPage.created'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [create.state])
+
+  useEffect(() => {
+    if (addOption.state.status !== 'success') return
+    setOptionTarget(null)
+    setOptionValue('')
+    reload()
+    toast.show(t('bimeMetadataPage.optionAdded'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addOption.state])
+
+  function removeOptionFrom(def: ProductMetadataResponse, optionId: string, value: string) {
+    if (!window.confirm(t('bimeMetadataPage.removeOptionConfirm', { value }))) return
+    removeOption.call(() => bime.metadata.removeOption(def.id, optionId, token)).then(() => {
+      reload()
+      toast.show(t('bimeMetadataPage.optionRemoved'))
+    })
+  }
+
+  function remove(def: ProductMetadataResponse) {
+    if (!window.confirm(t('bimeMetadataPage.deleteConfirm', { name: def.name }))) return
+    deleteCall.call(() => bime.metadata.delete(def.id, token)).then(() => {
+      reload()
+      toast.show(t('bimeMetadataPage.deleted'))
+    })
+  }
+
+  const columns: Column<ProductMetadataResponse>[] = [
+    { key: 'name', header: t('bimeMetadataPage.name'), render: m => m.name, sortValue: m => m.name },
+    {
+      key: 'options',
+      header: t('bimeMetadataPage.options'),
+      render: m => m.options.length === 0 ? (
+        <span className="td-muted">{t('bimeMetadataPage.noOptions')}</span>
+      ) : (
+        <div className="role-chips">
+          {m.options.map(o => (
+            <span key={o.id} className="role-badge">
+              {o.value}
+              {permissions.canManageBime && (
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); removeOptionFrom(m, o.id, o.value) }}
+                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', marginLeft: 4, display: 'inline-flex', verticalAlign: 'middle' }}
+                  aria-label={t('common.actions.delete')}
+                >
+                  <CloseIcon width={10} height={10} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      ),
+    },
+    ...(permissions.canManageBime ? [{
+      key: 'actions',
+      header: '',
+      render: (m: ProductMetadataResponse) => (
+        <RowActionsMenu actions={[
+          { label: t('bimeMetadataPage.addOption'), onClick: () => { setOptionTarget(m); setOptionValue('') } },
+          { label: t('common.actions.delete'), onClick: () => remove(m), danger: true },
+        ]} />
+      ),
+    }] : []),
+  ]
 
   return (
     <div className="page">
-
-      {/* ── All Metadata Definitions ── */}
-      <div className="panel">
-        <h2>All Metadata Definitions</h2>
-        <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={list.state.status === 'loading'}
-            onClick={() => list.call(() => bime.metadata.list(token))}
-          >
-            {list.state.status === 'loading' ? 'Loading…' : 'Load'}
-          </button>
+      <div className="page-header">
+        <div>
+          <h1>{t('bimeMetadataPage.title')}</h1>
+          <p>{t('bimeMetadataPage.subtitle')}</p>
         </div>
-        {list.state.status === 'success' && <MetadataTable definitions={list.state.data} />}
-        {list.state.status === 'error' && <div className="error">{list.state.message}</div>}
       </div>
 
-      {/* ── Create Metadata Definition ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Create Metadata Definition</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Name</label>
-              <input value={createName} onChange={e => setCreateName(e.target.value)} placeholder="Colour" />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={create.state.status === 'loading' || !createName.trim()}
-              onClick={() => create.call(() => bime.metadata.create({ name: createName.trim() }, token))}
-            >
-              {create.state.status === 'loading' ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-          <Feedback state={create.state} successLabel="Metadata definition created." />
-        </div>
-      )}
+      <div className="panel">
+        {list.state.status === 'error' && <Feedback state={list.state} />}
+        <DataTable
+          columns={columns}
+          rows={definitions}
+          rowKey={m => m.id}
+          searchable
+          searchText={m => m.name}
+          emptyLabel={t('bimeMetadataPage.emptyState')}
+          headerAction={permissions.canManageBime
+            ? <button className="btn btn-primary" onClick={() => setCreateOpen(true)} type="button">{t('bimeMetadataPage.createAction')}</button>
+            : undefined}
+        />
+      </div>
 
-      {/* ── Add Option ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Add Option</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Metadata ID</label>
-              <input value={optMetadataId} onChange={e => setOptMetadataId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-            <div className="field">
-              <label>Value</label>
-              <input value={optValue} onChange={e => setOptValue(e.target.value)} placeholder="Red" />
-            </div>
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title={t('bimeMetadataPage.createTitle')}>
+        <div className="fields">
+          <div className="field">
+            <label>{t('bimeMetadataPage.name')}</label>
+            <input value={createName} onChange={e => setCreateName(e.target.value)} placeholder="Colour" />
           </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={addOption.state.status === 'loading' || !optMetadataId.trim() || !optValue.trim()}
-              onClick={() => addOption.call(() => bime.metadata.addOption(optMetadataId.trim(), { value: optValue.trim() }, token))}
-            >
-              {addOption.state.status === 'loading' ? 'Adding…' : 'Add Option'}
-            </button>
-          </div>
-          <Feedback state={addOption.state} successLabel="Option added." />
         </div>
-      )}
-
-      {/* ── Remove Option ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Remove Option</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Metadata ID</label>
-              <input value={removeMetadataId} onChange={e => setRemoveMetadataId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-            <div className="field">
-              <label>Option ID</label>
-              <input value={removeOptionId} onChange={e => setRemoveOptionId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-danger"
-              disabled={removeOption.state.status === 'loading' || !removeMetadataId.trim() || !removeOptionId.trim()}
-              onClick={() => {
-                if (!window.confirm(`Remove option ${removeOptionId.trim()}?`)) return
-                removeOption.call(() => bime.metadata.removeOption(removeMetadataId.trim(), removeOptionId.trim(), token))
-              }}
-            >
-              {removeOption.state.status === 'loading' ? 'Removing…' : 'Remove'}
-            </button>
-          </div>
-          <Feedback state={removeOption.state} successLabel="Option removed." />
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={create.state.status === 'loading' || !createName.trim()}
+            onClick={() => create.call(() => bime.metadata.create({ name: createName.trim() }, token))}
+          >
+            {create.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.create')}
+          </button>
         </div>
-      )}
+        {create.state.status === 'error' && <Feedback state={create.state} />}
+      </Modal>
 
-      {/* ── Delete Metadata Definition ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Delete Metadata Definition</h2>
-          <p className="panel-hint">Fails if the definition is still assigned to any product.</p>
-          <div className="fields">
-            <div className="field">
-              <label>Metadata ID</label>
-              <input value={deleteId} onChange={e => setDeleteId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
+      <Modal
+        open={optionTarget !== null}
+        onClose={() => setOptionTarget(null)}
+        title={optionTarget ? t('bimeMetadataPage.addOptionTitle', { name: optionTarget.name }) : ''}
+      >
+        <div className="fields">
+          <div className="field">
+            <label>{t('bimeMetadataPage.optionValue')}</label>
+            <input value={optionValue} onChange={e => setOptionValue(e.target.value)} placeholder="Red" />
           </div>
-          <div className="actions">
-            <button
-              className="btn btn-danger"
-              disabled={deleteCall.state.status === 'loading' || !deleteId.trim()}
-              onClick={() => {
-                if (!window.confirm(`Delete metadata definition ${deleteId.trim()}? This cannot be undone.`)) return
-                deleteCall.call(() => bime.metadata.delete(deleteId.trim(), token))
-              }}
-            >
-              {deleteCall.state.status === 'loading' ? 'Deleting…' : 'Delete'}
-            </button>
-          </div>
-          <Feedback state={deleteCall.state} successLabel="Metadata definition deleted." />
         </div>
-      )}
-
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={addOption.state.status === 'loading' || !optionValue.trim() || !optionTarget}
+            onClick={() => optionTarget && addOption.call(() => bime.metadata.addOption(optionTarget.id, { value: optionValue.trim() }, token))}
+          >
+            {addOption.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.save')}
+          </button>
+        </div>
+        {addOption.state.status === 'error' && <Feedback state={addOption.state} />}
+        {optionTarget && (
+          <details className="id-disclosure">
+            <summary>{t('common.fields.id')}</summary>
+            <div className="id-disclosure-row">
+              <span className="id-disclosure-value">{optionTarget.id}</span>
+              <CopyButton text={optionTarget.id} />
+            </div>
+          </details>
+        )}
+      </Modal>
     </div>
   )
 }

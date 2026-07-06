@@ -6,6 +6,7 @@ import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
 import raum.models.Organization;
 import raum.repository.OrganizationRepository;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
@@ -33,6 +34,17 @@ public class OrganizationService {
                         .contactEmail(savedOrg.getContactEmail())
                         .build()
         );
+    }
+
+    public Flux<OrgResponseDTO> getAllOrgs() {
+        return repository.findAll()
+                .filter(organization -> organization.getStoppedAt() == null)
+                .map(organization -> OrgResponseDTO.builder()
+                        .id(organization.getId())
+                        .name(organization.getName())
+                        .contactEmail(organization.getContactEmail())
+                        .build()
+                );
     }
 
     public Mono<OrgResponseDTO> getOrgDataById(UUID id){

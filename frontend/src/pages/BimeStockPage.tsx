@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { useApiCall } from '../hooks/useApiCall'
+import { useToast } from '../components/Toast'
+import { Modal } from '../components/Modal'
+import { Tabs } from '../components/Tabs'
+import { DataTable, type Column } from '../components/DataTable'
+import { Combobox } from '../components/Combobox'
 import { Feedback } from '../components/Feedback'
 import type { Permissions } from '../auth'
 import type {
@@ -19,103 +25,17 @@ interface Props {
 
 const MOVEMENT_TYPES: MovementType[] = ['INBOUND', 'OUTBOUND', 'ADJUSTMENT']
 
-type VariantLookup = Record<string, { sku: string | null; productName: string; optionsLabel: string }>
-type LocationLookup = Record<string, LocationResponse>
-
-function variantLabel(v: ProductVariantResponse): string {
-  const opts = v.options.map(o => o.value).join(', ')
-  const sku = v.sku ?? v.id.slice(0, 8) + '…'
-  return opts ? `${sku} (${opts})` : sku
-}
-
-function VariantCell({ variantId, lookup }: { variantId: string; lookup: VariantLookup }) {
-  const info = lookup[variantId]
-  if (!info) return <span className="td-muted">{variantId.slice(0, 8)}…</span>
-  return (
-    <span>
-      {info.productName} — <strong>{info.sku ?? variantId.slice(0, 8) + '…'}</strong>
-      {info.optionsLabel && <span className="td-muted"> ({info.optionsLabel})</span>}
-    </span>
-  )
-}
-
-function LocationCell({ locationId, lookup }: { locationId: string; lookup: LocationLookup }) {
-  const loc = lookup[locationId]
-  if (!loc) return <span className="td-muted">{locationId.slice(0, 8)}…</span>
-  return <span>{loc.name} <span className="td-muted">({loc.code})</span></span>
-}
-
-function MovementsTable({ movements, variantLookup, locationLookup }: {
-  movements: StockMovementResponse[]; variantLookup: VariantLookup; locationLookup: LocationLookup
-}) {
-  if (movements.length === 0) {
-    return <div className="empty-state">No movements found.</div>
-  }
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Delta</th>
-          <th>Variant</th>
-          <th>Location</th>
-          <th>Note</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody>
-        {movements.map(m => (
-          <tr key={m.id}>
-            <td><span className="role-badge">{m.movementType}</span></td>
-            <td className={m.delta < 0 ? 'error' : 'success'} style={{ padding: 0 }}>{m.delta > 0 ? `+${m.delta}` : m.delta}</td>
-            <td><VariantCell variantId={m.variantId} lookup={variantLookup} /></td>
-            <td><LocationCell locationId={m.locationId} lookup={locationLookup} /></td>
-            <td className="td-muted">{m.note ?? '—'}</td>
-            <td className="td-muted">{new Date(m.createdAt).toLocaleString()}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
-function BalancesTable({ balances, variantLookup, locationLookup }: {
-  balances: StockBalanceResponse[]; variantLookup: VariantLookup; locationLookup: LocationLookup
-}) {
-  if (balances.length === 0) {
-    return <div className="empty-state">No balances found.</div>
-  }
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>Variant</th>
-          <th>Location</th>
-          <th>Quantity</th>
-          <th>Modified</th>
-        </tr>
-      </thead>
-      <tbody>
-        {balances.map(b => (
-          <tr key={`${b.variantId}-${b.locationId}`}>
-            <td><VariantCell variantId={b.variantId} lookup={variantLookup} /></td>
-            <td><LocationCell locationId={b.locationId} lookup={locationLookup} /></td>
-            <td>{b.quantity}</td>
-            <td className="td-muted">{new Date(b.modifiedAt).toLocaleString()}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
+type VariantInfo = { sku: string | null; productName: string; optionsLabel: string }
 
 export default function BimeStockPage({ token, permissions }: Props) {
-  // Reference data (locations, products + their variants) used to power dropdowns
-  // and to translate raw IDs back into readable names in the tables below.
+  const { t } = useTranslation()
+  const toast = useToast()
+  const [activeTab, setActiveTab] = useState('movements')
+
   const locations = useApiCall<LocationResponse[]>()
   const products = useApiCall<ProductResponse[]>()
   const [variantsByProduct, setVariantsByProduct] = useState<Record<string, ProductVariantResponse[]>>({})
-  const [variantLookup, setVariantLookup] = useState<VariantLookup>({})
+  const [variantLookup, setVariantLookup] = useState<Record<string, VariantInfo>>({})
 
   useEffect(() => {
     locations.call(() => bime.locations.list(token))
@@ -126,212 +46,233 @@ export default function BimeStockPage({ token, permissions }: Props) {
   useEffect(() => {
     if (products.state.status !== 'success') return
     let cancelled = false
-    Promise.all(products.state.data.map(p => bime.products.get(p.id, token)))
-      .then(full => {
-        if (cancelled) return
-        const byProduct: Record<string, ProductVariantResponse[]> = {}
-        const lookup: VariantLookup = {}
-        full.forEach(p => {
-          const variants = p.variants ?? []
-          byProduct[p.id] = variants
-          variants.forEach(v => {
-            lookup[v.id] = { sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', ') }
-          })
-        })
-        setVariantsByProduct(byProduct)
-        setVariantLookup(lookup)
+    Promise.all(products.state.data.map(p => bime.products.get(p.id, token))).then(full => {
+      if (cancelled) return
+      const byProduct: Record<string, ProductVariantResponse[]> = {}
+      const lookup: Record<string, VariantInfo> = {}
+      full.forEach(p => {
+        const vs = p.variants ?? []
+        byProduct[p.id] = vs
+        vs.forEach(v => { lookup[v.id] = { sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', ') } })
       })
-      .catch(() => {})
+      setVariantsByProduct(byProduct)
+      setVariantLookup(lookup)
+    }).catch(() => {})
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products.state.status])
 
-  const locationLookup: LocationLookup = {}
-  if (locations.state.status === 'success') {
-    locations.state.data.forEach(l => { locationLookup[l.id] = l })
-  }
-  const locationOptions = locations.state.status === 'success' ? locations.state.data : []
-  const productOptions = products.state.status === 'success' ? products.state.data : []
+  const locationLookup: Record<string, LocationResponse> = {}
+  if (locations.state.status === 'success') locations.state.data.forEach(l => { locationLookup[l.id] = l })
+  const locationItems = (locations.state.status === 'success' ? locations.state.data : []).map(l => ({ id: l.id, label: l.name, sublabel: l.code }))
+  const productItems = (products.state.status === 'success' ? products.state.data : []).map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))
 
-  // Record Movement
-  const record = useApiCall<StockMovementResponse>()
-  const [recordProductId, setRecordProductId] = useState('')
-  const [variantId, setVariantId] = useState('')
-  const [locationId, setLocationId] = useState('')
+  function variantItemsFor(productId: string) {
+    return (variantsByProduct[productId] ?? []).map(v => ({
+      id: v.id,
+      label: v.sku ?? v.id.slice(0, 8) + '…',
+      sublabel: v.options.map(o => o.value).join(', '),
+    }))
+  }
+
+  function variantLabel(variantId: string): string {
+    const info = variantLookup[variantId]
+    if (!info) return variantId.slice(0, 8) + '…'
+    return info.optionsLabel ? `${info.productName} — ${info.sku ?? '—'} (${info.optionsLabel})` : `${info.productName} — ${info.sku ?? '—'}`
+  }
+
+  function locationLabel(locationId: string): string {
+    const loc = locationLookup[locationId]
+    return loc ? `${loc.name} (${loc.code})` : locationId.slice(0, 8) + '…'
+  }
+
+  // ── Record movement ──
+  const [recordOpen, setRecordOpen] = useState(false)
+  const [recordProductId, setRecordProductId] = useState<string | null>(null)
+  const [variantId, setVariantId] = useState<string | null>(null)
+  const [locationId, setLocationId] = useState<string | null>(null)
   const [movementType, setMovementType] = useState<MovementType>('INBOUND')
   const [delta, setDelta] = useState(0)
   const [note, setNote] = useState('')
+  const record = useApiCall<StockMovementResponse>()
 
-  // List Movements
   const movements = useApiCall<StockMovementResponse[]>()
-  const [movFilterProduct, setMovFilterProduct] = useState('')
-  const [movFilterVariant, setMovFilterVariant] = useState('')
-  const [movFilterLocation, setMovFilterLocation] = useState('')
+  const [movFilterProduct, setMovFilterProduct] = useState<string | null>(null)
+  const [movFilterVariant, setMovFilterVariant] = useState<string | null>(null)
+  const [movFilterLocation, setMovFilterLocation] = useState<string | null>(null)
 
-  // List Balances
+  function loadMovements() {
+    movements.call(() => bime.stock.listMovements(token, {
+      variantId: movFilterVariant ?? undefined,
+      locationId: movFilterLocation ?? undefined,
+    }))
+  }
+  useEffect(loadMovements, [])
+
+  useEffect(() => {
+    if (record.state.status !== 'success') return
+    setRecordOpen(false)
+    setRecordProductId(null)
+    setVariantId(null)
+    setLocationId(null)
+    setDelta(0)
+    setNote('')
+    loadMovements()
+    toast.show(t('bimeStockPage.recorded'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record.state])
+
   const balances = useApiCall<StockBalanceResponse[]>()
-  const [balFilterProduct, setBalFilterProduct] = useState('')
-  const [balFilterVariant, setBalFilterVariant] = useState('')
-  const [balFilterLocation, setBalFilterLocation] = useState('')
+  const [balFilterProduct, setBalFilterProduct] = useState<string | null>(null)
+  const [balFilterVariant, setBalFilterVariant] = useState<string | null>(null)
+  const [balFilterLocation, setBalFilterLocation] = useState<string | null>(null)
+
+  function loadBalances() {
+    balances.call(() => bime.stock.listBalances(token, {
+      variantId: balFilterVariant ?? undefined,
+      locationId: balFilterLocation ?? undefined,
+    }))
+  }
+  useEffect(loadBalances, [])
+
+  const movementColumns: Column<StockMovementResponse>[] = [
+    { key: 'type', header: t('bimeStockPage.type'), render: m => <span className="role-badge">{t(`bimeStockPage.movementTypes.${m.movementType}`)}</span> },
+    { key: 'delta', header: t('bimeStockPage.delta'), render: m => <span className={m.delta < 0 ? 'feedback-error' : 'feedback-success'}>{m.delta > 0 ? `+${m.delta}` : m.delta}</span> },
+    { key: 'variant', header: t('bimeStockPage.variant'), render: m => variantLabel(m.variantId) },
+    { key: 'location', header: t('bimeStockPage.location'), render: m => locationLabel(m.locationId) },
+    { key: 'note', header: t('bimeStockPage.note'), render: m => <span className="td-muted">{m.note ?? '—'}</span> },
+    { key: 'created', header: t('bimeStockPage.created'), render: m => <span className="td-muted">{new Date(m.createdAt).toLocaleString()}</span> },
+  ]
+
+  const balanceColumns: Column<StockBalanceResponse>[] = [
+    { key: 'variant', header: t('bimeStockPage.variant'), render: b => variantLabel(b.variantId) },
+    { key: 'location', header: t('bimeStockPage.location'), render: b => locationLabel(b.locationId) },
+    { key: 'quantity', header: t('bimeStockPage.quantity'), render: b => b.quantity },
+    { key: 'modified', header: t('bimeStockPage.modified'), render: b => <span className="td-muted">{new Date(b.modifiedAt).toLocaleString()}</span> },
+  ]
 
   return (
     <div className="page">
-
-      {/* ── Record Movement ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Record Movement</h2>
-          <p className="panel-hint">Movements are immutable — corrections must be recorded as ADJUSTMENT.</p>
-          <div className="fields">
-            <div className="field">
-              <label>Product</label>
-              <select
-                value={recordProductId}
-                onChange={e => { setRecordProductId(e.target.value); setVariantId('') }}
-              >
-                <option value="">Select a product…</option>
-                {productOptions.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>Variant</label>
-              <select value={variantId} onChange={e => setVariantId(e.target.value)} disabled={!recordProductId}>
-                <option value="">Select a variant…</option>
-                {(variantsByProduct[recordProductId] ?? []).map(v => (
-                  <option key={v.id} value={v.id}>{variantLabel(v)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label>Location</label>
-              <select value={locationId} onChange={e => setLocationId(e.target.value)}>
-                <option value="">Select a location…</option>
-                {locationOptions.map(l => <option key={l.id} value={l.id}>{l.name} ({l.code})</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>Movement Type</label>
-              <select value={movementType} onChange={e => setMovementType(e.target.value as MovementType)}>
-                {MOVEMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>Delta</label>
-              <input type="number" value={delta} onChange={e => setDelta(parseInt(e.target.value, 10) || 0)} />
-            </div>
-            <div className="field">
-              <label>Note</label>
-              <input value={note} onChange={e => setNote(e.target.value)} placeholder="Received from supplier PO-2026-042" />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={record.state.status === 'loading' || !variantId || !locationId || delta === 0}
-              onClick={() => record.call(() => bime.stock.recordMovement(
-                { variantId, locationId, movementType, delta, note: note.trim() || undefined },
-                token,
-              ))}
-            >
-              {record.state.status === 'loading' ? 'Recording…' : 'Record'}
-            </button>
-          </div>
-          <Feedback state={record.state} successLabel="Movement recorded." />
+      <div className="page-header">
+        <div>
+          <h1>{t('bimeStockPage.title')}</h1>
+          <p>{t('bimeStockPage.subtitle')}</p>
         </div>
-      )}
+      </div>
 
-      {/* ── List Movements ── */}
-      <div className="panel">
-        <h2>Movements</h2>
+      <Tabs
+        tabs={[
+          { id: 'movements', label: t('bimeStockPage.tabMovements') },
+          { id: 'balances', label: t('bimeStockPage.tabBalances') },
+        ]}
+        active={activeTab}
+        onChange={setActiveTab}
+      >
+        {activeTab === 'movements' && (
+          <div className="panel">
+            <div className="fields">
+              <div className="field">
+                <label>{t('bimeStockPage.filterProduct')}</label>
+                <Combobox items={productItems} value={movFilterProduct} onChange={id => { setMovFilterProduct(id); setMovFilterVariant(null) }} placeholder={t('bimeStockPage.allProducts')} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.filterVariant')}</label>
+                <Combobox items={movFilterProduct ? variantItemsFor(movFilterProduct) : []} value={movFilterVariant} onChange={setMovFilterVariant} placeholder={t('bimeStockPage.allVariants')} disabled={!movFilterProduct} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.filterLocation')}</label>
+                <Combobox items={locationItems} value={movFilterLocation} onChange={setMovFilterLocation} placeholder={t('bimeStockPage.allLocations')} />
+              </div>
+            </div>
+            {movements.state.status === 'error' && <Feedback state={movements.state} />}
+            <DataTable
+              columns={movementColumns}
+              rows={movements.state.status === 'success' ? movements.state.data : []}
+              rowKey={m => m.id}
+              emptyLabel={t('bimeStockPage.movementsEmptyState')}
+              headerAction={
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-outline" onClick={loadMovements} type="button">{t('common.actions.load')}</button>
+                  {permissions.canManageBime && (
+                    <button className="btn btn-primary" onClick={() => setRecordOpen(true)} type="button">{t('bimeStockPage.recordAction')}</button>
+                  )}
+                </div>
+              }
+            />
+          </div>
+        )}
+
+        {activeTab === 'balances' && (
+          <div className="panel">
+            <div className="fields">
+              <div className="field">
+                <label>{t('bimeStockPage.filterProduct')}</label>
+                <Combobox items={productItems} value={balFilterProduct} onChange={id => { setBalFilterProduct(id); setBalFilterVariant(null) }} placeholder={t('bimeStockPage.allProducts')} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.filterVariant')}</label>
+                <Combobox items={balFilterProduct ? variantItemsFor(balFilterProduct) : []} value={balFilterVariant} onChange={setBalFilterVariant} placeholder={t('bimeStockPage.allVariants')} disabled={!balFilterProduct} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.filterLocation')}</label>
+                <Combobox items={locationItems} value={balFilterLocation} onChange={setBalFilterLocation} placeholder={t('bimeStockPage.allLocations')} />
+              </div>
+            </div>
+            {balances.state.status === 'error' && <Feedback state={balances.state} />}
+            <DataTable
+              columns={balanceColumns}
+              rows={balances.state.status === 'success' ? balances.state.data : []}
+              rowKey={b => `${b.variantId}-${b.locationId}`}
+              emptyLabel={t('bimeStockPage.balancesEmptyState')}
+              headerAction={<button className="btn btn-outline" onClick={loadBalances} type="button">{t('common.actions.load')}</button>}
+            />
+          </div>
+        )}
+      </Tabs>
+
+      <Modal open={recordOpen} onClose={() => setRecordOpen(false)} title={t('bimeStockPage.recordTitle')}>
+        <p className="panel-hint">{t('bimeStockPage.recordHint')}</p>
         <div className="fields">
           <div className="field">
-            <label>Product (optional)</label>
-            <select value={movFilterProduct} onChange={e => { setMovFilterProduct(e.target.value); setMovFilterVariant('') }}>
-              <option value="">All products</option>
-              {productOptions.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+            <label>{t('bimeStockPage.product')}</label>
+            <Combobox items={productItems} value={recordProductId} onChange={id => { setRecordProductId(id); setVariantId(null) }} placeholder={t('bimeStockPage.productPlaceholder')} />
+          </div>
+          <div className="field">
+            <label>{t('bimeStockPage.variant')}</label>
+            <Combobox items={recordProductId ? variantItemsFor(recordProductId) : []} value={variantId} onChange={setVariantId} placeholder={t('bimeStockPage.variantPlaceholder')} disabled={!recordProductId} />
+          </div>
+          <div className="field">
+            <label>{t('bimeStockPage.location')}</label>
+            <Combobox items={locationItems} value={locationId} onChange={setLocationId} placeholder={t('bimeStockPage.locationPlaceholder')} />
+          </div>
+          <div className="field">
+            <label>{t('bimeStockPage.movementType')}</label>
+            <select value={movementType} onChange={e => setMovementType(e.target.value as MovementType)}>
+              {MOVEMENT_TYPES.map(mt => <option key={mt} value={mt}>{t(`bimeStockPage.movementTypes.${mt}`)}</option>)}
             </select>
           </div>
           <div className="field">
-            <label>Variant (optional)</label>
-            <select value={movFilterVariant} onChange={e => setMovFilterVariant(e.target.value)} disabled={!movFilterProduct}>
-              <option value="">All variants</option>
-              {(variantsByProduct[movFilterProduct] ?? []).map(v => (
-                <option key={v.id} value={v.id}>{variantLabel(v)}</option>
-              ))}
-            </select>
+            <label>{t('bimeStockPage.delta')}</label>
+            <input type="number" value={delta} onChange={e => setDelta(parseInt(e.target.value, 10) || 0)} />
           </div>
           <div className="field">
-            <label>Location (optional)</label>
-            <select value={movFilterLocation} onChange={e => setMovFilterLocation(e.target.value)}>
-              <option value="">All locations</option>
-              {locationOptions.map(l => <option key={l.id} value={l.id}>{l.name} ({l.code})</option>)}
-            </select>
+            <label>{t('bimeStockPage.note')}</label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder={t('bimeStockPage.notePlaceholder')} />
           </div>
         </div>
         <div className="actions">
           <button
-            className="btn btn-outline"
-            disabled={movements.state.status === 'loading'}
-            onClick={() => movements.call(() => bime.stock.listMovements(token, {
-              variantId: movFilterVariant || undefined,
-              locationId: movFilterLocation || undefined,
-            }))}
+            className="btn btn-primary"
+            disabled={record.state.status === 'loading' || !variantId || !locationId || delta === 0}
+            onClick={() => variantId && locationId && record.call(() => bime.stock.recordMovement(
+              { variantId, locationId, movementType, delta, note: note.trim() || undefined }, token,
+            ))}
           >
-            {movements.state.status === 'loading' ? 'Loading…' : 'Load'}
+            {record.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.create')}
           </button>
         </div>
-        {movements.state.status === 'success' && (
-          <MovementsTable movements={movements.state.data} variantLookup={variantLookup} locationLookup={locationLookup} />
-        )}
-        {movements.state.status === 'error' && <div className="error">{movements.state.message}</div>}
-      </div>
-
-      {/* ── List Balances ── */}
-      <div className="panel">
-        <h2>Balances</h2>
-        <div className="fields">
-          <div className="field">
-            <label>Product (optional)</label>
-            <select value={balFilterProduct} onChange={e => { setBalFilterProduct(e.target.value); setBalFilterVariant('') }}>
-              <option value="">All products</option>
-              {productOptions.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>Variant (optional)</label>
-            <select value={balFilterVariant} onChange={e => setBalFilterVariant(e.target.value)} disabled={!balFilterProduct}>
-              <option value="">All variants</option>
-              {(variantsByProduct[balFilterProduct] ?? []).map(v => (
-                <option key={v.id} value={v.id}>{variantLabel(v)}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Location (optional)</label>
-            <select value={balFilterLocation} onChange={e => setBalFilterLocation(e.target.value)}>
-              <option value="">All locations</option>
-              {locationOptions.map(l => <option key={l.id} value={l.id}>{l.name} ({l.code})</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={balances.state.status === 'loading'}
-            onClick={() => balances.call(() => bime.stock.listBalances(token, {
-              variantId: balFilterVariant || undefined,
-              locationId: balFilterLocation || undefined,
-            }))}
-          >
-            {balances.state.status === 'loading' ? 'Loading…' : 'Load'}
-          </button>
-        </div>
-        {balances.state.status === 'success' && (
-          <BalancesTable balances={balances.state.data} variantLookup={variantLookup} locationLookup={locationLookup} />
-        )}
-        {balances.state.status === 'error' && <div className="error">{balances.state.message}</div>}
-      </div>
-
+        {record.state.status === 'error' && <Feedback state={record.state} />}
+      </Modal>
     </div>
   )
 }

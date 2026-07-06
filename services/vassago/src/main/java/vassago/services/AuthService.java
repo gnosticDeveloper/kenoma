@@ -195,7 +195,7 @@ public class AuthService {
         ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(name, value)
                 .httpOnly(true)
                 .secure(true)
-                .sameSite("Strict")
+                .sameSite("None")
                 .maxAge(maxAge)
                 .path("/auth");
         if (cookieDomain != null && !cookieDomain.isBlank()) {

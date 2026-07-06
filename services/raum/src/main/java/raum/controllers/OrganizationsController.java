@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
 import raum.services.OrganizationService;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import java.util.UUID;
 
@@ -37,6 +38,17 @@ public class OrganizationsController {
     @PostMapping
     Mono<OrgResponseDTO> registerOrg(@RequestBody OrgRequestDTO dto) {
         return service.registerOrg(dto);
+    }
+
+    @Operation(summary = "List organisations", description = "Returns all active (non-deleted) organisations. Requires RAUM_MANAGE.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Organisations listed"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping
+    Flux<OrgResponseDTO> getAllOrgs() {
+        return service.getAllOrgs();
     }
 
     @Operation(summary = "Get an organisation by ID", description = "Requires RAUM_MANAGE.")

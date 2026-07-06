@@ -1,19 +1,27 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { raum } from '../api/raum'
 import { useApiCall } from '../hooks/useApiCall'
 import { Feedback } from '../components/Feedback'
 import { CredentialCard } from '../components/CredentialCard'
-import type { BasicCredential, Credentials, ServiceResponse } from '../types'
+import { Combobox } from '../components/Combobox'
+import type { BasicCredential, Credentials, OrgResponse, ServiceResponse } from '../types'
 
 interface Props { token: string }
 
 export default function CredentialsPage({ token }: Props) {
+  const { t } = useTranslation()
+  const [orgs, setOrgs] = useState<OrgResponse[]>([])
   const [services, setServices] = useState<ServiceResponse[]>([])
 
   useEffect(() => {
+    raum.orgs.list(token).then(setOrgs).catch(() => {})
     // Raum manages credentials for other services but never registers its own — exclude it.
     raum.services.list(token).then(list => setServices(list.filter(s => s.name !== 'Raum'))).catch(() => {})
   }, [token])
+
+  const orgItems = orgs.map(o => ({ id: o.id, label: o.name, sublabel: o.contactEmail }))
+  const serviceItems = services.map(s => ({ id: s.id, label: s.name, sublabel: s.description }))
 
   const register = useApiCall<BasicCredential>()
   const [regForm, setRegForm] = useState<Credentials>({
@@ -34,111 +42,120 @@ export default function CredentialsPage({ token }: Props) {
 
   return (
     <div className="page">
+      <div className="page-header">
+        <div>
+          <h1>{t('credentialsPage.title')}</h1>
+          <p>{t('credentialsPage.subtitle')}</p>
+        </div>
+      </div>
 
       <div className="panel">
-        <h2>Register Credentials</h2>
+        <h2>{t('credentialsPage.registerTitle')}</h2>
         <div className="fields">
           <div className="field">
-            <label>Org ID</label>
-            <input value={regForm.orgId} onChange={e => setRegForm(f => ({ ...f, orgId: e.target.value }))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            <label>{t('credentialsPage.org')}</label>
+            <Combobox
+              items={orgItems}
+              value={regForm.orgId || null}
+              onChange={id => setRegForm(f => ({ ...f, orgId: id ?? '' }))}
+              placeholder={t('credentialsPage.orgPlaceholder')}
+            />
           </div>
           <div className="field">
-            <label>Service</label>
-            <select
-              value={regForm.serviceId}
-              onChange={e => setRegForm(f => ({ ...f, serviceId: e.target.value }))}
-            >
-              <option value="">Select a service…</option>
-              {services.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+            <label>{t('credentialsPage.service')}</label>
+            <Combobox
+              items={serviceItems}
+              value={regForm.serviceId || null}
+              onChange={id => setRegForm(f => ({ ...f, serviceId: id ?? '' }))}
+              placeholder={t('credentialsPage.servicePlaceholder')}
+            />
           </div>
           <div className="field">
-            <label>Username</label>
+            <label>{t('credentialsPage.username')}</label>
             <input value={regForm.userName} onChange={e => setRegForm(f => ({ ...f, userName: e.target.value }))} placeholder="db_admin" />
           </div>
           <div className="field">
-            <label>Password</label>
+            <label>{t('credentialsPage.password')}</label>
             <input type="password" value={regForm.password} onChange={e => setRegForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
           </div>
           <div className="field">
-            <label>DB Host</label>
+            <label>{t('credentialsPage.dbHost')}</label>
             <input value={regForm.dbHost} onChange={e => setRegForm(f => ({ ...f, dbHost: e.target.value }))} placeholder="localhost" />
           </div>
           <div className="field">
-            <label>DB Port</label>
+            <label>{t('credentialsPage.dbPort')}</label>
             <input type="number" value={regForm.dbPort} onChange={e => setRegForm(f => ({ ...f, dbPort: parseInt(e.target.value, 10) || 0 }))} />
           </div>
           <div className="field">
-            <label>DB Name</label>
+            <label>{t('credentialsPage.dbName')}</label>
             <input value={regForm.dbName} onChange={e => setRegForm(f => ({ ...f, dbName: e.target.value }))} placeholder="mydb" />
           </div>
           <div className="field">
-            <label>DB Engine</label>
+            <label>{t('credentialsPage.dbEngine')}</label>
             <input value={regForm.dbEngine} onChange={e => setRegForm(f => ({ ...f, dbEngine: e.target.value }))} placeholder="postgresql" />
           </div>
         </div>
         <div className="actions">
           <button
             className="btn btn-primary"
-            disabled={register.state.status === 'loading' || !regForm.serviceId}
+            disabled={register.state.status === 'loading' || !regForm.serviceId || !regForm.orgId}
             onClick={() => register.call(() => raum.credentials.register(regForm, token))}
           >
-            {register.state.status === 'loading' ? 'Registering…' : 'Register'}
+            {register.state.status === 'loading' ? t('credentialsPage.registering') : t('credentialsPage.register')}
           </button>
         </div>
-        <Feedback state={register.state} successLabel="Credentials registered." />
+        <Feedback state={register.state} successLabel={t('credentialsPage.registered')} />
       </div>
 
       <div className="panel">
-        <h2>Issue Ephemeral Credentials</h2>
+        <h2>{t('credentialsPage.ephemeralTitle')}</h2>
         <div className="fields">
           <div className="field">
-            <label>Org ID</label>
-            <input value={ephForm.orgId} onChange={e => setEphForm(f => ({ ...f, orgId: e.target.value }))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            <label>{t('credentialsPage.org')}</label>
+            <Combobox
+              items={orgItems}
+              value={ephForm.orgId || null}
+              onChange={id => setEphForm(f => ({ ...f, orgId: id ?? '' }))}
+              placeholder={t('credentialsPage.orgPlaceholder')}
+            />
           </div>
           <div className="field">
-            <label>Service</label>
-            <select
-              value={ephForm.serviceId}
-              onChange={e => setEphForm(f => ({ ...f, serviceId: e.target.value }))}
-            >
-              <option value="">Select a service…</option>
-              {services.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+            <label>{t('credentialsPage.service')}</label>
+            <Combobox
+              items={serviceItems}
+              value={ephForm.serviceId || null}
+              onChange={id => setEphForm(f => ({ ...f, serviceId: id ?? '' }))}
+              placeholder={t('credentialsPage.servicePlaceholder')}
+            />
           </div>
         </div>
         <div className="actions">
           <button
             className="btn btn-primary"
-            disabled={ephemeral.state.status === 'loading' || !ephForm.serviceId}
+            disabled={ephemeral.state.status === 'loading' || !ephForm.serviceId || !ephForm.orgId}
             onClick={() => ephemeral.call(() => raum.credentials.ephemeral(ephForm, token))}
           >
-            {ephemeral.state.status === 'loading' ? 'Issuing…' : 'Issue'}
+            {ephemeral.state.status === 'loading' ? t('credentialsPage.issuing') : t('credentialsPage.issue')}
           </button>
         </div>
         {ephemeral.state.status === 'success' && <CredentialCard cred={ephemeral.state.data} />}
-        {ephemeral.state.status === 'error' && <div className="error">{ephemeral.state.message}</div>}
+        {ephemeral.state.status === 'error' && <Feedback state={ephemeral.state} />}
       </div>
 
       <div className="panel">
-        <h2>Test Database Connection</h2>
+        <h2>{t('credentialsPage.testTitle')}</h2>
         <div className="actions">
           <button className="btn btn-outline" disabled={testDb.state.status === 'loading'} onClick={() => testDb.call(() => raum.credentials.testDb(token))}>
-            {testDb.state.status === 'loading' ? 'Testing…' : 'Test'}
+            {testDb.state.status === 'loading' ? t('credentialsPage.testing') : t('credentialsPage.test')}
           </button>
         </div>
         {testDb.state.status === 'success' && (
           <div className={`status-badge ${testDb.state.data ? 'status-ok' : 'status-fail'}`}>
-            {testDb.state.data ? 'Database reachable' : 'Database unreachable'}
+            {testDb.state.data ? t('credentialsPage.reachable') : t('credentialsPage.unreachable')}
           </div>
         )}
-        {testDb.state.status === 'error' && <div className="error">{testDb.state.message}</div>}
+        {testDb.state.status === 'error' && <Feedback state={testDb.state} />}
       </div>
-
     </div>
   )
 }

@@ -1,8 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { useApiCall } from '../hooks/useApiCall'
-import { Feedback } from '../components/Feedback'
+import { useToast } from '../components/Toast'
+import { Modal } from '../components/Modal'
+import { DataTable, type Column } from '../components/DataTable'
+import { RowActionsMenu } from '../components/RowActionsMenu'
 import { CopyButton } from '../components/CopyButton'
+import { Feedback } from '../components/Feedback'
 import type { Permissions } from '../auth'
 import type { LocationRequest, LocationResponse } from '../types'
 
@@ -13,159 +18,133 @@ interface Props {
 
 const EMPTY_FORM: LocationRequest = { name: '', code: '' }
 
-function LocationsTable({ locations }: { locations: LocationResponse[] }) {
-  if (locations.length === 0) {
-    return <div className="empty-state">No locations registered yet.</div>
-  }
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Code</th>
-          <th>Active</th>
-          <th>ID</th>
-        </tr>
-      </thead>
-      <tbody>
-        {locations.map(l => (
-          <tr key={l.id}>
-            <td>{l.name}</td>
-            <td className="td-muted">{l.code}</td>
-            <td>
-              <span className={`status-badge ${l.isActive ? 'status-ok' : 'status-fail'}`}>
-                {l.isActive ? 'Active' : 'Inactive'}
-              </span>
-            </td>
-            <td>
-              <div className="td-id">
-                <span>{l.id}</span>
-                <CopyButton text={l.id} />
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
 export default function BimeLocationsPage({ token, permissions }: Props) {
+  const { t } = useTranslation()
+  const toast = useToast()
+
   const list = useApiCall<LocationResponse[]>()
+  function reload() { list.call(() => bime.locations.list(token)) }
+  useEffect(reload, [token])
+  const locations = list.state.status === 'success' ? list.state.data : []
 
-  const create = useApiCall<LocationResponse>()
-  const [createForm, setCreateForm] = useState<LocationRequest>(EMPTY_FORM)
-
-  const update = useApiCall<LocationResponse>()
-  const [updateId, setUpdateId] = useState('')
-  const [updateForm, setUpdateForm] = useState<LocationRequest>(EMPTY_FORM)
-
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<LocationResponse | null>(null)
+  const [form, setForm] = useState<LocationRequest>(EMPTY_FORM)
+  const save = useApiCall<LocationResponse>()
   const deactivate = useApiCall<void>()
-  const [deactivateId, setDeactivateId] = useState('')
+
+  useEffect(() => {
+    if (save.state.status !== 'success') return
+    setModalOpen(false)
+    reload()
+    toast.show(t(editing ? 'bimeLocationsPage.updated' : 'bimeLocationsPage.created'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [save.state])
+
+  function openCreate() {
+    setEditing(null)
+    setForm(EMPTY_FORM)
+    setModalOpen(true)
+  }
+
+  function openEdit(loc: LocationResponse) {
+    setEditing(loc)
+    setForm({ name: loc.name, code: loc.code, isActive: loc.isActive })
+    setModalOpen(true)
+  }
+
+  function submit() {
+    save.call(() => editing ? bime.locations.update(editing.id, form, token) : bime.locations.create(form, token))
+  }
+
+  function remove(loc: LocationResponse) {
+    if (!window.confirm(t('bimeLocationsPage.deactivateConfirm', { name: loc.name }))) return
+    deactivate.call(() => bime.locations.deactivate(loc.id, token)).then(() => {
+      reload()
+      toast.show(t('bimeLocationsPage.deactivated'))
+    })
+  }
+
+  const columns: Column<LocationResponse>[] = [
+    { key: 'name', header: t('bimeLocationsPage.name'), render: l => l.name, sortValue: l => l.name },
+    { key: 'code', header: t('bimeLocationsPage.code'), render: l => <span className="td-muted">{l.code}</span> },
+    {
+      key: 'active',
+      header: t('bimeLocationsPage.active'),
+      render: l => (
+        <span className={`status-badge ${l.isActive ? 'status-ok' : 'status-fail'}`}>
+          {l.isActive ? t('bimeLocationsPage.active') : t('bimeLocationsPage.inactive')}
+        </span>
+      ),
+    },
+    ...(permissions.canManageBime ? [{
+      key: 'actions',
+      header: '',
+      render: (l: LocationResponse) => (
+        <RowActionsMenu actions={[
+          { label: t('common.actions.edit'), onClick: () => openEdit(l) },
+          { label: t('common.actions.deactivate'), onClick: () => remove(l), danger: true },
+        ]} />
+      ),
+    }] : []),
+  ]
 
   return (
     <div className="page">
-
-      {/* ── All Locations ── */}
-      <div className="panel">
-        <h2>All Locations</h2>
-        <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={list.state.status === 'loading'}
-            onClick={() => list.call(() => bime.locations.list(token))}
-          >
-            {list.state.status === 'loading' ? 'Loading…' : 'Load'}
-          </button>
+      <div className="page-header">
+        <div>
+          <h1>{t('bimeLocationsPage.title')}</h1>
+          <p>{t('bimeLocationsPage.subtitle')}</p>
         </div>
-        {list.state.status === 'success' && <LocationsTable locations={list.state.data} />}
-        {list.state.status === 'error' && <div className="error">{list.state.message}</div>}
       </div>
 
-      {/* ── Create Location ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Create Location</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Name</label>
-              <input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} placeholder="Main Store" />
-            </div>
-            <div className="field">
-              <label>Code</label>
-              <input value={createForm.code} onChange={e => setCreateForm(f => ({ ...f, code: e.target.value }))} placeholder="WH-01" />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={create.state.status === 'loading' || !createForm.name.trim() || !createForm.code.trim()}
-              onClick={() => create.call(() => bime.locations.create(createForm, token))}
-            >
-              {create.state.status === 'loading' ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-          <Feedback state={create.state} successLabel="Location created." />
-        </div>
-      )}
+      <div className="panel">
+        {list.state.status === 'error' && <Feedback state={list.state} />}
+        <DataTable
+          columns={columns}
+          rows={locations}
+          rowKey={l => l.id}
+          searchable
+          searchText={l => `${l.name} ${l.code}`}
+          onRowClick={permissions.canManageBime ? openEdit : undefined}
+          emptyLabel={t('bimeLocationsPage.emptyState')}
+          headerAction={permissions.canManageBime
+            ? <button className="btn btn-primary" onClick={openCreate} type="button">{t('bimeLocationsPage.createAction')}</button>
+            : undefined}
+        />
+      </div>
 
-      {/* ── Update Location ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Update Location</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Location ID</label>
-              <input value={updateId} onChange={e => setUpdateId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-            <div className="field">
-              <label>Name</label>
-              <input value={updateForm.name} onChange={e => setUpdateForm(f => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div className="field">
-              <label>Code</label>
-              <input value={updateForm.code} onChange={e => setUpdateForm(f => ({ ...f, code: e.target.value }))} />
-            </div>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={t(editing ? 'bimeLocationsPage.editTitle' : 'bimeLocationsPage.createTitle')}>
+        <div className="fields">
+          <div className="field">
+            <label>{t('bimeLocationsPage.name')}</label>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Main Store" />
           </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={update.state.status === 'loading' || !updateId.trim() || !updateForm.name.trim() || !updateForm.code.trim()}
-              onClick={() => update.call(() => bime.locations.update(updateId.trim(), updateForm, token))}
-            >
-              {update.state.status === 'loading' ? 'Updating…' : 'Update'}
-            </button>
+          <div className="field">
+            <label>{t('bimeLocationsPage.code')}</label>
+            <input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="WH-01" />
           </div>
-          <Feedback state={update.state} successLabel="Location updated." />
         </div>
-      )}
-
-      {/* ── Deactivate Location ── */}
-      {permissions.canManageBime && (
-        <div className="panel">
-          <h2>Deactivate Location</h2>
-          <div className="fields">
-            <div className="field">
-              <label>Location ID</label>
-              <input value={deactivateId} onChange={e => setDeactivateId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellCheck={false} />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-danger"
-              disabled={deactivate.state.status === 'loading' || !deactivateId.trim()}
-              onClick={() => {
-                if (!window.confirm(`Deactivate location ${deactivateId.trim()}?`)) return
-                deactivate.call(() => bime.locations.deactivate(deactivateId.trim(), token))
-              }}
-            >
-              {deactivate.state.status === 'loading' ? 'Deactivating…' : 'Deactivate'}
-            </button>
-          </div>
-          <Feedback state={deactivate.state} successLabel="Location deactivated." />
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={save.state.status === 'loading' || !form.name.trim() || !form.code.trim()}
+            onClick={submit}
+          >
+            {save.state.status === 'loading' ? t('common.actions.loading') : t(editing ? 'common.actions.save' : 'common.actions.create')}
+          </button>
         </div>
-      )}
-
+        {save.state.status === 'error' && <Feedback state={save.state} />}
+        {editing && (
+          <details className="id-disclosure">
+            <summary>{t('common.fields.id')}</summary>
+            <div className="id-disclosure-row">
+              <span className="id-disclosure-value">{editing.id}</span>
+              <CopyButton text={editing.id} />
+            </div>
+          </details>
+        )}
+      </Modal>
     </div>
   )
 }
