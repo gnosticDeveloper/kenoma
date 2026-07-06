@@ -1,124 +1,139 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { raum } from '../api/raum'
 import { useApiCall } from '../hooks/useApiCall'
+import { useToast } from '../components/Toast'
+import { Modal } from '../components/Modal'
+import { DataTable, type Column } from '../components/DataTable'
+import { RowActionsMenu } from '../components/RowActionsMenu'
+import { CopyButton } from '../components/CopyButton'
 import { Feedback } from '../components/Feedback'
-import { OrgCard } from '../components/OrgCard'
 import type { OrgRequest, OrgResponse } from '../types'
 
 interface Props { token: string }
 
+const EMPTY_FORM: OrgRequest = { name: '', contactEmail: '', contactName: '' }
+
 export default function OrgsPage({ token }: Props) {
-  const create = useApiCall<OrgResponse>()
-  const [createForm, setCreateForm] = useState<OrgRequest>({ name: '', contactEmail: '', contactName: '' })
+  const { t } = useTranslation()
+  const toast = useToast()
 
-  const get = useApiCall<OrgResponse>()
-  const [getId, setGetId] = useState('')
+  const list = useApiCall<OrgResponse[]>()
+  function reload() { list.call(() => raum.orgs.list(token)) }
+  useEffect(reload, [token])
+  const orgs = list.state.status === 'success' ? list.state.data : []
 
-  const update = useApiCall<OrgResponse>()
-  const [updateId, setUpdateId] = useState('')
-  const [updateForm, setUpdateForm] = useState<OrgRequest>({ name: '', contactEmail: '', contactName: '' })
-
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<OrgResponse | null>(null)
+  const [form, setForm] = useState<OrgRequest>(EMPTY_FORM)
+  const save = useApiCall<OrgResponse>()
   const del = useApiCall<void>()
-  const [deleteId, setDeleteId] = useState('')
+
+  useEffect(() => {
+    if (save.state.status !== 'success') return
+    setModalOpen(false)
+    reload()
+    toast.show(t(editing ? 'orgsPage.updated' : 'orgsPage.created'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [save.state])
+
+  function openCreate() {
+    setEditing(null)
+    setForm(EMPTY_FORM)
+    setModalOpen(true)
+  }
+
+  function openEdit(org: OrgResponse) {
+    setEditing(org)
+    setForm({ name: org.name, contactEmail: org.contactEmail, contactName: '' })
+    setModalOpen(true)
+  }
+
+  function submit() {
+    save.call(() => editing ? raum.orgs.update(editing.id, form, token) : raum.orgs.create(form, token))
+  }
+
+  function remove(org: OrgResponse) {
+    if (!window.confirm(t('orgsPage.deleteConfirm', { name: org.name }))) return
+    del.call(() => raum.orgs.delete(org.id, token)).then(() => {
+      reload()
+      toast.show(t('orgsPage.deleted'))
+    })
+  }
+
+  const columns: Column<OrgResponse>[] = [
+    { key: 'name', header: t('orgsPage.name'), render: o => o.name, sortValue: o => o.name },
+    { key: 'contactEmail', header: t('orgsPage.contactEmail'), render: o => o.contactEmail, sortValue: o => o.contactEmail },
+    {
+      key: 'actions',
+      header: '',
+      render: o => (
+        <RowActionsMenu actions={[
+          { label: t('common.actions.edit'), onClick: () => openEdit(o) },
+          { label: t('common.actions.delete'), onClick: () => remove(o), danger: true },
+        ]} />
+      ),
+    },
+  ]
 
   return (
     <div className="page">
-
-      <div className="panel">
-        <h2>Create Organization</h2>
-        <div className="fields">
-          <div className="field">
-            <label>Name</label>
-            <input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} placeholder="Acme Corp" />
-          </div>
-          <div className="field">
-            <label>Contact Email</label>
-            <input value={createForm.contactEmail} onChange={e => setCreateForm(f => ({ ...f, contactEmail: e.target.value }))} placeholder="admin@acme.com" />
-          </div>
-          <div className="field">
-            <label>Contact Name</label>
-            <input value={createForm.contactName} onChange={e => setCreateForm(f => ({ ...f, contactName: e.target.value }))} placeholder="Jane Doe" />
-          </div>
+      <div className="page-header">
+        <div>
+          <h1>{t('orgsPage.title')}</h1>
+          <p>{t('orgsPage.subtitle')}</p>
         </div>
-        <div className="actions">
-          <button className="btn btn-primary" disabled={create.state.status === 'loading'} onClick={() => create.call(() => raum.orgs.create(createForm, token))}>
-            {create.state.status === 'loading' ? 'Creating…' : 'Create'}
-          </button>
-        </div>
-        {create.state.status === 'success' && <OrgCard org={create.state.data} />}
-        {create.state.status === 'error' && <div className="error">{create.state.message}</div>}
       </div>
 
       <div className="panel">
-        <h2>Look Up Organization</h2>
-        <div className="fields">
-          <div className="field">
-            <label>Organization ID</label>
-            <input value={getId} onChange={e => setGetId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-          </div>
-        </div>
-        <div className="actions">
-          <button className="btn btn-outline" disabled={get.state.status === 'loading' || !getId.trim()} onClick={() => get.call(() => raum.orgs.get(getId.trim(), token))}>
-            {get.state.status === 'loading' ? 'Loading…' : 'Look up'}
-          </button>
-        </div>
-        {get.state.status === 'success' && <OrgCard org={get.state.data} />}
-        {get.state.status === 'error' && <div className="error">{get.state.message}</div>}
+        {list.state.status === 'error' && <Feedback state={list.state} />}
+        <DataTable
+          columns={columns}
+          rows={orgs}
+          rowKey={o => o.id}
+          searchable
+          searchText={o => `${o.name} ${o.contactEmail}`}
+          onRowClick={openEdit}
+          emptyLabel={t('orgsPage.emptyState')}
+          headerAction={<button className="btn btn-primary" onClick={openCreate} type="button">{t('orgsPage.createAction')}</button>}
+        />
       </div>
 
-      <div className="panel">
-        <h2>Update Organization</h2>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={t(editing ? 'orgsPage.editTitle' : 'orgsPage.createTitle')}>
         <div className="fields">
           <div className="field">
-            <label>Organization ID</label>
-            <input value={updateId} onChange={e => setUpdateId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            <label>{t('orgsPage.name')}</label>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Acme Corp" />
           </div>
           <div className="field">
-            <label>Name</label>
-            <input value={updateForm.name} onChange={e => setUpdateForm(f => ({ ...f, name: e.target.value }))} placeholder="Acme Corp" />
+            <label>{t('orgsPage.contactEmail')}</label>
+            <input value={form.contactEmail} onChange={e => setForm(f => ({ ...f, contactEmail: e.target.value }))} placeholder="admin@acme.com" />
           </div>
           <div className="field">
-            <label>Contact Email</label>
-            <input value={updateForm.contactEmail} onChange={e => setUpdateForm(f => ({ ...f, contactEmail: e.target.value }))} placeholder="admin@acme.com" />
-          </div>
-          <div className="field">
-            <label>Contact Name</label>
-            <input value={updateForm.contactName} onChange={e => setUpdateForm(f => ({ ...f, contactName: e.target.value }))} placeholder="Jane Doe" />
-          </div>
-        </div>
-        <div className="actions">
-          <button className="btn btn-primary" disabled={update.state.status === 'loading' || !updateId.trim()} onClick={() => update.call(() => raum.orgs.update(updateId.trim(), updateForm, token))}>
-            {update.state.status === 'loading' ? 'Updating…' : 'Update'}
-          </button>
-        </div>
-        {update.state.status === 'success' && <OrgCard org={update.state.data} />}
-        {update.state.status === 'error' && <div className="error">{update.state.message}</div>}
-      </div>
-
-      <div className="panel">
-        <h2>Delete Organization</h2>
-        <div className="fields">
-          <div className="field">
-            <label>Organization ID</label>
-            <input value={deleteId} onChange={e => setDeleteId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            <label>{t('orgsPage.contactName')}</label>
+            <input value={form.contactName} onChange={e => setForm(f => ({ ...f, contactName: e.target.value }))} placeholder="Jane Doe" />
           </div>
         </div>
         <div className="actions">
           <button
-            className="btn btn-danger"
-            disabled={del.state.status === 'loading' || !deleteId.trim()}
-            onClick={() => {
-              if (window.confirm(`Permanently delete org ${deleteId.trim()}?`)) {
-                del.call(() => raum.orgs.delete(deleteId.trim(), token))
-              }
-            }}
+            className="btn btn-primary"
+            disabled={save.state.status === 'loading' || !form.name.trim() || !form.contactEmail.trim() || !form.contactName.trim()}
+            onClick={submit}
           >
-            {del.state.status === 'loading' ? 'Deleting…' : 'Delete'}
+            {save.state.status === 'loading' ? t('common.actions.loading') : t(editing ? 'common.actions.save' : 'common.actions.create')}
           </button>
         </div>
-        <Feedback state={del.state} successLabel="Organization deleted." />
-      </div>
-
+        {save.state.status === 'error' && <Feedback state={save.state} />}
+        {editing && (
+          <details className="id-disclosure">
+            <summary>{t('common.fields.id')}</summary>
+            <div className="id-disclosure-row">
+              <span className="id-disclosure-value">{editing.id}</span>
+              <CopyButton text={editing.id} />
+            </div>
+          </details>
+        )}
+      </Modal>
     </div>
   )
 }

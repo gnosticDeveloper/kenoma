@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import OrgsPage from './pages/OrgsPage'
 import ServicesPage from './pages/ServicesPage'
 import CredentialsPage from './pages/CredentialsPage'
@@ -8,38 +9,47 @@ import BimeLocationsPage from './pages/BimeLocationsPage'
 import BimeMetadataPage from './pages/BimeMetadataPage'
 import BimeProductsPage from './pages/BimeProductsPage'
 import BimeStockPage from './pages/BimeStockPage'
+import RecoverPage from './pages/RecoverPage'
+import VerifyPage from './pages/VerifyPage'
 import { vassago } from './api/vassago'
 import { useApiCall } from './hooks/useApiCall'
 import { parseJwtClaims, derivePermissions, jwtExp } from './auth'
 import type { Permissions } from './auth'
 import type { LoginRequest } from './types'
+import { ToastProvider } from './components/Toast'
+import { Sidebar, type NavGroup } from './components/Sidebar'
+import { Feedback } from './components/Feedback'
+import {
+  OrgsIcon, ServicesIcon, CredentialsIcon, OnboardingIcon, UsersIcon,
+  LocationsIcon, MetadataIcon, ProductsIcon, StockIcon,
+} from './components/icons'
 
 type Page = 'orgs' | 'services' | 'credentials' | 'onboarding' | 'users'
   | 'bime-locations' | 'bime-metadata' | 'bime-products' | 'bime-stock'
 
-const NAV: { service: string; items: { id: Page; label: string; perm: keyof Permissions }[] }[] = [
+const NAV: { labelKey: string; items: { id: Page; labelKey: string; perm: keyof Permissions; icon: NavGroup['items'][number]['icon'] }[] }[] = [
   {
-    service: 'Raum',
+    labelKey: 'nav.raum',
     items: [
-      { id: 'orgs',        label: 'Organizations', perm: 'canManage'  },
-      { id: 'services',    label: 'Services',       perm: 'canManage'  },
-      { id: 'credentials', label: 'Credentials',    perm: 'canManage'  },
-      { id: 'onboarding',  label: 'Onboarding',     perm: 'canOnboard' },
+      { id: 'orgs',        labelKey: 'nav.orgs',        perm: 'canManage',  icon: OrgsIcon },
+      { id: 'services',    labelKey: 'nav.services',    perm: 'canManage',  icon: ServicesIcon },
+      { id: 'credentials', labelKey: 'nav.credentials', perm: 'canManage',  icon: CredentialsIcon },
+      { id: 'onboarding',  labelKey: 'nav.onboarding',  perm: 'canOnboard', icon: OnboardingIcon },
     ],
   },
   {
-    service: 'Vassago',
+    labelKey: 'nav.vassago',
     items: [
-      { id: 'users', label: 'Users', perm: 'canViewUsers' },
+      { id: 'users', labelKey: 'nav.users', perm: 'canViewUsers', icon: UsersIcon },
     ],
   },
   {
-    service: 'Bime',
+    labelKey: 'nav.bime',
     items: [
-      { id: 'bime-locations', label: 'Locations', perm: 'canViewBime'        },
-      { id: 'bime-metadata',  label: 'Metadata',   perm: 'canViewBimeCatalog' },
-      { id: 'bime-products',  label: 'Products',   perm: 'canViewBime'        },
-      { id: 'bime-stock',     label: 'Stock',      perm: 'canViewBime'        },
+      { id: 'bime-locations', labelKey: 'nav.bimeLocations', perm: 'canViewBime',        icon: LocationsIcon },
+      { id: 'bime-metadata',  labelKey: 'nav.bimeMetadata',  perm: 'canViewBimeCatalog', icon: MetadataIcon },
+      { id: 'bime-products',  labelKey: 'nav.bimeProducts',  perm: 'canViewBime',        icon: ProductsIcon },
+      { id: 'bime-stock',     labelKey: 'nav.bimeStock',     perm: 'canViewBime',        icon: StockIcon },
     ],
   },
 ]
@@ -54,8 +64,10 @@ function safePermissions(token: string): Permissions {
   try { return derivePermissions(parseJwtClaims(token)) } catch { return EMPTY_PERMISSIONS }
 }
 
-export default function App() {
+function AppShell() {
+  const { t } = useTranslation()
   const [page, setPage] = useState<Page>('orgs')
+  const [authView, setAuthView] = useState<'login' | 'recover'>('login')
   const [token, setToken] = useState<string | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const timerRef = useRef<number | null>(null)
@@ -65,14 +77,14 @@ export default function App() {
 
   const permissions: Permissions = token ? safePermissions(token) : EMPTY_PERMISSIONS
 
-  const visibleGroups = NAV
-    .map(g => ({ ...g, items: g.items.filter(i => permissions[i.perm]) }))
+  const visibleGroups: NavGroup[] = NAV
+    .map(g => ({ labelKey: g.labelKey, items: g.items.filter(i => permissions[i.perm]) }))
     .filter(g => g.items.length > 0)
 
   const allVisibleItems = visibleGroups.flatMap(g => g.items)
   const activePage: Page = allVisibleItems.find(i => i.id === page)
     ? page
-    : (allVisibleItems[0]?.id ?? 'orgs')
+    : ((allVisibleItems[0]?.id as Page) ?? 'orgs')
 
   const startRefreshLoop = useCallback(function loop(t: string) {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current)
@@ -110,14 +122,17 @@ export default function App() {
   if (!authReady) return null
 
   if (token === null) {
+    if (authView === 'recover') {
+      return <RecoverPage onBack={() => setAuthView('login')} />
+    }
     return (
       <div className="login-wrap">
         <div className="login-card">
-          <h1>Kenoma</h1>
-          <p>Administration Console</p>
+          <h1>{t('login.title')}</h1>
+          <p>{t('login.subtitle')}</p>
           <div className="login-fields">
             <div className="field">
-              <label>Org ID</label>
+              <label>{t('login.orgId')}</label>
               <input
                 value={loginForm.orgId}
                 onChange={e => setLoginForm(f => ({ ...f, orgId: e.target.value }))}
@@ -127,7 +142,7 @@ export default function App() {
               />
             </div>
             <div className="field">
-              <label>Username</label>
+              <label>{t('login.username')}</label>
               <input
                 value={loginForm.username}
                 onChange={e => setLoginForm(f => ({ ...f, username: e.target.value }))}
@@ -135,7 +150,7 @@ export default function App() {
               />
             </div>
             <div className="field">
-              <label>Password</label>
+              <label>{t('login.password')}</label>
               <input
                 type="password"
                 value={loginForm.password}
@@ -155,11 +170,12 @@ export default function App() {
             }
             onClick={handleLogin}
           >
-            {loginCall.state.status === 'loading' ? 'Logging in…' : 'Log in'}
+            {loginCall.state.status === 'loading' ? t('login.submitting') : t('login.submit')}
           </button>
-          {loginCall.state.status === 'error' && (
-            <div className="error">{loginCall.state.message}</div>
-          )}
+          {loginCall.state.status === 'error' && <Feedback state={loginCall.state} />}
+          <div className="login-links">
+            <button className="link-btn" onClick={() => setAuthView('recover')} type="button">{t('login.forgotPassword')}</button>
+          </div>
         </div>
       </div>
     )
@@ -167,33 +183,7 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <aside className="sidebar">
-        <div className="sidebar-logo">Kenoma</div>
-        <nav className="sidebar-nav">
-          {visibleGroups.length === 0 ? (
-            <div className="sidebar-empty">No permissions assigned.</div>
-          ) : (
-            visibleGroups.map(group => (
-              <div key={group.service} className="sidebar-group">
-                <div className="sidebar-group-label">{group.service}</div>
-                {group.items.map(item => (
-                  <button
-                    key={item.id}
-                    className={`sidebar-item${activePage === item.id ? ' active' : ''}`}
-                    onClick={() => setPage(item.id)}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            ))
-          )}
-        </nav>
-        <div className="sidebar-footer">
-          <span className="session-dot" />
-          <button className="btn btn-ghost" onClick={handleLogout}>Log out</button>
-        </div>
-      </aside>
+      <Sidebar groups={visibleGroups} activeId={activePage} onSelect={id => setPage(id as Page)} onLogout={handleLogout} />
       <main className="content">
         {activePage === 'orgs'           && <OrgsPage token={token} />}
         {activePage === 'services'       && <ServicesPage token={token} />}
@@ -206,5 +196,16 @@ export default function App() {
         {activePage === 'bime-stock'     && <BimeStockPage token={token} permissions={permissions} />}
       </main>
     </div>
+  )
+}
+
+export default function App() {
+  const isVerifyRoute = window.location.pathname === '/verify' && new URLSearchParams(window.location.search).has('token')
+  if (isVerifyRoute) return <VerifyPage />
+
+  return (
+    <ToastProvider>
+      <AppShell />
+    </ToastProvider>
   )
 }

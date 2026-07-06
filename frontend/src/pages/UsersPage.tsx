@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { vassago } from '../api/vassago'
 import { raum } from '../api/raum'
 import { useApiCall } from '../hooks/useApiCall'
-import { Feedback } from '../components/Feedback'
-import { UserCard } from '../components/UserCard'
-import { UserTable } from '../components/UserTable'
+import { useToast } from '../components/Toast'
+import { Modal } from '../components/Modal'
+import { Tabs } from '../components/Tabs'
+import { DataTable, type Column } from '../components/DataTable'
+import { RowActionsMenu } from '../components/RowActionsMenu'
+import { Combobox } from '../components/Combobox'
 import { CopyButton } from '../components/CopyButton'
+import { Feedback } from '../components/Feedback'
 import type { Permissions } from '../auth'
 import type { ServiceResponse, UserRequest, UserResponse } from '../types'
 
@@ -20,15 +25,14 @@ interface RoleRow {
 }
 
 const KNOWN_ROLES = ['VASSAGO_ADMIN', 'VASSAGO_USER', 'RAUM_ADMIN', 'RAUM_ONBOARDING']
+const ROLE_ITEMS = KNOWN_ROLES.map(r => ({ id: r, label: r }))
 
 function buildRolesMap(rows: RoleRow[]): Record<string, string[]> {
   const map: Record<string, string[]> = {}
   for (const { serviceId, role } of rows) {
-    const svc = serviceId.trim()
-    const r = role.trim()
-    if (!svc || !r) continue
-    if (!map[svc]) map[svc] = []
-    map[svc].push(r)
+    if (!serviceId || !role) continue
+    if (!map[serviceId]) map[serviceId] = []
+    map[serviceId].push(role)
   }
   return map
 }
@@ -40,336 +44,244 @@ function parseRolesMap(roles: Record<string, string[]>): RoleRow[] {
 }
 
 function RolesInput({ value, onChange, services }: { value: RoleRow[]; onChange: (rows: RoleRow[]) => void; services: ServiceResponse[] }) {
+  const { t } = useTranslation()
+  const serviceItems = services.map(s => ({ id: s.id, label: s.name }))
   return (
     <div className="roles-input">
-      <datalist id="known-roles">
-        {KNOWN_ROLES.map(r => <option key={r} value={r} />)}
-      </datalist>
       {value.map((row, i) => (
         <div key={i} className="role-row">
-          <select
-            value={row.serviceId}
-            onChange={e => onChange(value.map((r, j) => j === i ? { ...r, serviceId: e.target.value } : r))}
-            className="role-row-svc"
-          >
-            <option value="">Select a service…</option>
-            {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <input
-            list="known-roles"
-            value={row.role}
-            onChange={e => onChange(value.map((r, j) => j === i ? { ...r, role: e.target.value } : r))}
-            placeholder="Role"
-            className="role-row-name"
+          <Combobox
+            items={serviceItems}
+            value={row.serviceId || null}
+            onChange={id => onChange(value.map((r, j) => j === i ? { ...r, serviceId: id ?? '' } : r))}
+            placeholder={t('usersPage.servicePlaceholder')}
           />
-          <button
-            className="btn btn-outline btn-sm"
-            onClick={() => onChange(value.filter((_, j) => j !== i))}
-            type="button"
-          >
-            −
-          </button>
+          <Combobox
+            items={ROLE_ITEMS}
+            value={row.role || null}
+            onChange={id => onChange(value.map((r, j) => j === i ? { ...r, role: id ?? '' } : r))}
+            placeholder={t('usersPage.rolePlaceholder')}
+          />
+          <button className="btn btn-outline btn-sm" onClick={() => onChange(value.filter((_, j) => j !== i))} type="button">−</button>
         </div>
       ))}
-      <button
-        className="btn btn-outline btn-sm"
-        onClick={() => onChange([...value, { serviceId: '', role: '' }])}
-        type="button"
-      >
-        + Add role
+      <button className="btn btn-outline btn-sm" onClick={() => onChange([...value, { serviceId: '', role: '' }])} type="button">
+        {t('usersPage.addRole')}
       </button>
     </div>
   )
 }
 
-const EMPTY_USER_FORM: Omit<UserRequest, 'roles'> = {
-  email: '', name: '', lastName: '', username: '',
-}
+const EMPTY_USER_FORM: Omit<UserRequest, 'roles'> = { email: '', name: '', lastName: '', username: '' }
 
 export default function UsersPage({ token, permissions }: Props) {
-  // Services, loaded once to power the role-assignment dropdowns.
+  const { t } = useTranslation()
+  const toast = useToast()
+
   const [services, setServices] = useState<ServiceResponse[]>([])
-  useEffect(() => {
-    raum.services.list(token).then(setServices).catch(() => {})
-  }, [token])
+  useEffect(() => { raum.services.list(token).then(setServices).catch(() => {}) }, [token])
 
-  // All Users
   const list = useApiCall<UserResponse[]>()
+  function reload() { list.call(() => vassago.users.list(token)) }
+  useEffect(reload, [token])
+  const users = list.state.status === 'success' ? list.state.data : []
 
-  // Create User
-  const create = useApiCall<UserResponse>()
-  const [createForm, setCreateForm] = useState(EMPTY_USER_FORM)
-  const [createRoles, setCreateRoles] = useState<RoleRow[]>([])
+  const [activeTab, setActiveTab] = useState('users')
 
-  // Look Up User
-  const lookup = useApiCall<UserResponse>()
-  const [lookupId, setLookupId] = useState('')
-
-  // Update User
-  const update = useApiCall<UserResponse>()
-  const [updateId, setUpdateId] = useState('')
-  const [updateForm, setUpdateForm] = useState(EMPTY_USER_FORM)
-  const [updateRoles, setUpdateRoles] = useState<RoleRow[]>([])
-
-  // Offboard User
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<UserResponse | null>(null)
+  const [form, setForm] = useState(EMPTY_USER_FORM)
+  const [roles, setRoles] = useState<RoleRow[]>([])
+  const save = useApiCall<UserResponse>()
   const offboard = useApiCall<void>()
-  const [offboardId, setOffboardId] = useState('')
 
-  // Change Password
+  useEffect(() => {
+    if (save.state.status !== 'success') return
+    setModalOpen(false)
+    reload()
+    toast.show(t(editing ? 'usersPage.updated' : 'usersPage.created'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [save.state])
+
+  function openCreate() {
+    setEditing(null)
+    setForm(EMPTY_USER_FORM)
+    setRoles([])
+    setModalOpen(true)
+  }
+
+  function openEdit(user: UserResponse) {
+    setEditing(user)
+    setForm({ email: user.email, name: user.name, lastName: user.lastName, username: user.username })
+    setRoles(parseRolesMap(user.roles))
+    setModalOpen(true)
+  }
+
+  function submit() {
+    const dto = { ...form, roles: buildRolesMap(roles) }
+    save.call(() => editing ? vassago.users.update(editing.id, dto, token) : vassago.users.create(dto, token))
+  }
+
+  function remove(user: UserResponse) {
+    if (!window.confirm(t('usersPage.offboardConfirm', { name: `${user.name} ${user.lastName}` }))) return
+    offboard.call(() => vassago.users.offboard(user.id, token)).then(() => {
+      reload()
+      toast.show(t('usersPage.offboarded'))
+    })
+  }
+
+  const columns: Column<UserResponse>[] = [
+    { key: 'name', header: t('usersPage.firstName'), render: u => `${u.name} ${u.lastName}`, sortValue: u => u.name },
+    { key: 'username', header: t('usersPage.username'), render: u => <span className="td-muted">@{u.username}</span> },
+    { key: 'email', header: t('usersPage.email'), render: u => <span className="td-muted">{u.email}</span> },
+    {
+      key: 'roles',
+      header: t('usersPage.roles'),
+      render: u => (
+        <div className="role-chips">
+          {Object.values(u.roles ?? {}).flat().map((r, i) => <span key={i} className="role-badge">{r}</span>)}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: u => (
+        <RowActionsMenu actions={[
+          ...(permissions.canEditUsers ? [{ label: t('common.actions.edit'), onClick: () => openEdit(u) }] : []),
+          ...(permissions.canOffboardUsers ? [{ label: t('common.actions.delete'), onClick: () => remove(u), danger: true }] : []),
+        ]} />
+      ),
+    },
+  ]
+
   const changePassword = useApiCall<void>()
   const [oldPassword, setOldPassword] = useState('')
-
-  // Public Key
   const publicKey = useApiCall<{ publicKey: string }>()
-
-  function loadIntoEditForm(user: UserResponse) {
-    setUpdateId(user.id)
-    setUpdateForm({ email: user.email, name: user.name, lastName: user.lastName, username: user.username })
-    setUpdateRoles(parseRolesMap(user.roles))
-  }
 
   return (
     <div className="page">
-
-      {/* ── All Users ── */}
-      <div className="panel">
-        <h2>All Users</h2>
-        <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={list.state.status === 'loading'}
-            onClick={() => list.call(() => vassago.users.list(token))}
-          >
-            {list.state.status === 'loading' ? 'Loading…' : 'Load'}
-          </button>
+      <div className="page-header">
+        <div>
+          <h1>{t('usersPage.title')}</h1>
+          <p>{t('usersPage.subtitle')}</p>
         </div>
-        {list.state.status === 'success' && <UserTable users={list.state.data} />}
-        {list.state.status === 'error' && <div className="error">{list.state.message}</div>}
       </div>
 
-      {/* ── Create User ── */}
-      {permissions.canCreateUsers && (
-        <div className="panel">
-          <h2>Create User</h2>
-          <div className="fields">
-            <div className="field">
-              <label>First Name</label>
-              <input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} placeholder="Ada" />
-            </div>
-            <div className="field">
-              <label>Last Name</label>
-              <input value={createForm.lastName} onChange={e => setCreateForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Lovelace" />
-            </div>
-            <div className="field">
-              <label>Email</label>
-              <input type="email" value={createForm.email} onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))} placeholder="ada@example.com" />
-            </div>
-            <div className="field">
-              <label>Username</label>
-              <input value={createForm.username} onChange={e => setCreateForm(f => ({ ...f, username: e.target.value }))} placeholder="ada" autoComplete="off" />
-            </div>
-          </div>
-          <div className="field" style={{ marginBottom: '14px' }}>
-            <label style={{ marginBottom: '8px' }}>Roles</label>
-            <RolesInput value={createRoles} onChange={setCreateRoles} services={services} />
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={create.state.status === 'loading' || !createForm.email || !createForm.name || !createForm.username}
-              onClick={() => create.call(() => vassago.users.create(
-                { ...createForm, roles: buildRolesMap(createRoles) },
-                token,
-              ))}
-            >
-              {create.state.status === 'loading' ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-          {create.state.status === 'success' && <UserCard user={create.state.data} />}
-          {create.state.status === 'error' && <div className="error">{create.state.message}</div>}
-        </div>
-      )}
-
-      {/* ── Look Up User ── */}
-      <div className="panel">
-        <h2>Look Up User</h2>
-        <div className="fields">
-          <div className="field">
-            <label>User ID</label>
-            <input
-              value={lookupId}
-              onChange={e => setLookupId(e.target.value)}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              spellCheck={false}
+      <Tabs
+        tabs={[
+          { id: 'users', label: t('usersPage.tabUsers') },
+          { id: 'account', label: t('usersPage.tabAccount') },
+        ]}
+        active={activeTab}
+        onChange={setActiveTab}
+      >
+        {activeTab === 'users' && (
+          <div className="panel">
+            {list.state.status === 'error' && <Feedback state={list.state} />}
+            <DataTable
+              columns={columns}
+              rows={users}
+              rowKey={u => u.id}
+              searchable
+              searchText={u => `${u.name} ${u.lastName} ${u.username} ${u.email}`}
+              onRowClick={permissions.canEditUsers ? openEdit : undefined}
+              emptyLabel={t('usersPage.emptyState')}
+              headerAction={permissions.canCreateUsers
+                ? <button className="btn btn-primary" onClick={openCreate} type="button">{t('usersPage.createAction')}</button>
+                : undefined}
             />
-          </div>
-        </div>
-        <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={lookup.state.status === 'loading' || !lookupId.trim()}
-            onClick={() => lookup.call(() => vassago.users.get(lookupId.trim(), token))}
-          >
-            {lookup.state.status === 'loading' ? 'Fetching…' : 'Fetch'}
-          </button>
-        </div>
-        {lookup.state.status === 'success' && (() => {
-          const user = lookup.state.data
-          return (
-            <>
-              <UserCard user={user} />
-              {permissions.canEditUsers && (
-                <div style={{ marginTop: '8px' }}>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => loadIntoEditForm(user)}
-                  >
-                    Load into edit form ↓
-                  </button>
-                </div>
-              )}
-            </>
-          )
-        })()}
-        {lookup.state.status === 'error' && <div className="error">{lookup.state.message}</div>}
-      </div>
-
-      {/* ── Update User ── */}
-      {permissions.canEditUsers && (
-        <div className="panel">
-          <h2>Update User</h2>
-          <div className="fields">
-            <div className="field">
-              <label>User ID</label>
-              <input
-                value={updateId}
-                onChange={e => setUpdateId(e.target.value)}
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                spellCheck={false}
-              />
-            </div>
-            <div className="field">
-              <label>First Name</label>
-              <input value={updateForm.name} onChange={e => setUpdateForm(f => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div className="field">
-              <label>Last Name</label>
-              <input value={updateForm.lastName} onChange={e => setUpdateForm(f => ({ ...f, lastName: e.target.value }))} />
-            </div>
-            <div className="field">
-              <label>Email</label>
-              <input type="email" value={updateForm.email} onChange={e => setUpdateForm(f => ({ ...f, email: e.target.value }))} />
-            </div>
-            <div className="field">
-              <label>Username</label>
-              <input value={updateForm.username} onChange={e => setUpdateForm(f => ({ ...f, username: e.target.value }))} autoComplete="off" />
-            </div>
-          </div>
-          <div className="field" style={{ marginBottom: '14px' }}>
-            <label style={{ marginBottom: '8px' }}>Roles</label>
-            <RolesInput value={updateRoles} onChange={setUpdateRoles} services={services} />
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-primary"
-              disabled={update.state.status === 'loading' || !updateId.trim() || !updateForm.email}
-              onClick={() => update.call(() => vassago.users.update(
-                updateId.trim(),
-                { ...updateForm, roles: buildRolesMap(updateRoles) },
-                token,
-              ))}
-            >
-              {update.state.status === 'loading' ? 'Updating…' : 'Update'}
-            </button>
-          </div>
-          {update.state.status === 'success' && <UserCard user={update.state.data} />}
-          {update.state.status === 'error' && <div className="error">{update.state.message}</div>}
-        </div>
-      )}
-
-      {/* ── Offboard User ── */}
-      {permissions.canOffboardUsers && (
-        <div className="panel">
-          <h2>Offboard User</h2>
-          <p className="panel-hint">Permanently removes the user. This cannot be undone.</p>
-          <div className="fields">
-            <div className="field">
-              <label>User ID</label>
-              <input
-                value={offboardId}
-                onChange={e => setOffboardId(e.target.value)}
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                spellCheck={false}
-              />
-            </div>
-          </div>
-          <div className="actions">
-            <button
-              className="btn btn-danger"
-              disabled={offboard.state.status === 'loading' || !offboardId.trim()}
-              onClick={() => {
-                if (!window.confirm(`Offboard user ${offboardId.trim()}? This cannot be undone.`)) return
-                offboard.call(() => vassago.users.offboard(offboardId.trim(), token))
-              }}
-            >
-              {offboard.state.status === 'loading' ? 'Offboarding…' : 'Offboard'}
-            </button>
-          </div>
-          <Feedback state={offboard.state} successLabel="User offboarded." />
-        </div>
-      )}
-
-      {/* ── Change Password ── */}
-      <div className="panel">
-        <h2>Change Password</h2>
-        <p className="panel-hint">Verifies your current password then sends a reset link to your registered email.</p>
-        <div className="fields">
-          <div className="field">
-            <label>Current Password</label>
-            <input
-              type="password"
-              value={oldPassword}
-              onChange={e => setOldPassword(e.target.value)}
-              autoComplete="current-password"
-            />
-          </div>
-        </div>
-        <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={changePassword.state.status === 'loading' || !oldPassword}
-            onClick={() => changePassword.call(() => vassago.users.changePassword(oldPassword, token))}
-          >
-            {changePassword.state.status === 'loading' ? 'Sending…' : 'Send Reset Link'}
-          </button>
-        </div>
-        <Feedback state={changePassword.state} successLabel="Password reset link sent." />
-      </div>
-
-      {/* ── Public Key ── */}
-      <div className="panel">
-        <h2>JWT Public Key</h2>
-        <p className="panel-hint">The ES256 public key used to verify tokens issued by this Vassago instance.</p>
-        <div className="actions">
-          <button
-            className="btn btn-outline"
-            disabled={publicKey.state.status === 'loading'}
-            onClick={() => publicKey.call(() => vassago.publicKey())}
-          >
-            {publicKey.state.status === 'loading' ? 'Fetching…' : 'Fetch'}
-          </button>
-        </div>
-        {publicKey.state.status === 'success' && (
-          <div className="pubkey-block">
-            <div className="pubkey-actions">
-              <CopyButton text={publicKey.state.data.publicKey} />
-            </div>
-            <pre className="pubkey-pre">{publicKey.state.data.publicKey}</pre>
           </div>
         )}
-        {publicKey.state.status === 'error' && <div className="error">{publicKey.state.message}</div>}
-      </div>
 
+        {activeTab === 'account' && (
+          <>
+            <div className="panel">
+              <h2>{t('usersPage.changePasswordTitle')}</h2>
+              <p className="panel-hint">{t('usersPage.changePasswordHint')}</p>
+              <div className="fields">
+                <div className="field">
+                  <label>{t('usersPage.currentPassword')}</label>
+                  <input type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} autoComplete="current-password" />
+                </div>
+              </div>
+              <div className="actions">
+                <button
+                  className="btn btn-outline"
+                  disabled={changePassword.state.status === 'loading' || !oldPassword}
+                  onClick={() => changePassword.call(() => vassago.users.changePassword(oldPassword, token))}
+                >
+                  {changePassword.state.status === 'loading' ? t('usersPage.sending') : t('usersPage.sendResetLink')}
+                </button>
+              </div>
+              <Feedback state={changePassword.state} successLabel={t('usersPage.resetLinkSent')} />
+            </div>
+
+            <div className="panel">
+              <h2>{t('usersPage.publicKeyTitle')}</h2>
+              <p className="panel-hint">{t('usersPage.publicKeyHint')}</p>
+              <div className="actions">
+                <button className="btn btn-outline" disabled={publicKey.state.status === 'loading'} onClick={() => publicKey.call(() => vassago.publicKey())}>
+                  {publicKey.state.status === 'loading' ? t('usersPage.fetching') : t('usersPage.fetch')}
+                </button>
+              </div>
+              {publicKey.state.status === 'success' && (
+                <div className="pubkey-block">
+                  <div className="pubkey-actions">
+                    <CopyButton text={publicKey.state.data.publicKey} />
+                  </div>
+                  <pre className="pubkey-pre">{publicKey.state.data.publicKey}</pre>
+                </div>
+              )}
+              {publicKey.state.status === 'error' && <Feedback state={publicKey.state} />}
+            </div>
+          </>
+        )}
+      </Tabs>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={t(editing ? 'usersPage.editTitle' : 'usersPage.createTitle')}>
+        <div className="fields">
+          <div className="field">
+            <label>{t('usersPage.firstName')}</label>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ada" />
+          </div>
+          <div className="field">
+            <label>{t('usersPage.lastName')}</label>
+            <input value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Lovelace" />
+          </div>
+          <div className="field">
+            <label>{t('usersPage.email')}</label>
+            <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="ada@example.com" />
+          </div>
+          <div className="field">
+            <label>{t('usersPage.username')}</label>
+            <input value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder="ada" autoComplete="off" />
+          </div>
+        </div>
+        <div className="field" style={{ marginBottom: '14px' }}>
+          <label style={{ marginBottom: '8px' }}>{t('usersPage.roles')}</label>
+          <RolesInput value={roles} onChange={setRoles} services={services} />
+        </div>
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={save.state.status === 'loading' || !form.email || !form.name || !form.username}
+            onClick={submit}
+          >
+            {save.state.status === 'loading' ? t('common.actions.loading') : t(editing ? 'common.actions.save' : 'common.actions.create')}
+          </button>
+        </div>
+        {save.state.status === 'error' && <Feedback state={save.state} />}
+        {editing && (
+          <details className="id-disclosure">
+            <summary>{t('common.fields.id')}</summary>
+            <div className="id-disclosure-row">
+              <span className="id-disclosure-value">{editing.id}</span>
+              <CopyButton text={editing.id} />
+            </div>
+          </details>
+        )}
+      </Modal>
     </div>
   )
 }

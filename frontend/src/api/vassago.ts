@@ -1,17 +1,5 @@
 import type { LoginRequest, UserRequest, UserResponse } from '../types'
-import { API_BASE_URL } from './base'
-
-async function req<T>(path: string, init: RequestInit, token?: string): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`${res.status} ${res.statusText}${text ? ': ' + text : ''}`)
-  }
-  if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
-}
+import { req } from './client'
 
 export const vassago = {
   login: (dto: LoginRequest) =>
