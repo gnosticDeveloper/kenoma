@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: Kenoma
+    folder: Kenoma
+    type: file
+    updateIntervalSeconds: 10
+    options:
+      path: /etc/grafana/dashboards

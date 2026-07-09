@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Static per-service targets, correct for today's single-host, single-instance-per-service
+# Compose setup. NOT sufficient once raum/vassago/bime are horizontally scaled: a static
+# hostname target only ever reaches one replica behind Docker's round-robin DNS. The
+# eventual Swarm-scaled version needs dockerswarm_sd_configs (role: tasks) instead — but
+# that requires Swarm mode actually active (`docker swarm init` + `docker stack deploy`),
+# which this repo doesn't run today (its init-container sequencing depends on
+# `depends_on: condition: service_healthy`, which Swarm's stack deploy ignores). Revisit
+# together with that migration, not before.
+scrape_configs:
+  - job_name: raum
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["raum:8080"]
+
+  - job_name: vassago
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["vassago:8081"]
+
+  - job_name: bime
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["bime:8082"]

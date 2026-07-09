@@ -16,6 +16,12 @@ spring:
     username: ${RAUM_DB_USER:postgres}
     password: ${RAUM_DB_PASSWORD:postgres}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
 openbao:
   host: ${OPENBAO_HOST:http://localhost:8200}
   provisioner:
