@@ -21,7 +21,7 @@ services:
       POSTGRES_PASSWORD: ${RAUM_DB_PASSWORD:-postgres}
       POSTGRES_DB: raum
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - raum-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -50,7 +50,7 @@ services:
       POSTGRES_PASSWORD: ${BIME_DB_PASSWORD:-postgres}
       POSTGRES_DB: bime
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - bime-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -75,7 +75,7 @@ services:
     image: redis:7-alpine
     container_name: redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -90,7 +90,7 @@ services:
       POSTGRES_PASSWORD: ${VASSAGO_DB_PASSWORD:-adminpass}
       POSTGRES_DB: vassago
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - vassago-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -103,7 +103,7 @@ services:
     image: openbao/openbao:2.5.2
     container_name: openbao
     ports:
-      - "8200:8200"
+      - "127.0.0.1:8200:8200"
     cap_add:
       - IPC_LOCK
     command: server
@@ -221,7 +221,7 @@ services:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
-      - "5005:5005"
+      - "127.0.0.1:5005:5005"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/actuator/health"]
@@ -255,7 +255,7 @@ services:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
-      - "5006:5006"
+      - "127.0.0.1:5006:5006"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8081/actuator/health"]
@@ -294,7 +294,7 @@ services:
       - ./.env-out:/env-out
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && java -jar app.jar"]
     ports:
-      - "5007:5007"
+      - "127.0.0.1:5007:5007"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8082/actuator/health"]
