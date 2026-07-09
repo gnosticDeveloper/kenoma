@@ -320,6 +320,8 @@ services:
         condition: service_healthy
       bime:
         condition: service_healthy
+      grafana:
+        condition: service_started
 
   kenoma-seed:
     profiles: ["seed"]
@@ -350,6 +352,63 @@ services:
     entrypoint: ["sh", "-c", "export $(cat /env-out/.env | xargs) && /bin/sh /seed-kenoma.sh"]
     restart: "no"
 
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    # Reads only this node's local Docker socket/log files and pushes over the network to
+    # the central Loki service, so it's a per-node agent by design, not a bottleneck under
+    # Swarm scale-out. Once this repo actually runs as a Swarm stack (`docker stack deploy`,
+    # which it does not yet — see prometheus.yml), this service wants `deploy: mode: global`
+    # so every node runs its own copy; `container_name` is incompatible with that (Swarm
+    # ignores it, but drop it at that point to avoid confusion) and is only kept here because
+    # today this is still a plain single-host Compose file.
+    image: grafana/promtail:3.3.2
+    container_name: promtail
+    volumes:
+      - ./config/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+
+  grafana:
+    # Fronted by nginx at https://grafana.${BASE_DOMAIN} (see gateway/nginx.conf.template),
+    # same as raum/vassago/bime not publishing their own app ports directly — no host port
+    # mapping here on purpose.
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SERVER_ROOT_URL: https://grafana.${BASE_DOMAIN:-localhost}/
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+      - prometheus
+
 volumes:
   approle-out:
   openbao-data:
@@ -357,3 +416,6 @@ volumes:
   raum-postgres-data:
   bime-postgres-data:
   vassago-postgres-data:
+  loki-data:
+  prometheus-data:
+  grafana-data:

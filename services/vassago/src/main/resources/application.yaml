@@ -7,6 +7,11 @@ spring:
       port: ${REDIS_PORT:6379}
 server:
   port: 8081
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
 raum:
   base-url: ${RAUM_BASE_URL:http://localhost:8080}
 vassago:

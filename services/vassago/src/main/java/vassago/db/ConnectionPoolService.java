@@ -1,8 +1,12 @@
 package vassago.db;
 
 import common.dto.BasicCredentialDTO;
+import common.metrics.ConnectionPoolMetrics;
 import common.pool.ConnectionPoolEntry;
 import common.pool.ConnectionPoolKey;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.r2dbc.pool.ConnectionPool;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +19,7 @@ import common.db.DatabaseConnectionService;
 import vassago.clients.RaumClient;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -55,6 +60,7 @@ public class ConnectionPoolService {
 
     private final RaumClient raumClient;
     private final DatabaseConnectionService dbConnectionService;
+    private final MeterRegistry meterRegistry;
 
     @Value("${vassago.service-id}")
     private String serviceId;
@@ -66,6 +72,8 @@ public class ConnectionPoolService {
     private long evictionIntervalSeconds;
 
     private final ConcurrentHashMap<ConnectionPoolKey, Mono<ConnectionPoolEntry>> pool =
+            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ConnectionPoolKey, List<Meter>> poolMetrics =
             new ConcurrentHashMap<>();
 
     // -----------------------------------------------------------------------
@@ -151,13 +159,15 @@ public class ConnectionPoolService {
                     }
 
                     Instant expiresAt = Instant.now().plusSeconds(effectiveTtl);
+                    ConnectionPool connectionPool = dbConnectionService.createConnectionPool(credentials);
                     ConnectionPoolEntry entry = new ConnectionPoolEntry(
                             key,
-                            dbConnectionService.createConnectionPool(credentials),
+                            connectionPool,
                             expiresAt,
                             credentials.getLeaseId()
                     );
 
+                    poolMetrics.put(key, ConnectionPoolMetrics.register(meterRegistry, connectionPool, "vassago", key.orgId()));
                     pool.put(key, Mono.just(entry));
                     sink.next(entry);
                 })
@@ -181,6 +191,10 @@ public class ConnectionPoolService {
     }
 
     private void disposeQuietly(ConnectionPoolEntry entry) {
+        List<Meter> meters = poolMetrics.remove(entry.key());
+        if (meters != null) {
+            ConnectionPoolMetrics.unregister(meterRegistry, meters);
+        }
         try {
             entry.dispose();
         } catch (Exception ignored) {}

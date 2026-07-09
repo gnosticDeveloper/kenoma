@@ -5,6 +5,12 @@ spring:
 server:
   port: 8082
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
 vassago:
   base-url: ${VASSAGO_BASE_URL:http://localhost:8081}
   jwt:
