@@ -196,6 +196,40 @@ class MultiOrgIsolationIT extends BaseIT {
     }
 
     @Test
+    void orgB_location_returns404_toOrgA_stockMovement() {
+        mockAdminJwtForOrg(ORG_ID_B);
+        LocationRequestDTO locDto = new LocationRequestDTO();
+        locDto.setName("Org B Location");
+        locDto.setCode("OB-LOC-2");
+        locDto.setIsActive(true);
+        LocationResponseDTO orgBLocation = client.post().uri("/locations")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(locDto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(LocationResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(orgBLocation).isNotNull();
+
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        StockMovementRequestDTO movement = new StockMovementRequestDTO();
+        movement.setVariantId(fixture.variantId());
+        movement.setLocationId(orgBLocation.getId());
+        movement.setMovementType(MovementType.INBOUND);
+        movement.setDelta(10);
+
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(movement)
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
     void orgA_stockMovements_notVisibleToOrgB() {
         mockAdminJwt();
         VariantFixture fixture = buildVariantFixture();

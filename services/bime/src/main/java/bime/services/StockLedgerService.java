@@ -97,13 +97,16 @@ public class StockLedgerService {
     }
 
     // Derives product_id from the variant in the same INSERT to avoid an extra round-trip.
-    // Returns empty if the variant doesn't exist or doesn't belong to the org.
+    // Joins locations (not just product_variants) so a locationId belonging to another org
+    // can't be smuggled in alongside a valid same-org variantId.
+    // Returns empty if the variant or location doesn't exist or doesn't belong to the org.
     private Mono<StockMovementResponseDTO> insertMovement(BimeDbHandle handle, UUID orgId, UUID userId, StockMovementRequestDTO dto) {
         DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                 INSERT INTO stock_movements
                     (org_id, product_id, variant_id, location_id, movement_type, delta, reference_id, note, created_by)
-                SELECT :orgId, pv.product_id, pv.id, :locationId, :movementType, :delta, :referenceId, :note, :createdBy
+                SELECT :orgId, pv.product_id, pv.id, l.id, :movementType, :delta, :referenceId, :note, :createdBy
                 FROM product_variants pv
+                JOIN locations l ON l.id = :locationId AND l.org_id = :orgId
                 WHERE pv.id = :variantId AND pv.org_id = :orgId
                 RETURNING id, org_id, product_id, variant_id, location_id, movement_type,
                           delta, reference_id, note, created_at, created_by
@@ -124,7 +127,7 @@ public class StockLedgerService {
 
         return spec.fetch().one()
                 .map(this::toMovementResponseDTO)
-                .switchIfEmpty(Mono.error(new NotFoundException("Variant not found")));
+                .switchIfEmpty(Mono.error(new NotFoundException("Variant or location not found")));
     }
 
     private Mono<Long> upsertBalance(BimeDbHandle handle, UUID orgId, StockMovementRequestDTO dto) {
