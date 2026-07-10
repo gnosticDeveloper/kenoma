@@ -15,7 +15,10 @@
 | **Raum** | `8080` | Organization registry. Manages tenants, registered services, and ephemeral database credentials via OpenBao |
 | **Vassago** | `8081` | Authentication and identity. JWT issuance, session management, user lifecycle, and password recovery |
 | **Bime** | `8082` | Inventory management. Products, variants, metadata, stock ledger, and warehouse locations |
-| **Common** |No port | Shared library: DTOs, exception handling, JWT validation, and R2DBC connection pooling |
+| **Common** | No port | Shared library: DTOs, exception handling, JWT validation, and R2DBC connection pooling |
+| **Frontend** | `5173` (dev) | React/Vite admin UI. Dark/light/auto themes, EN/ES i18n |
+
+All backend traffic is fronted by **nginx**, which terminates TLS and reverse-proxies `api.<BASE_DOMAIN>` to the three services by path, plus `grafana.<BASE_DOMAIN>` to the observability stack.
 
 ### Raum: Organization & Credential Registry
 
@@ -111,15 +114,18 @@ config:
   layout: elk
 ---
 flowchart TB
-    OpenBao[("OpenBao")] -- public api keys --> Vassago["Vassago Service"]
-    Redis[("Redis")] -- onboarding --> Raum["Raum Service"]
+    Nginx["nginx (TLS, reverse proxy)"] --> Vassago["Vassago Service"] & Bime["Bime Service"] & Raum["Raum Service"] & Grafana["Grafana"]
+    OpenBao[("OpenBao")] -- public api keys --> Vassago
+    Redis[("Redis")] -- onboarding --> Raum
     Redis -- refresh tokens --> Vassago
     RaumDB[("Raum DB")] -- fixed credentials --> Raum
-    Raum -- dynamic db credentials --> Vassago & Bime["Bime Service"]
+    Raum -- dynamic db credentials --> Vassago & Bime
     VassagoDB[("Vassago DB")] -- provisioned from Raum --> Vassago
     BimeDB[("Bime DB")] -- provisioned from Raum --> Bime
     Vassago -- auth --> Bime
     OpenBao -- db credentials --> Raum
+    Raum & Vassago & Bime -- logs --> Promtail --> Loki[("Loki")] --> Grafana
+    Raum & Vassago & Bime -- metrics --> Prometheus[("Prometheus")] --> Grafana
 
      OpenBao:::orange
      Vassago:::sky
@@ -129,6 +135,7 @@ flowchart TB
      Bime:::green
      VassagoDB:::indigo
      BimeDB:::indigo
+     Grafana:::orange
     classDef orange stroke:#fb923c,fill:#fff7ed
     classDef teal stroke:#2dd4bf,fill:#f0fdfa
     classDef indigo stroke:#818cf8,fill:#eef2ff
@@ -143,6 +150,9 @@ flowchart TB
 - **Redis** is shared between Vassago (session tokens) and Raum (onboarding preset config for retry).
 - During onboarding, Raum calls Vassago and Bime over HTTP to seed the new tenant. A scheduled retry recovers any credential that failed mid-flow using the preset config stored in Redis.
 - The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, and a unified exception hierarchy.
+- **nginx** terminates TLS and reverse-proxies `api.<BASE_DOMAIN>` (path-routed to Raum/Vassago/Bime) and `grafana.<BASE_DOMAIN>`. No service publishes its app port directly to the host.
+- **OpenBao runs in production mode**: Raft integrated storage, Shamir secret sharing (5 key shares, 3-share unseal threshold), and per-service AppRole auth (Vassago, Raum, and a Raum-service role). Services fetch and renew their own AppRole tokens at runtime and retry indefinitely rather than failing at boot.
+- **Observability**: Promtail ships container logs to Loki; each service exposes metrics that Prometheus scrapes; Grafana ships with a default "Kenoma overview" dashboard covering both, provisioned automatically.
 
 > **Database separation note:** The three databases run as separate containers in development to enforce proper tenant isolation at the infrastructure level during testing. In practice, they can all live on the same PostgreSQL instance without issue, although it is not the intended setup.
 
@@ -155,11 +165,14 @@ flowchart TB
 | Language | Java 25 |
 | Framework | Spring Boot 4.0.6, Spring WebFlux |
 | Database | PostgreSQL 18 (R2DBC) |
-| Secrets | OpenBao 2.5.2 |
+| Secrets | OpenBao 2.5.2 (production mode, Raft storage) |
 | Session cache | Redis 7 |
 | API docs | springdoc-openapi 3.0.2 |
 | Testing | JUnit 5, Testcontainers 2.0.5 |
 | Build | Maven (multi-module) |
+| Frontend | React 18, TypeScript, Vite |
+| Reverse proxy / TLS | nginx |
+| Observability | Grafana, Loki, Promtail, Prometheus |
 | CI | GitHub Actions |
 
 ---
@@ -182,7 +195,7 @@ Copy the example file and fill in your values:
 cp .env.example .env
 ```
 
-The only values you **must** change before starting are the Mailgun credentials (required for password recovery emails). Everything else has working dev defaults. The `.env` file is gitignored and never committed.
+The values you **must** set before starting are the Mailgun credentials (required for password recovery emails) and the Grafana admin user/password (compose refuses to start without them — Grafana is reachable at `grafana.<BASE_DOMAIN>`, so there's no silent `admin`/`admin` default). Everything else has working dev defaults. The `.env` file is gitignored and never committed.
 
 Key variables:
 
@@ -191,11 +204,16 @@ Key variables:
 | `RAUM_DB_PASSWORD` | Raum PostgreSQL password | `postgres` |
 | `BIME_DB_PASSWORD` | Bime PostgreSQL password | `postgres` |
 | `VASSAGO_DB_PASSWORD` | Vassago PostgreSQL password | `adminpass` |
-| `OPENBAO_ROOT_TOKEN` | OpenBao dev root token | `dev-root-token` |
+| `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | Grafana login | *(required, no default)* |
 | `OPERATOR_PASSWORD` | Platform operator account password | `Ch4ng3me!Ops#` |
 | `MAILGUN_API_KEY` | Mailgun private API key | *(required)* |
 | `MAILGUN_DOMAIN` | Mailgun sending domain | *(required)* |
 | `APP_BASE_URL` | Frontend base URL for email links | `http://localhost:3000` |
+| `BASE_DOMAIN` | Root domain nginx serves; API at `api.<BASE_DOMAIN>` | `localhost` |
+| `CORS_ALLOWED_ORIGINS` | Allowed CORS origins, shared by all three services | *(empty — CORS disabled)* |
+| `RAUM_JDWP_OPTS` / `VASSAGO_JDWP_OPTS` / `BIME_JDWP_OPTS` | Opt-in JDWP remote-debug agent per service | *(unset — debugging off)* |
+
+OpenBao itself has no root-token env var to configure: on first boot it initializes with Shamir key shares and auto-unseals using the keys it writes to a Docker volume (see `scripts/init-openbao.sh`); nothing to set in `.env` for it.
 
 See `.env.example` for the full list.
 
@@ -221,13 +239,27 @@ Creates the user defined by `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` in your `.e
 
 ### 4. Access the services
 
+Each service's app port is bound to `127.0.0.1` only (not exposed to the network) and is reachable directly for local development:
+
 | Service | Base URL | OpenAPI UI |
 |---|---|---|
 | Raum | http://localhost:8080 | http://localhost:8080/swagger-ui.html |
 | Vassago | http://localhost:8081 | http://localhost:8081/swagger-ui.html |
 | Bime | http://localhost:8082 | http://localhost:8082/swagger-ui.html |
 
-Remote debuggers can attach on ports `5005` (Raum), `5006` (Vassago), and `5007` (Bime).
+In a full deployment, nginx instead fronts everything at `https://api.<BASE_DOMAIN>` (path-routed to the three services) and `https://grafana.<BASE_DOMAIN>` for the Grafana dashboards.
+
+To attach a remote debugger, set the relevant `*_JDWP_OPTS` variable in `.env` (see above) before starting — debug agents are off by default. Once enabled, debuggers can attach on ports `5005` (Raum), `5006` (Vassago), and `5007` (Bime).
+
+### 5. Run the frontend (optional)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Serves the admin UI at http://localhost:5173, calling the services directly — make sure `CORS_ALLOWED_ORIGINS` in `.env` includes `http://127.0.0.1:5173` (or your dev origin) before starting the backend.
 
 ---
 
