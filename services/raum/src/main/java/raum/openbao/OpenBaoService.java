@@ -1,5 +1,6 @@
 package raum.openbao;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
+@Slf4j
 @Service
 public class OpenBaoService {
     private final WebClient webClient;
@@ -44,7 +46,7 @@ public class OpenBaoService {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("renewSelf FAILED [" + response.statusCode() + "]: " + body);
+                            log.error("renewSelf FAILED [{}]: {}", response.statusCode(), body);
                             return Mono.error(new RuntimeException("renewSelf failed: " + body));
                         })
                 )
@@ -77,7 +79,7 @@ public class OpenBaoService {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("storeCredentials FAILED [" + response.statusCode() + "]: " + body);
+                            log.error("storeCredentials FAILED [{}]: {}", response.statusCode(), body);
                             return Mono.error(new RuntimeException("storeCredentials failed: " + body));
                         })
                 )
@@ -104,7 +106,7 @@ public class OpenBaoService {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("registerDatabaseConnection FAILED [" + response.statusCode() + "]: " + body);
+                            log.error("registerDatabaseConnection FAILED [{}]: {}", response.statusCode(), body);
                             return Mono.error(new RuntimeException("registerDatabaseConnection failed: " + body));
                         })
                 )
@@ -134,7 +136,7 @@ public class OpenBaoService {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("createRole FAILED [" + response.statusCode() + "]: " + body);
+                            log.error("createRole FAILED [{}]: {}", response.statusCode(), body);
                             return Mono.error(new RuntimeException("createRole failed: " + body));
                         })
                 )
@@ -147,7 +149,7 @@ public class OpenBaoService {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("getStaticCredentials FAILED [" + response.statusCode() + "]: " + body);
+                            log.error("getStaticCredentials FAILED [{}]: {}", response.statusCode(), body);
                             return Mono.error(new RuntimeException("getStaticCredentials failed: " + body));
                         })
                 )
@@ -171,7 +173,7 @@ public class OpenBaoService {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("issueEphemeralCredentials FAILED [" + response.statusCode() + "]: " + body);
+                            log.error("issueEphemeralCredentials FAILED [{}]: {}", response.statusCode(), body);
                             return Mono.error(new RuntimeException("issueEphemeralCredentials failed: " + body));
                         })
                 )

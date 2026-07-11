@@ -1,3 +1,5 @@
+limit_req_zone $binary_remote_addr zone=vassago_auth:10m rate=20r/m;
+
 server {
     listen 443 ssl;
     server_name api.${BASE_DOMAIN};
@@ -8,7 +10,20 @@ server {
     ssl_certificate     /etc/nginx/certs/server.crt;
     ssl_certificate_key /etc/nginx/certs/server.key;
 
+    # Unauthenticated endpoints (login/recover/refresh/public-key) are the ones
+    # credential-stuffing/enumeration abuse would target, so they get the coarse
+    # per-IP limit here. Tighter per-account limiting lives in vassago itself.
     location /auth/ {
+        limit_req zone=vassago_auth burst=5 nodelay;
+        proxy_pass http://vassago:8081;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Exact match so only the public /user/verify endpoint is throttled here —
+    # the rest of /user is authenticated and shouldn't share this IP-based limit.
+    location = /user/verify {
+        limit_req zone=vassago_auth burst=5 nodelay;
         proxy_pass http://vassago:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

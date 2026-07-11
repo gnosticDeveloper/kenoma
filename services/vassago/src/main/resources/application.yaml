@@ -36,6 +36,9 @@ vassago:
     domain: ${VASSAGO_COOKIE_DOMAIN:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  rate-limit:
+    window-seconds: ${VASSAGO_RATE_LIMIT_WINDOW_SECONDS:10}
+    max-requests: ${VASSAGO_RATE_LIMIT_MAX_REQUESTS:20}
 openbao:
   base-url: ${OPENBAO_BASE_URL:http://localhost:8200}
 mailgun:
