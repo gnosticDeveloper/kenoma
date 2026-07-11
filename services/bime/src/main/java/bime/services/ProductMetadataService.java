@@ -134,7 +134,8 @@ public class ProductMetadataService {
 
     public Mono<Void> assignMetadata(UUID productId, List<ProductMetadataAssignmentItemDTO> items) {
         return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
-                deleteAssignments(handle, productId, caller.getOrgId())
+                verifyProductExists(handle, productId, caller.getOrgId())
+                        .then(deleteAssignments(handle, productId, caller.getOrgId()))
                         .thenMany(Flux.fromIterable(items))
                         .concatMap(item ->
                                 insertAssignment(handle, productId, item.getMetadataId(), caller.getOrgId())
@@ -148,12 +149,25 @@ public class ProductMetadataService {
 
     public Mono<Void> patchOptions(UUID productId, UUID metadataId, MetadataOptionPatchDTO dto) {
         return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
-                getOrCreateAssignment(handle, productId, metadataId, caller.getOrgId())
+                verifyProductExists(handle, productId, caller.getOrgId())
+                        .then(getOrCreateAssignment(handle, productId, metadataId, caller.getOrgId()))
                         .flatMap(assignmentId ->
                                 applyOptionRemovals(handle, assignmentId, dto.getRemove())
                                         .then(applyOptionAdditions(handle, assignmentId, metadataId, dto.getAdd()))
                         )
         )));
+    }
+
+    private Mono<Void> verifyProductExists(BimeDbHandle handle, UUID productId, UUID orgId) {
+        return handle.client().sql("""
+                SELECT 1 FROM products WHERE id = :productId AND org_id = :orgId
+                """)
+                .bind("productId", productId)
+                .bind("orgId", orgId)
+                .fetch()
+                .one()
+                .switchIfEmpty(Mono.error(new NotFoundException("Product not found")))
+                .then();
     }
 
     private Mono<Long> deleteAssignments(BimeDbHandle handle, UUID productId, UUID orgId) {
@@ -203,9 +217,11 @@ public class ProductMetadataService {
         return handle.client().sql("""
                 SELECT id FROM product_metadata_assignments
                 WHERE product_id = :productId AND metadata_id = :metadataId
+                  AND metadata_id IN (SELECT id FROM product_metadata WHERE org_id = :orgId)
                 """)
                 .bind("productId", productId)
                 .bind("metadataId", metadataId)
+                .bind("orgId", orgId)
                 .fetch()
                 .one()
                 .map(row -> (UUID) row.get("id"))

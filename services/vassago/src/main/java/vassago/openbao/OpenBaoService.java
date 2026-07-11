@@ -1,5 +1,6 @@
 package vassago.openbao;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -9,6 +10,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.concurrent.atomic.AtomicReference;
 
+@Slf4j
 @Service
 public class OpenBaoService {
     private final WebClient webClient;
@@ -44,7 +46,7 @@ public class OpenBaoService {
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            System.err.println("renewSelf FAILED [" + response.statusCode() + "]: " + body);
+                            log.error("renewSelf FAILED [{}]: {}", response.statusCode(), body);
                             return Mono.error(new RuntimeException("renewSelf failed: " + body));
                         })
                 )

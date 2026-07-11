@@ -2,6 +2,7 @@ package raum.openbao;
 
 import common.openbao.AppRoleProvisioningClient;
 import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,7 @@ import java.time.Duration;
  * own policy/role/secret-id) to create/ensure the real {@code raum-service} AppRole,
  * mint a fresh secret-id, and log in as it. The resulting token feeds {@link OpenBaoService}.
  */
+@Slf4j
 @Component
 public class OpenBaoProvisioner {
 
@@ -51,11 +53,11 @@ public class OpenBaoProvisioner {
     void provision() {
         provisionOnce()
                 .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(2)).maxBackoff(Duration.ofSeconds(30)))
-                .doOnSuccess(v -> System.out.println("Raum AppRole provisioned and logged in successfully"))
+                .doOnSuccess(v -> log.info("Raum AppRole provisioned and logged in successfully"))
                 .block();
     }
 
-    private Mono<Void> provisionOnce() {
+    Mono<Void> provisionOnce() {
         WebClient anonymousClient = WebClient.builder().baseUrl(host).build();
 
         return provisioningClient.login(anonymousClient, provisionerRoleId, provisionerSecretId)

@@ -159,6 +159,41 @@ class MultiOrgIsolationIT extends BaseIT {
                 .hasSize(0);
     }
 
+    @Test
+    void orgA_product_returns404_toOrgB_assignMetadata() {
+        mockAdminJwt();
+        ProductResponseDTO product = postProduct("ORG-A-ASSIGN-SKU", "Org A Assign Target");
+        ProductMetadataResponseDTO meta = postMetadata("Org A Assign Metadata");
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        ProductMetadataAssignmentItemDTO item = new ProductMetadataAssignmentItemDTO();
+        item.setMetadataId(meta.getId());
+        client.put().uri("/products/{id}/metadata", product.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(List.of(item))
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void orgA_product_returns404_toOrgB_patchMetadataOptions() {
+        mockAdminJwt();
+        ProductResponseDTO product = postProduct("ORG-A-PATCH-SKU", "Org A Patch Target");
+        ProductMetadataResponseDTO meta = postMetadata("Org A Patch Metadata");
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        MetadataOptionPatchDTO patch = new MetadataOptionPatchDTO();
+        patch.setAdd(List.of());
+        patch.setRemove(List.of());
+        client.patch().uri("/products/{id}/metadata/{metadataId}/options", product.getId(), meta.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(patch)
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
     // --- Stock isolation ---
 
     @Test

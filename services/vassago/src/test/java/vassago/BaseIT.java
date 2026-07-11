@@ -33,7 +33,12 @@ import static org.assertj.core.api.Assertions.assertThat;
         "mailgun.domain=test.example.com",
         "mailgun.from=noreply@test.example.com",
         "app.base-url=http://localhost:3000",
-        "vassago.cookie.domain=.test.local"
+        "vassago.cookie.domain=.test.local",
+        // IT classes share one Spring context, one Redis instance, and one client IP,
+        // and collectively hit /auth/* far more than the production per-IP budget —
+        // effectively disable the limit here; RateLimitFilterIT verifies the real
+        // behavior in its own isolated context with a tight override.
+        "vassago.rate-limit.max-requests=1000000"
 })
 public abstract class BaseIT {
 
