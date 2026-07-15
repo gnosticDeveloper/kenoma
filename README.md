@@ -251,6 +251,19 @@ In a full deployment, nginx instead fronts everything at `https://api.<BASE_DOMA
 
 To attach a remote debugger, set the relevant `*_JDWP_OPTS` variable in `.env` (see above) before starting — debug agents are off by default. Once enabled, debuggers can attach on ports `5005` (Raum), `5006` (Vassago), and `5007` (Bime).
 
+### Continuous Deployment
+
+Merges to `main` auto-deploy to the test VPS via `.github/workflows/cd.yml`, which runs on a
+GitHub Actions self-hosted runner installed on the VPS itself (labeled `kenoma-vps`). The workflow
+checks out the pushed commit, runs `docker compose up -d --build` (Compose only rebuilds/restarts
+containers whose image or config actually changed), and waits for Raum/Vassago/Bime's
+`/actuator/health` endpoints to report healthy before finishing. `.env` on the VPS is never touched
+by the workflow — it must already exist there, same as any other deployment target.
+
+To register the runner on a new VPS: GitHub → repo Settings → Actions → Runners → New self-hosted
+runner, label it `kenoma-vps`, and install it as a systemd service (`./svc.sh install && ./svc.sh
+start`) running as a non-root user that's a member of the `docker` group.
+
 ### 5. Run the frontend (optional)
 
 ```bash
