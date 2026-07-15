@@ -24,15 +24,17 @@ jobs:
 
       - name: Wait for services to be healthy
         run: |
-          for port in 8080 8081 8082; do
-            echo "Checking health on port ${port}..."
+          for service in raum vassago bime; do
+            echo "Checking health of ${service}..."
             for attempt in $(seq 1 24); do
-              if curl -sf "http://127.0.0.1:${port}/actuator/health" > /dev/null; then
-                echo "Port ${port} is healthy."
+              status=$(docker inspect --format='{{.State.Health.Status}}' "${service}" 2>/dev/null || echo "starting")
+              if [ "$status" = "healthy" ]; then
+                echo "${service} is healthy."
                 break
               fi
               if [ "$attempt" -eq 24 ]; then
-                echo "ERROR: port ${port} did not become healthy in time."
+                echo "ERROR: ${service} did not become healthy in time (status: ${status})."
+                docker compose logs "${service}" --tail=50
                 exit 1
               fi
               sleep 5
