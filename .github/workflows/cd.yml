@@ -1,0 +1,42 @@
+name: CD
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: kenoma-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: [ self-hosted, kenoma-vps ]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start services
+        run: docker compose up -d --build
+
+      - name: Wait for services to be healthy
+        run: |
+          for port in 8080 8081 8082; do
+            echo "Checking health on port ${port}..."
+            for attempt in $(seq 1 24); do
+              if curl -sf "http://127.0.0.1:${port}/actuator/health" > /dev/null; then
+                echo "Port ${port} is healthy."
+                break
+              fi
+              if [ "$attempt" -eq 24 ]; then
+                echo "ERROR: port ${port} did not become healthy in time."
+                exit 1
+              fi
+              sleep 5
+            done
+          done
+
+      - name: Prune dangling images
+        if: always()
+        run: docker image prune -f
