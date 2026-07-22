@@ -11,7 +11,7 @@ interface Props { token: string }
 const PRESETS: BimePreset[] = ['CLOTHING_STORE', 'BOOK_STORE', 'REPAIR_SHOP', 'STORAGE_WAREHOUSE']
 
 export default function OnboardingPage({ token }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [orgs, setOrgs] = useState<OrgResponse[]>([])
   useEffect(() => { raum.orgs.list(token).then(setOrgs).catch(() => {}) }, [token])
   const orgItems = orgs.map(o => ({ id: o.id, label: o.name, sublabel: o.contactEmail }))
@@ -72,7 +72,7 @@ export default function OnboardingPage({ token }: Props) {
           <button
             className="btn btn-primary"
             disabled={initiate.state.status === 'loading' || !orgId}
-            onClick={() => initiate.call(() => raum.onboarding.initiate(orgId, form, token))}
+            onClick={() => initiate.call(() => raum.onboarding.initiate(orgId, { ...form, locale: i18n.language }, token))}
           >
             {initiate.state.status === 'loading' ? t('onboardingPage.submitting') : t('onboardingPage.submit')}
           </button>

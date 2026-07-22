@@ -28,6 +28,7 @@ public class OpenBaoProvisioner {
 
     private static final String POLICY_NAME = "vassago-policy";
     private static final String ROLE_NAME = "vassago";
+    private static final Duration SECRET_ID_TTL = Duration.ofMinutes(15);
 
     private final OpenBaoService openBaoService;
     private final AppRoleProvisioningClient provisioningClient = new AppRoleProvisioningClient();
@@ -35,24 +36,32 @@ public class OpenBaoProvisioner {
     private final String provisionerRoleId;
     private final String provisionerSecretId;
     private final Resource policyResource;
+    private final int maxAttempts;
 
     public OpenBaoProvisioner(
             OpenBaoService openBaoService,
             @Value("${openbao.base-url}") String host,
             @Value("${vassago.openbao.provisioner.role-id}") String provisionerRoleId,
             @Value("${vassago.openbao.provisioner.secret-id}") String provisionerSecretId,
-            @Value("classpath:openbao/vassago-policy.hcl") Resource policyResource) {
+            @Value("classpath:openbao/vassago-policy.hcl") Resource policyResource,
+            @Value("${vassago.openbao.provisioner.max-attempts:10}") int maxAttempts) {
         this.openBaoService = openBaoService;
         this.host = host;
         this.provisionerRoleId = provisionerRoleId;
         this.provisionerSecretId = provisionerSecretId;
         this.policyResource = policyResource;
+        this.maxAttempts = maxAttempts;
     }
 
     @PostConstruct
     void provision() {
         provisionOnce()
-                .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(2)).maxBackoff(Duration.ofSeconds(30)))
+                .retryWhen(Retry.backoff(maxAttempts, Duration.ofSeconds(2))
+                        .maxBackoff(Duration.ofSeconds(30))
+                        .doBeforeRetry(signal -> log.warn("Vassago AppRole provisioning attempt {} of {} failed: {}",
+                                signal.totalRetries() + 1, maxAttempts, signal.failure().getMessage()))
+                        .onRetryExhaustedThrow((spec, signal) -> new IllegalStateException(
+                                "Vassago AppRole provisioning failed after " + maxAttempts + " attempts", signal.failure())))
                 .doOnSuccess(v -> log.info("Vassago AppRole provisioned and logged in successfully"))
                 .block();
     }
@@ -68,7 +77,7 @@ public class OpenBaoProvisioner {
                             .build();
                     return provisioningClient.writePolicy(provisionerClient, POLICY_NAME, readPolicyHcl())
                             .then(provisioningClient.ensureAppRole(
-                                    provisionerClient, ROLE_NAME, POLICY_NAME, Duration.ofHours(1), Duration.ofHours(24)))
+                                    provisionerClient, ROLE_NAME, POLICY_NAME, Duration.ofHours(1), Duration.ofHours(24), SECRET_ID_TTL))
                             .then(provisioningClient.readRoleId(provisionerClient, ROLE_NAME))
                             .flatMap(roleId -> provisioningClient.generateSecretId(provisionerClient, ROLE_NAME)
                                     .flatMap(secretId -> provisioningClient.login(anonymousClient, roleId, secretId)));

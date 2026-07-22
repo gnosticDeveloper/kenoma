@@ -51,6 +51,7 @@ export interface OnboardingRequest {
   email: string
   username: string
   bimePreset: BimePreset
+  locale?: string
 }
 
 export interface UserRequest {
@@ -59,6 +60,7 @@ export interface UserRequest {
   lastName: string
   username: string
   roles: Record<string, string[]>
+  locale?: string
 }
 
 export interface UserResponse {

@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
     created_at         timestamp DEFAULT current_timestamp,
     modified_at        timestamp DEFAULT current_timestamp,
     stopped_at         timestamp DEFAULT null,
-    is_ready           bool DEFAULT false
+    is_ready           bool DEFAULT false,
+    locale             varchar(5) NOT NULL DEFAULT 'en'
 );
 
 CREATE TABLE IF NOT EXISTS pending_verifications (

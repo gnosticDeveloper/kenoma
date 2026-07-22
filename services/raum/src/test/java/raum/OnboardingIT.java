@@ -296,7 +296,7 @@ class OnboardingIT {
 
         verify(vassagoClient).createUser(
                 anyString(), eq("Alice"), eq("Smith"),
-                eq("alice@example.com"), eq("alice"), anyMap());
+                eq("alice@example.com"), eq("alice"), anyMap(), any());
     }
 
     @Test
@@ -312,7 +312,26 @@ class OnboardingIT {
                 .expectStatus().isNoContent();
 
         Map<String, String> config = configStore.get(bimeCredId).block(Duration.ofSeconds(5));
-        assertThat(config).isNotNull().containsEntry("preset", "CLOTHING_STORE");
+        assertThat(config).isNotNull().containsEntry("preset", "CLOTHING_STORE").containsEntry("locale", "en");
+    }
+
+    @Test
+    void initiateOnboarding_persistsRequestedLocaleInRedis() {
+        stubVassagoAndBime();
+        mockOnboardingJwt();
+
+        OnboardingRequestDTO request = buildRequest(BimePreset.CLOTHING_STORE);
+        request.setLocale("es");
+
+        client.post().uri("/onboarding/{id}", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isNoContent();
+
+        Map<String, String> config = configStore.get(bimeCredId).block(Duration.ofSeconds(5));
+        assertThat(config).isNotNull().containsEntry("locale", "es");
     }
 
     @Test
@@ -533,7 +552,7 @@ class OnboardingIT {
     private void stubVassagoAndBime() {
         when(vassagoClient.login(any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.just("fake-jwt"));
-        when(vassagoClient.createUser(anyString(), anyString(), anyString(), anyString(), anyString(), anyMap()))
+        when(vassagoClient.createUser(anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), any()))
                 .thenReturn(Mono.just(UUID.randomUUID()));
         when(bimeClient.createLocation(anyString(), anyString(), anyString()))
                 .thenReturn(Mono.just(UUID.randomUUID()));

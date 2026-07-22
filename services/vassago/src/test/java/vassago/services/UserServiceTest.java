@@ -70,7 +70,7 @@ class UserServiceTest {
         DatabaseClient client = mockClientReturningSelectThenInsert(rowFor(USER_ID, USER_ROLES));
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
         when(encoder.encode(anyString())).thenReturn("hashed");
-        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(
@@ -90,7 +90,7 @@ class UserServiceTest {
         DatabaseClient client = mockClientReturningSelectThenInsert(rowFor(USER_ID, ADMIN_ROLES));
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
         when(encoder.encode(anyString())).thenReturn("hashed");
-        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(
@@ -146,6 +146,46 @@ class UserServiceTest {
                 .expectErrorMatches(e -> e instanceof BadRequestException)
                 .verify();
         verifyNoInteractions(vassagoDbService);
+    }
+
+    @Test
+    void createUser_sendsRequestedLocaleToMailgun() {
+        UserRequestDTO dto = validRequest(USER_ROLES);
+        dto.setLocale("es");
+        DatabaseClient client = mockClientReturningSelectThenInsert(rowFor(USER_ID, USER_ROLES));
+        when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
+        when(encoder.encode(anyString())).thenReturn("hashed");
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString(), eq("es")))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(
+                        userService.createUser(dto)
+                                .contextWrite(withCaller(ADMIN_ROLES))
+                )
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(mailgunService).sendVerificationEmail(anyString(), any(UUID.class), anyString(), eq("es"));
+    }
+
+    @Test
+    void createUser_defaultsLocaleToEnglish_whenOmitted() {
+        UserRequestDTO dto = validRequest(USER_ROLES);
+        dto.setLocale(null);
+        DatabaseClient client = mockClientReturningSelectThenInsert(rowFor(USER_ID, USER_ROLES));
+        when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
+        when(encoder.encode(anyString())).thenReturn("hashed");
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString(), eq("en")))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(
+                        userService.createUser(dto)
+                                .contextWrite(withCaller(ADMIN_ROLES))
+                )
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(mailgunService).sendVerificationEmail(anyString(), any(UUID.class), anyString(), eq("en"));
     }
 
     @Test
@@ -228,11 +268,11 @@ class UserServiceTest {
     void changePassword_happyPath() {
         String storedHash = "$2a$10$hashedOldPassword";
         DatabaseClient client = mockClientReturningPasswordChange(
-                Map.of("id", USER_ID, "password", storedHash, "email", "jane@example.com")
+                Map.of("id", USER_ID, "password", storedHash, "email", "jane@example.com", "locale", "en")
         );
         when(vassagoDbService.getClient(ORG_ID)).thenReturn(Mono.just(client));
         when(encoder.matches("oldPass1!", storedHash)).thenReturn(true);
-        when(mailgunService.sendPasswordResetEmail(anyString(), any(UUID.class), anyString()))
+        when(mailgunService.sendPasswordResetEmail(anyString(), any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         PasswordChangeRequestDTO dto = new PasswordChangeRequestDTO("oldPass1!");

@@ -58,4 +58,7 @@ public class User {
 
     @Column("is_ready")
     private boolean isReady;
+
+    @Column("locale")
+    private String locale;
 }

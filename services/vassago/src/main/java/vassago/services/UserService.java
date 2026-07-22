@@ -65,11 +65,12 @@ public class UserService {
                     String verificationToken = generateToken();
                     String tokenHash = hashToken(verificationToken);
                     Instant expiresAt = Instant.now().plus(24, ChronoUnit.HOURS);
+                    String locale = dto.getLocale() == null || dto.getLocale().isBlank() ? "en" : dto.getLocale();
 
                     return vassagoDbService.getClient(caller.getOrgId())
                             .flatMap(client -> client.sql("""
-                                    INSERT INTO users (name, last_name, email, username, password, roles)
-                                    VALUES (:name, :lastName, :email, :username, :password, :roles)
+                                    INSERT INTO users (name, last_name, email, username, password, roles, locale)
+                                    VALUES (:name, :lastName, :email, :username, :password, :roles, :locale)
                                     RETURNING id, name, last_name, email, username, roles
                                     """)
                                     .bind("name", dto.getName())
@@ -78,6 +79,7 @@ public class UserService {
                                     .bind("username", dto.getUsername())
                                     .bind("password", placeholderPassword)
                                     .bind("roles", RolesUtils.serialize(requestedRoles))
+                                    .bind("locale", locale)
                                     .fetch()
                                     .one()
                                     .flatMap(row -> {
@@ -92,7 +94,7 @@ public class UserService {
                                                 .fetch()
                                                 .rowsUpdated()
                                                 .then(mailgunService.sendVerificationEmail(
-                                                        dto.getEmail(), caller.getOrgId(), verificationToken))
+                                                        dto.getEmail(), caller.getOrgId(), verificationToken, locale))
                                                 .thenReturn(toCreateResponseDTO(row));
                                     })
                             );
@@ -222,7 +224,7 @@ public class UserService {
         return getCaller()
                 .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
                         .flatMap(client -> client.sql("""
-                                SELECT id, password, email FROM users
+                                SELECT id, password, email, locale FROM users
                                 WHERE id = :userId AND stopped_at IS NULL
                                 """)
                                 .bind("userId", caller.getId())
@@ -235,6 +237,7 @@ public class UserService {
                                     }
                                     UUID userId = (UUID) row.get("id");
                                     String email = (String) row.get("email");
+                                    String locale = (String) row.get("locale");
                                     String verificationToken = generateToken();
                                     String tokenHash = hashToken(verificationToken);
                                     Instant expiresAt = Instant.now().plus(1, ChronoUnit.HOURS);
@@ -248,7 +251,7 @@ public class UserService {
                                             .fetch()
                                             .rowsUpdated()
                                             .then(mailgunService.sendPasswordResetEmail(
-                                                    email, caller.getOrgId(), verificationToken));
+                                                    email, caller.getOrgId(), verificationToken, locale));
                                 })
                         )
                 );

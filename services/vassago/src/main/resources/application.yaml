@@ -20,6 +20,7 @@ vassago:
     provisioner:
       role-id: ${VASSAGO_PROVISIONER_ROLE_ID}
       secret-id: ${VASSAGO_PROVISIONER_SECRET_ID}
+      max-attempts: ${VASSAGO_OPENBAO_PROVISIONER_MAX_ATTEMPTS:10}
     token-renewal-rate-ms: ${VASSAGO_OPENBAO_TOKEN_RENEWAL_RATE_MS:1200000}
   pool:
     expiry-buffer-percent: ${VASSAGO_POOL_EXPIRY_BUFFER_PERCENT:10}

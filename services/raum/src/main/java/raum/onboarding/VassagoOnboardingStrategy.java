@@ -67,7 +67,8 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
                             request.getLastName(),
                             request.getEmail(),
                             request.getUsername(),
-                            userRoles
+                            userRoles,
+                            request.getLocale()
                     );
                 })
                 .then();
