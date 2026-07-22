@@ -104,8 +104,8 @@ print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '
     -c "INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
         VALUES ('${OPERATOR_NAME}', '${OPERATOR_LAST_NAME}', '${OPERATOR_EMAIL}',
                 '${OPERATOR_USERNAME}', '${BCRYPT_HASH}', '${OPERATOR_ROLES}', true)
-        ON CONFLICT (username) DO NOTHING;"
-  echo "Operator user seeded."
+        ON CONFLICT (username) DO UPDATE SET roles = EXCLUDED.roles;"
+  echo "Operator user seeded/reconciled."
 fi
 
 if [ "$MODE" = "clean" ]; then
