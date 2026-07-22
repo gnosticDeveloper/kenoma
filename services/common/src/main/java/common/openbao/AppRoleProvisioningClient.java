@@ -27,14 +27,14 @@ public class AppRoleProvisioningClient {
     }
 
     public Mono<Void> ensureAppRole(WebClient provisionerClient, String roleName, String policyName,
-                                     Duration tokenTtl, Duration tokenMaxTtl) {
+                                     Duration tokenTtl, Duration tokenMaxTtl, Duration secretIdTtl) {
         return provisionerClient.put()
                 .uri("/v1/auth/approle/role/{role}", roleName)
                 .bodyValue(Map.of(
                         "token_policies", policyName,
                         "token_ttl", tokenTtl.toSeconds() + "s",
                         "token_max_ttl", tokenMaxTtl.toSeconds() + "s",
-                        "secret_id_ttl", "0"
+                        "secret_id_ttl", secretIdTtl.toSeconds() + "s"
                 ))
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
