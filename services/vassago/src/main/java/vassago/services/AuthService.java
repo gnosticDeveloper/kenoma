@@ -154,7 +154,7 @@ public class AuthService {
         return vassagoDbService.getClient(dto.getOrgId())
                 .onErrorResume(NotFoundException.class, ex -> Mono.empty())
                 .flatMap(client -> client.sql("""
-                        SELECT id, email FROM users
+                        SELECT id, email, locale FROM users
                         WHERE username = :username AND stopped_at IS NULL
                         """)
                         .bind("username", dto.getUsername())
@@ -163,6 +163,7 @@ public class AuthService {
                         .flatMap(row -> {
                             UUID userId = (UUID) row.get("id");
                             String email = (String) row.get("email");
+                            String locale = (String) row.get("locale");
                             String verificationToken = generateToken();
                             String tokenHash = hashToken(verificationToken);
                             Instant expiresAt = Instant.now().plus(1, ChronoUnit.HOURS);
@@ -175,7 +176,7 @@ public class AuthService {
                                     .bind("expiresAt", expiresAt)
                                     .fetch()
                                     .rowsUpdated()
-                                    .then(mailgunService.sendPasswordResetEmail(email, dto.getOrgId(), verificationToken));
+                                    .then(mailgunService.sendPasswordResetEmail(email, dto.getOrgId(), verificationToken, locale));
                         })
                 )
                 .then();

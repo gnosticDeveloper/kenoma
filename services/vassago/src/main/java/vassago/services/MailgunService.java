@@ -9,6 +9,10 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.text.MessageFormat;
+import java.util.Locale;
+import java.util.MissingResourceException;
+import java.util.ResourceBundle;
 import java.util.UUID;
 
 @Service
@@ -32,14 +36,15 @@ public class MailgunService {
                 .build();
     }
 
-    public Mono<Void> sendPasswordResetEmail(String toEmail, UUID orgId, String token) {
+    public Mono<Void> sendPasswordResetEmail(String toEmail, UUID orgId, String token, String locale) {
         String link = "%s/verify?orgId=%s&token=%s".formatted(appBaseUrl, orgId, token);
+        ResourceBundle messages = messagesFor(locale);
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("from", from);
         form.add("to", toEmail);
-        form.add("subject", "Reset your password");
-        form.add("text", "Reset your password by visiting: " + link);
+        form.add("subject", messages.getString("reset.subject"));
+        form.add("text", MessageFormat.format(messages.getString("reset.body"), link));
 
         return webClient.post()
                 .uri("/{domain}/messages", domain)
@@ -50,14 +55,15 @@ public class MailgunService {
                 .then();
     }
 
-    public Mono<Void> sendVerificationEmail(String toEmail, UUID orgId, String token) {
+    public Mono<Void> sendVerificationEmail(String toEmail, UUID orgId, String token, String locale) {
         String link = "%s/verify?orgId=%s&token=%s".formatted(appBaseUrl, orgId, token);
+        ResourceBundle messages = messagesFor(locale);
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("from", from);
         form.add("to", toEmail);
-        form.add("subject", "Confirm your account");
-        form.add("text", "Set your password by visiting: " + link);
+        form.add("subject", messages.getString("verify.subject"));
+        form.add("text", MessageFormat.format(messages.getString("verify.body"), link));
 
         return webClient.post()
                 .uri("/{domain}/messages", domain)
@@ -66,5 +72,14 @@ public class MailgunService {
                 .retrieve()
                 .toBodilessEntity()
                 .then();
+    }
+
+    private static ResourceBundle messagesFor(String locale) {
+        Locale target = locale == null || locale.isBlank() ? Locale.ENGLISH : Locale.forLanguageTag(locale);
+        try {
+            return ResourceBundle.getBundle("email", target);
+        } catch (MissingResourceException e) {
+            return ResourceBundle.getBundle("email", Locale.ENGLISH);
+        }
     }
 }

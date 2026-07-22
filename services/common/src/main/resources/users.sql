@@ -11,8 +11,11 @@ CREATE TABLE IF NOT EXISTS users (
                                      created_at         timestamp DEFAULT current_timestamp,
                                      modified_at        timestamp DEFAULT current_timestamp,
                                      stopped_at         timestamp DEFAULT null,
-                                     is_ready           bool default false
+                                     is_ready           bool default false,
+                                     locale             varchar(5) NOT NULL DEFAULT 'en'
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS locale varchar(5) NOT NULL DEFAULT 'en';
 
 CREATE TABLE IF NOT EXISTS pending_verifications (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
