@@ -27,6 +27,7 @@ openbao:
   provisioner:
     role-id: ${RAUM_PROVISIONER_ROLE_ID}
     secret-id: ${RAUM_PROVISIONER_SECRET_ID}
+    max-attempts: ${RAUM_OPENBAO_PROVISIONER_MAX_ATTEMPTS:10}
   kv:
     mount: ${OPENBAO_KV_MOUNT:secret}
   token-renewal-rate-ms: ${OPENBAO_TOKEN_RENEWAL_RATE_MS:1200000}
