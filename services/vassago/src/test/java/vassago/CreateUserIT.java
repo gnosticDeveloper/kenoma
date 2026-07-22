@@ -25,7 +25,7 @@ class CreateUserIT extends BaseIT {
 
     @Test
     void createUser_persistsToOrgDatabase() {
-        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         WebClient client = WebClient.builder()
@@ -60,7 +60,7 @@ class CreateUserIT extends BaseIT {
 
     @Test
     void createUser_poolReusesConnectionOnSecondRequest() {
-        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         WebClient client = WebClient.builder()

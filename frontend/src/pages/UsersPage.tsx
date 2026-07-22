@@ -75,7 +75,7 @@ function RolesInput({ value, onChange, services }: { value: RoleRow[]; onChange:
 const EMPTY_USER_FORM: Omit<UserRequest, 'roles'> = { email: '', name: '', lastName: '', username: '' }
 
 export default function UsersPage({ token, permissions }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const toast = useToast()
 
   const [services, setServices] = useState<ServiceResponse[]>([])
@@ -118,7 +118,7 @@ export default function UsersPage({ token, permissions }: Props) {
   }
 
   function submit() {
-    const dto = { ...form, roles: buildRolesMap(roles) }
+    const dto = { ...form, roles: buildRolesMap(roles), locale: i18n.language }
     save.call(() => editing ? vassago.users.update(editing.id, dto, token) : vassago.users.create(dto, token))
   }
 

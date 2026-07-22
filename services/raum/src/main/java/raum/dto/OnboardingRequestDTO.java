@@ -10,4 +10,5 @@ public class OnboardingRequestDTO {
     private String email;
     private String username;
     private BimePreset bimePreset;
+    private String locale;
 }

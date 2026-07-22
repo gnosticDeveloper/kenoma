@@ -188,7 +188,7 @@ class AuthIT extends BaseIT {
 
     @Test
     void recoverAccount_sendsEmail_forExistingUser() {
-        when(mailgunService.sendPasswordResetEmail(anyString(), any(UUID.class), anyString()))
+        when(mailgunService.sendPasswordResetEmail(anyString(), any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         RecoverRequestDTO dto = new RecoverRequestDTO(orgId, BOOTSTRAP_USERNAME);
@@ -199,12 +199,12 @@ class AuthIT extends BaseIT {
                 .exchange()
                 .expectStatus().isNoContent();
 
-        verify(mailgunService).sendPasswordResetEmail(anyString(), eq(orgId), anyString());
+        verify(mailgunService).sendPasswordResetEmail(anyString(), eq(orgId), anyString(), anyString());
     }
 
     @Test
     void passwordChange_fullFlow() {
-        when(mailgunService.sendPasswordResetEmail(anyString(), any(UUID.class), anyString()))
+        when(mailgunService.sendPasswordResetEmail(anyString(), any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         EntityExchangeResult<LoginResponseDTO> loginResult = login(CHANGEPW_USERNAME, CHANGEPW_PASSWORD);
@@ -222,7 +222,7 @@ class AuthIT extends BaseIT {
                 .expectStatus().isNoContent();
 
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(mailgunService).sendPasswordResetEmail(anyString(), eq(orgId), tokenCaptor.capture());
+        verify(mailgunService).sendPasswordResetEmail(anyString(), eq(orgId), tokenCaptor.capture(), anyString());
         String verificationToken = tokenCaptor.getValue();
 
         String newPassword = "N3wP@ssw0rd!99";

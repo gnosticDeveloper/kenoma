@@ -32,11 +32,11 @@ public class VassagoClient {
     }
 
     public Mono<UUID> createUser(String jwt, String name, String lastName, String email, String username,
-                                  Map<String, List<String>> roles) {
+                                  Map<String, List<String>> roles, String locale) {
         return webClient.post()
                 .uri("/user")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwt)
-                .bodyValue(new UserRequest(email, name, lastName, username, roles))
+                .bodyValue(new UserRequest(email, name, lastName, username, roles, locale))
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, resp -> resp.bodyToMono(String.class)
                         .flatMap(body -> Mono.error(new RuntimeException("Vassago user creation failed: " + body))))
@@ -56,6 +56,6 @@ public class VassagoClient {
 
     record LoginRequest(UUID orgId, String username, String password) {}
     record LoginResponse(String token) {}
-    record UserRequest(String email, String name, String lastName, String username, Map<String, List<String>> roles) {}
+    record UserRequest(String email, String name, String lastName, String username, Map<String, List<String>> roles, String locale) {}
     record UserResponse(UUID id) {}
 }

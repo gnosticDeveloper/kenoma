@@ -37,7 +37,7 @@ class UserManagementIT extends BaseIT {
                 .responseTimeout(Duration.ofSeconds(30))
                 .build();
         reset(mailgunService);
-        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString()))
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString(), anyString()))
                 .thenReturn(Mono.empty());
         adminToken = obtainToken(WebClient.builder()
                 .baseUrl("http://localhost:" + port)
