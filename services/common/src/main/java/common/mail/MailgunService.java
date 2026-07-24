@@ -1,4 +1,4 @@
-package vassago.services;
+package common.mail;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -36,15 +36,16 @@ public class MailgunService {
                 .build();
     }
 
-    public Mono<Void> sendPasswordResetEmail(String toEmail, UUID orgId, String token, String locale) {
+    public Mono<Void> sendLinkEmail(String toEmail, UUID orgId, String token, String locale,
+                                     String subjectKey, String bodyKey) {
         String link = "%s/verify?orgId=%s&token=%s".formatted(appBaseUrl, orgId, token);
         ResourceBundle messages = messagesFor(locale);
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("from", from);
         form.add("to", toEmail);
-        form.add("subject", messages.getString("reset.subject"));
-        form.add("text", MessageFormat.format(messages.getString("reset.body"), link));
+        form.add("subject", messages.getString(subjectKey));
+        form.add("text", MessageFormat.format(messages.getString(bodyKey), link));
 
         return webClient.post()
                 .uri("/{domain}/messages", domain)
@@ -55,23 +56,16 @@ public class MailgunService {
                 .then();
     }
 
+    public Mono<Void> sendPasswordResetEmail(String toEmail, UUID orgId, String token, String locale) {
+        return sendLinkEmail(toEmail, orgId, token, locale, "reset.subject", "reset.body");
+    }
+
     public Mono<Void> sendVerificationEmail(String toEmail, UUID orgId, String token, String locale) {
-        String link = "%s/verify?orgId=%s&token=%s".formatted(appBaseUrl, orgId, token);
-        ResourceBundle messages = messagesFor(locale);
+        return sendLinkEmail(toEmail, orgId, token, locale, "verify.subject", "verify.body");
+    }
 
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("from", from);
-        form.add("to", toEmail);
-        form.add("subject", messages.getString("verify.subject"));
-        form.add("text", MessageFormat.format(messages.getString("verify.body"), link));
-
-        return webClient.post()
-                .uri("/{domain}/messages", domain)
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(BodyInserters.fromFormData(form))
-                .retrieve()
-                .toBodilessEntity()
-                .then();
+    public Mono<Void> sendBillingEmailVerification(String toEmail, UUID orgId, String token, String locale) {
+        return sendLinkEmail(toEmail, orgId, token, locale, "billing_verify.subject", "billing_verify.body");
     }
 
     private static ResourceBundle messagesFor(String locale) {
