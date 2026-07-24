@@ -2,6 +2,8 @@ package vassago.services;
 
 import common.exception.NotFoundException;
 import common.exception.UnauthorizedException;
+import common.mail.MailgunService;
+import common.security.VerificationTokenService;
 import common.utils.RolesUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,14 +22,9 @@ import vassago.security.JwtService;
 import vassago.security.RedisTokenService;
 import vassago.security.VassagoAuthentication;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -36,7 +33,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AuthService {
 
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final String REFRESH_COOKIE = "session-rt";
     private static final String FP_COOKIE = "session-fp";
 
@@ -45,6 +41,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final MailgunService mailgunService;
     private final RedisTokenService redisTokenService;
+    private final VerificationTokenService verificationTokenService;
 
     @Value("${vassago.refresh-token.ttl-seconds:2592000}")
     private long refreshTtlSeconds;
@@ -74,10 +71,10 @@ public class AuthService {
                     Map<String, List<String>> roles = RolesUtils.deserialize((String) row.get("roles"));
                     return jwtService.issueToken(dto.getOrgId(), userId, roles)
                             .flatMap(token -> {
-                                String rtRaw = generateToken();
-                                String rtHash = hashToken(rtRaw);
-                                String fpRaw = generateToken();
-                                String fpHash = hashToken(fpRaw);
+                                String rtRaw = verificationTokenService.generateToken();
+                                String rtHash = verificationTokenService.hashToken(rtRaw);
+                                String fpRaw = verificationTokenService.generateToken();
+                                String fpHash = verificationTokenService.hashToken(fpRaw);
                                 return redisTokenService.storeRefreshToken(rtHash, dto.getOrgId(), dto.getUsername(), fpHash)
                                         .then(Mono.fromRunnable(() -> {
                                             setCookie(response, REFRESH_COOKIE, rtRaw);
@@ -93,12 +90,12 @@ public class AuthService {
         if (rtCookie == null) {
             return Mono.error(new UnauthorizedException("No session"));
         }
-        String rtHash = hashToken(rtCookie.getValue());
+        String rtHash = verificationTokenService.hashToken(rtCookie.getValue());
         return redisTokenService.lookupRefreshToken(rtHash)
                 .switchIfEmpty(Mono.error(new UnauthorizedException("Invalid or expired session")))
                 .flatMap(data -> {
                     HttpCookie fpCookie = exchange.getRequest().getCookies().getFirst(FP_COOKIE);
-                    if (fpCookie == null || !hashToken(fpCookie.getValue()).equals(data.fpHash())) {
+                    if (fpCookie == null || !verificationTokenService.hashToken(fpCookie.getValue()).equals(data.fpHash())) {
                         return redisTokenService.deleteRefreshToken(rtHash)
                                 .then(Mono.error(new UnauthorizedException("Session binding mismatch")));
                     }
@@ -118,10 +115,10 @@ public class AuthService {
                                 return jwtService.issueToken(data.orgId(), userId, roles);
                             })
                             .flatMap(token -> {
-                                String newRtRaw = generateToken();
-                                String newRtHash = hashToken(newRtRaw);
-                                String newFpRaw = generateToken();
-                                String newFpHash = hashToken(newFpRaw);
+                                String newRtRaw = verificationTokenService.generateToken();
+                                String newRtHash = verificationTokenService.hashToken(newRtRaw);
+                                String newFpRaw = verificationTokenService.generateToken();
+                                String newFpHash = verificationTokenService.hashToken(newFpRaw);
                                 return redisTokenService.deleteRefreshToken(rtHash)
                                         .then(redisTokenService.storeRefreshToken(newRtHash, data.orgId(), data.username(), newFpHash))
                                         .then(Mono.fromRunnable(() -> {
@@ -143,7 +140,7 @@ public class AuthService {
                             ? redisTokenService.blacklistJwt(auth.getJti(), remainingSeconds)
                             : Mono.empty();
                     Mono<Void> deleteMono = rtCookie != null
-                            ? redisTokenService.deleteRefreshToken(hashToken(rtCookie.getValue()))
+                            ? redisTokenService.deleteRefreshToken(verificationTokenService.hashToken(rtCookie.getValue()))
                             : Mono.empty();
                     clearCookies(exchange.getResponse());
                     return blacklistMono.then(deleteMono);
@@ -164,8 +161,8 @@ public class AuthService {
                             UUID userId = (UUID) row.get("id");
                             String email = (String) row.get("email");
                             String locale = (String) row.get("locale");
-                            String verificationToken = generateToken();
-                            String tokenHash = hashToken(verificationToken);
+                            String verificationToken = verificationTokenService.generateToken();
+                            String tokenHash = verificationTokenService.hashToken(verificationToken);
                             Instant expiresAt = Instant.now().plus(1, ChronoUnit.HOURS);
                             return client.sql("""
                                     INSERT INTO pending_verifications (user_id, token_hash, expires_at, type)
@@ -203,23 +200,5 @@ public class AuthService {
             builder.domain(cookieDomain);
         }
         return builder;
-    }
-
-    private static String generateToken() {
-        byte[] bytes = new byte[32];
-        SECURE_RANDOM.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
-    private static String hashToken(String token) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(64);
-            for (byte b : hash) hex.append(String.format("%02x", b));
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
     }
 }

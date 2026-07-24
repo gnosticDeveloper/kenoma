@@ -1,5 +1,7 @@
 package vassago.services;
 
+import common.mail.MailgunService;
+import common.security.VerificationTokenService;
 import common.utils.RolesUtils;
 import common.utils.StringUtils;
 import lombok.RequiredArgsConstructor;
@@ -20,10 +22,6 @@ import vassago.dto.VerifyTokenRequestDTO;
 import vassago.security.VassagoAuthentication;
 import vassago.security.VassagoRole;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -31,11 +29,11 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private final VassagoDbService vassagoDbService;
     private final PasswordEncoder encoder;
     private final UUID serviceId;
     private final MailgunService mailgunService;
+    private final VerificationTokenService verificationTokenService;
 
     public Mono<UserResponseDTO> createUser(UserRequestDTO dto) {
         return getCaller()
@@ -61,9 +59,9 @@ public class UserService {
                         }
                     }
 
-                    String placeholderPassword = encoder.encode(generateToken());
-                    String verificationToken = generateToken();
-                    String tokenHash = hashToken(verificationToken);
+                    String placeholderPassword = encoder.encode(verificationTokenService.generateToken());
+                    String verificationToken = verificationTokenService.generateToken();
+                    String tokenHash = verificationTokenService.hashToken(verificationToken);
                     Instant expiresAt = Instant.now().plus(24, ChronoUnit.HOURS);
                     String locale = dto.getLocale() == null || dto.getLocale().isBlank() ? "en" : dto.getLocale();
 
@@ -102,7 +100,7 @@ public class UserService {
     }
 
     public Mono<Void> verifyToken(VerifyTokenRequestDTO dto) {
-        String tokenHash = hashToken(dto.getToken());
+        String tokenHash = verificationTokenService.hashToken(dto.getToken());
         return vassagoDbService.getClient(dto.getOrgId())
                 .flatMap(client -> client.sql("""
                         SELECT id, user_id FROM pending_verifications
@@ -238,8 +236,8 @@ public class UserService {
                                     UUID userId = (UUID) row.get("id");
                                     String email = (String) row.get("email");
                                     String locale = (String) row.get("locale");
-                                    String verificationToken = generateToken();
-                                    String tokenHash = hashToken(verificationToken);
+                                    String verificationToken = verificationTokenService.generateToken();
+                                    String tokenHash = verificationTokenService.hashToken(verificationToken);
                                     Instant expiresAt = Instant.now().plus(1, ChronoUnit.HOURS);
                                     return client.sql("""
                                             INSERT INTO pending_verifications (user_id, token_hash, expires_at, type)
@@ -278,24 +276,6 @@ public class UserService {
     private Mono<VassagoAuthentication> getCaller() {
         return ReactiveSecurityContextHolder.getContext()
                 .mapNotNull(ctx -> (VassagoAuthentication) ctx.getAuthentication());
-    }
-
-    private static String generateToken() {
-        byte[] bytes = new byte[32];
-        SECURE_RANDOM.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
-    private static String hashToken(String token) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(64);
-            for (byte b : hash) hex.append(String.format("%02x", b));
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     private UserResponseDTO toResponseDTO(Map<String, Object> row) {
