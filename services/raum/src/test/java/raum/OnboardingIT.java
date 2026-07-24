@@ -670,7 +670,12 @@ class OnboardingIT {
                     "bime.service-id=" + bimeServiceIdStr,
                     "spring.data.redis.host=localhost",
                     "spring.data.redis.port=" + redis.getMappedPort(6379),
-                    "raum.onboarding.retry-cron=-"
+                    "raum.onboarding.retry-cron=-",
+                    "raum.billing.deadline-cron=-",
+                    "mailgun.api-key=test-key",
+                    "mailgun.domain=test.example.com",
+                    "mailgun.from=noreply@test.example.com",
+                    "app.base-url=http://localhost:3000"
             );
         }
     }

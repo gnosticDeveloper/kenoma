@@ -1,4 +1,4 @@
-package vassago.services;
+package common.mail;
 
 import org.junit.jupiter.api.Test;
 
@@ -19,6 +19,9 @@ class MailgunLocaleResourcesTest {
         assertThat(bundle.getString("reset.subject")).isEqualTo("Reset your password");
         assertThat(MessageFormat.format(bundle.getString("reset.body"), "http://x/verify"))
                 .contains("http://x/verify");
+        assertThat(bundle.getString("billing_verify.subject")).isEqualTo("Confirm your billing email");
+        assertThat(MessageFormat.format(bundle.getString("billing_verify.body"), "http://x/verify"))
+                .contains("http://x/verify");
     }
 
     @Test
@@ -29,6 +32,9 @@ class MailgunLocaleResourcesTest {
                 .contains("http://x/verify");
         assertThat(bundle.getString("reset.subject")).isNotBlank().isNotEqualTo("Reset your password");
         assertThat(MessageFormat.format(bundle.getString("reset.body"), "http://x/verify"))
+                .contains("http://x/verify");
+        assertThat(bundle.getString("billing_verify.subject")).isNotBlank().isNotEqualTo("Confirm your billing email");
+        assertThat(MessageFormat.format(bundle.getString("billing_verify.body"), "http://x/verify"))
                 .contains("http://x/verify");
     }
 }

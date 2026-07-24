@@ -195,7 +195,12 @@ class EphemeralCredentialsIT {
                     "spring.data.redis.host=localhost",
                     "spring.data.redis.port=" + redis.getMappedPort(6379),
                     "vassago.jwt.public-key-refresh-cron=-",
-                    "raum.onboarding.retry-cron=-"
+                    "raum.onboarding.retry-cron=-",
+                    "raum.billing.deadline-cron=-",
+                    "mailgun.api-key=test-key",
+                    "mailgun.domain=test.example.com",
+                    "mailgun.from=noreply@test.example.com",
+                    "app.base-url=http://localhost:3000"
             );
         }
     }

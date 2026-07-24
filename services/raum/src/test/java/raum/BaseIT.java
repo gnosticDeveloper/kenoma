@@ -1,5 +1,6 @@
 package raum;
 
+import common.mail.MailgunService;
 import common.security.JwtValidator;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeAll;
@@ -35,6 +36,9 @@ public abstract class BaseIT {
     // real AppRole provisioning so context startup doesn't retry against nothing.
     @MockitoBean
     protected OpenBaoProvisioner openBaoProvisioner;
+
+    @MockitoBean
+    protected MailgunService mailgunService;
 
     static final Network network = Network.newNetwork();
 
@@ -130,7 +134,12 @@ public abstract class BaseIT {
                     "spring.data.redis.host=localhost",
                     "spring.data.redis.port=" + redis.getMappedPort(6379),
                     "vassago.jwt.public-key-refresh-cron=-",
-                    "raum.onboarding.retry-cron=-"
+                    "raum.onboarding.retry-cron=-",
+                    "raum.billing.deadline-cron=-",
+                    "mailgun.api-key=test-key",
+                    "mailgun.domain=test.example.com",
+                    "mailgun.from=noreply@test.example.com",
+                    "app.base-url=http://localhost:3000"
             );
         }
     }

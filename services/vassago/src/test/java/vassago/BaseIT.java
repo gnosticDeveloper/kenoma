@@ -17,7 +17,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import vassago.dto.LoginRequestDTO;
 import vassago.dto.LoginResponseDTO;
 import vassago.security.VassagoRole;
-import vassago.services.MailgunService;
+import common.mail.MailgunService;
 
 import java.time.Duration;
 import java.util.Map;
