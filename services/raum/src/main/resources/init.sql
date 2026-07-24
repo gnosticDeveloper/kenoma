@@ -10,6 +10,14 @@ CREATE TABLE IF NOT EXISTS organizations (
                                              stopped_at         timestamp DEFAULT null
 );
 
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tax_id                 varchar(64);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS fiscal_name            varchar(255);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS fiscal_address         varchar(500);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_email          varchar(255);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_email_verified bool NOT NULL DEFAULT false;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_cycle          varchar(16);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS next_invoice_due_at    timestamptz;
+
 CREATE TABLE IF NOT EXISTS services (
                                         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
                                         name         varchar(255) NOT NULL UNIQUE,
@@ -37,6 +45,30 @@ CREATE TABLE IF NOT EXISTS credentials (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_org_service ON credentials(org_id, service_id);
+
+CREATE TABLE IF NOT EXISTS billing_history (
+                                               id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                                               org_id          uuid NOT NULL,
+                                               billing_cycle   varchar(16) NOT NULL,
+                                               due_at          timestamptz NOT NULL,
+                                               created_at      timestamptz DEFAULT current_timestamp,
+                                               FOREIGN KEY (org_id) REFERENCES organizations(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_billing_history_org_id ON billing_history(org_id);
+
+CREATE TABLE IF NOT EXISTS pending_org_verifications (
+                                                          id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                                                          org_id      uuid NOT NULL REFERENCES organizations(id),
+                                                          field_name  varchar(32) NOT NULL DEFAULT 'BILLING_EMAIL',
+                                                          email       varchar(255) NOT NULL,
+                                                          token_hash  varchar(64) NOT NULL,
+                                                          expires_at  timestamptz NOT NULL,
+                                                          used        boolean NOT NULL DEFAULT false,
+                                                          created_at  timestamptz DEFAULT current_timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_org_verifications_org_id ON pending_org_verifications(org_id);
 
 INSERT INTO services (name, description)
 VALUES
