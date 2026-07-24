@@ -142,6 +142,10 @@ public abstract class BaseIT {
             .withEnv("OPENBAO_HOST", "http://openbao:8200")
             .withEnv("OPENBAO_KV_MOUNT", "secret")
             .withEnv("VASSAGO_BASE_URL", "http://localhost:8081")
+            .withEnv("MAILGUN_API_KEY", "test-key")
+            .withEnv("MAILGUN_DOMAIN", "test.example.com")
+            .withEnv("MAILGUN_FROM", "noreply@test.example.com")
+            .withEnv("APP_BASE_URL", "http://localhost:3000")
             .waitingFor(Wait.forHttp("/actuator/health").forPort(8080)
                     .withStartupTimeout(Duration.ofSeconds(60)));
 
