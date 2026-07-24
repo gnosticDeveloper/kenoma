@@ -2,27 +2,20 @@ package raum.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.util.UUID;
 
-@Builder
 @Data
-@NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Organization details")
-public class OrgResponseDTO {
-    UUID id;
-    String name;
-    String contactEmail;
+@NoArgsConstructor
+@Schema(description = "Invoicing data for an organization. Fields are unvalidated beyond format (e.g. tax ID scheme varies by country)")
+public class BillingInfoRequestDTO {
     String taxId;
     String fiscalName;
     String fiscalAddress;
-    String billingEmail;
-    boolean billingEmailVerified;
+    @Schema(description = "One of MONTHLY, QUARTERLY, ANNUAL")
     String billingCycle;
     Instant nextInvoiceDueAt;
 }
