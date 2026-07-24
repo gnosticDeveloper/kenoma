@@ -4,6 +4,8 @@ import common.exception.BadRequestException;
 import common.exception.ForbiddenException;
 import common.exception.NotFoundException;
 import common.exception.UnauthorizedException;
+import common.mail.MailgunService;
+import common.security.VerificationTokenService;
 import common.utils.RolesUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +55,7 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(vassagoDbService, encoder, SERVICE_ID, mailgunService);
+        userService = new UserService(vassagoDbService, encoder, SERVICE_ID, mailgunService, new VerificationTokenService());
     }
 
     private static final Map<String, List<String>> ADMIN_ROLES = Map.of(

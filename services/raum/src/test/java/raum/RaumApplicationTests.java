@@ -11,7 +11,11 @@ import raum.openbao.OpenBaoProvisioner;
 		"RAUM_SERVICE_ID=00000000-0000-0000-0000-000000000002",
 		"VASSAGO_SERVICE_ID=00000000-0000-0000-0000-000000000003",
 		"BIME_SERVICE_ID=00000000-0000-0000-0000-000000000004",
-		"RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt"
+		"RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt",
+		"mailgun.api-key=test-key",
+		"mailgun.domain=test.example.com",
+		"mailgun.from=noreply@test.example.com",
+		"app.base-url=http://localhost:3000"
 })
 class RaumApplicationTests {
 
