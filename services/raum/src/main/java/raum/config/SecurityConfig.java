@@ -55,7 +55,11 @@ public class SecurityConfig {
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/webjars/**").permitAll()
                         .pathMatchers("/onboarding/**").hasAuthority("INITIATE_ONBOARDING")
-                        .anyExchange().hasAuthority("RAUM_MANAGE")
+                        .pathMatchers("/orgs/**").hasAuthority("ORG_MANAGE")
+                        .pathMatchers("/services/**").hasAuthority("SERVICE_MANAGE")
+                        .pathMatchers("/credentials/**").hasAuthority("CREDENTIAL_MANAGE")
+                        .pathMatchers("/pricing/**").hasAuthority("PRICING_MANAGE")
+                        .anyExchange().denyAll()
                 )
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((exchange, ex) ->

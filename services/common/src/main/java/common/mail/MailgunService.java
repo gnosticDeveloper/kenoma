@@ -1,7 +1,10 @@
 package common.mail;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -20,15 +23,18 @@ public class MailgunService {
     private final WebClient webClient;
     private final String domain;
     private final String from;
+    private final String invoiceFrom;
     private final String appBaseUrl;
 
     public MailgunService(
             @Value("${mailgun.api-key}") String apiKey,
             @Value("${mailgun.domain}") String domain,
             @Value("${mailgun.from}") String from,
+            @Value("${mailgun.invoice-from:${mailgun.from}}") String invoiceFrom,
             @Value("${app.base-url}") String appBaseUrl) {
         this.domain = domain;
         this.from = from;
+        this.invoiceFrom = invoiceFrom;
         this.appBaseUrl = appBaseUrl;
         this.webClient = WebClient.builder()
                 .baseUrl("https://api.mailgun.net/v3")
@@ -66,6 +72,30 @@ public class MailgunService {
 
     public Mono<Void> sendBillingEmailVerification(String toEmail, UUID orgId, String token, String locale) {
         return sendLinkEmail(toEmail, orgId, token, locale, "billing_verify.subject", "billing_verify.body");
+    }
+
+    public Mono<Void> sendInvoiceEmail(String toEmail, byte[] pdfBytes, String fileName, String locale) {
+        ResourceBundle messages = messagesFor(locale);
+
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        builder.part("from", invoiceFrom);
+        builder.part("to", toEmail);
+        builder.part("subject", messages.getString("invoice.subject"));
+        builder.part("text", messages.getString("invoice.body"));
+        builder.part("attachment", new ByteArrayResource(pdfBytes) {
+            @Override
+            public String getFilename() {
+                return fileName;
+            }
+        }).header(HttpHeaders.CONTENT_DISPOSITION, "form-data; name=attachment; filename=" + fileName);
+
+        return webClient.post()
+                .uri("/{domain}/messages", domain)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .retrieve()
+                .toBodilessEntity()
+                .then();
     }
 
     private static ResourceBundle messagesFor(String locale) {

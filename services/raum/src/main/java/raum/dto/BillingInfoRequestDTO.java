@@ -18,4 +18,6 @@ public class BillingInfoRequestDTO {
     @Schema(description = "One of MONTHLY, QUARTERLY, ANNUAL")
     String billingCycle;
     Instant nextInvoiceDueAt;
+    @Schema(description = "ISO 4217 currency code the organization is invoiced in")
+    String currency;
 }

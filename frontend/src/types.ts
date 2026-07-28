@@ -14,6 +14,90 @@ export interface OrgResponse {
   id: string
   name: string
   contactEmail: string
+  taxId?: string | null
+  fiscalName?: string | null
+  fiscalAddress?: string | null
+  billingEmail?: string | null
+  billingEmailVerified?: boolean
+  billingCycle?: string | null
+  nextInvoiceDueAt?: string | null
+  currency?: string | null
+}
+
+export type BillingCycle = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
+
+export interface BillingInfoRequest {
+  taxId?: string
+  fiscalName?: string
+  fiscalAddress?: string
+  billingCycle?: BillingCycle | ''
+  nextInvoiceDueAt?: string
+  currency?: string
+}
+
+export interface BillingEmailRequest {
+  billingEmail: string
+  locale?: string
+}
+
+export interface BillingHistoryResponse {
+  id: string
+  orgId: string
+  billingCycle: string
+  dueAt: string
+  createdAt: string
+  amount: number | null
+  currency: string | null
+  lineItems: string | null
+}
+
+export interface BasePricingRequest {
+  price: number
+  currency: string
+  effectiveFrom?: string
+}
+
+export interface BasePricingResponse {
+  id: string
+  price: number
+  currency: string
+  effectiveFrom: string
+  createdAt: string
+}
+
+export interface ModulePricingRequest {
+  serviceId: string
+  price: number
+  currency: string
+  includedInBase: boolean
+  effectiveFrom?: string
+}
+
+export interface ModulePricingResponse {
+  id: string
+  serviceId: string
+  serviceName: string | null
+  price: number
+  currency: string
+  includedInBase: boolean
+  effectiveFrom: string
+  createdAt: string
+}
+
+export interface ExchangeRateRequest {
+  fromCurrency: string
+  toCurrency: string
+  rate: number
+  effectiveFrom?: string
+}
+
+export interface ExchangeRateResponse {
+  id: string
+  fromCurrency: string
+  toCurrency: string
+  rate: number
+  effectiveFrom: string
+  createdAt: string
 }
 
 export interface ServiceRequest {

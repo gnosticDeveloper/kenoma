@@ -1,6 +1,9 @@
 package raum.security;
 
 public enum RaumPermission {
-    RAUM_MANAGE,
+    ORG_MANAGE,
+    SERVICE_MANAGE,
+    CREDENTIAL_MANAGE,
+    PRICING_MANAGE,
     INITIATE_ONBOARDING
 }

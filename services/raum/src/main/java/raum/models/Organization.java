@@ -52,6 +52,9 @@ public class Organization {
     @Column("next_invoice_due_at")
     Instant nextInvoiceDueAt;
 
+    @Column("currency")
+    String currency;
+
     @Column("modification_lock")
     boolean modificationLock;
 

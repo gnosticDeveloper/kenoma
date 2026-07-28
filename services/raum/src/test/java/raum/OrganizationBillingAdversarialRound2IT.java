@@ -258,7 +258,7 @@ class OrganizationBillingAdversarialRound2IT extends BaseIT {
         UUID id = createOrg("Unicode Org", "unicode@example.com");
         String unicodeName = "Ñandú & Cía. S.A. — 日本語 — Straße";
         BillingInfoRequestDTO dto = new BillingInfoRequestDTO("20-99999999-9", unicodeName,
-                "Ávda. Corrientes 1234, Piso 3°", "MONTHLY", Instant.now());
+                "Ávda. Corrientes 1234, Piso 3°", "MONTHLY", Instant.now(), null);
 
         OrgResponseDTO response = client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -285,7 +285,7 @@ class OrganizationBillingAdversarialRound2IT extends BaseIT {
                 .exchange()
                 .expectStatus().isNoContent();
 
-        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", "MONTHLY", Instant.now());
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", "MONTHLY", Instant.now(), null);
         client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)

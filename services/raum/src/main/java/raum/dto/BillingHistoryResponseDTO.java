@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -13,17 +14,15 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Organization details")
-public class OrgResponseDTO {
+@Schema(description = "A single invoiced billing cycle for an organization")
+public class BillingHistoryResponseDTO {
     UUID id;
-    String name;
-    String contactEmail;
-    String taxId;
-    String fiscalName;
-    String fiscalAddress;
-    String billingEmail;
-    boolean billingEmailVerified;
+    UUID orgId;
     String billingCycle;
-    Instant nextInvoiceDueAt;
+    Instant dueAt;
+    Instant createdAt;
+    BigDecimal amount;
     String currency;
+    @Schema(description = "JSON breakdown of the invoiced total, snapshotted at invoice time")
+    String lineItems;
 }

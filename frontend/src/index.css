@@ -296,6 +296,22 @@ button, input, select {
   letter-spacing: 0.4px;
 }
 
+.field-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.field-checkbox input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
 .field input,
 .field select {
   padding: 7px 10px;
@@ -642,6 +658,8 @@ button, input, select {
 .modal-close { background: none; border: none; color: var(--color-text-muted); cursor: pointer; display: flex; }
 .modal-close:hover { color: var(--color-text); }
 .modal-body { padding: 20px; }
+.modal-divider { border: none; border-top: 1px solid var(--color-border); margin: 20px 0 16px; }
+.modal-body h3 { font-size: 13px; font-weight: 700; margin: 0 0 12px; color: var(--color-text); }
 
 /* ── Row actions menu ── */
 .row-actions-menu { position: relative; display: inline-flex; }

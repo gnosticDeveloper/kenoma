@@ -59,6 +59,7 @@ mailgun:
   api-key: ${MAILGUN_API_KEY}
   domain: ${MAILGUN_DOMAIN}
   from: ${MAILGUN_FROM:noreply@${mailgun.domain}}
+  invoice-from: ${MAILGUN_INVOICE_FROM:${mailgun.from}}
 
 app:
   base-url: ${APP_BASE_URL:http://localhost:3000}

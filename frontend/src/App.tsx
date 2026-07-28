@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import OrgsPage from './pages/OrgsPage'
+import PricingPage from './pages/PricingPage'
 import ServicesPage from './pages/ServicesPage'
 import CredentialsPage from './pages/CredentialsPage'
 import OnboardingPage from './pages/OnboardingPage'
@@ -20,11 +21,11 @@ import { ToastProvider } from './components/Toast'
 import { Sidebar, type NavGroup } from './components/Sidebar'
 import { Feedback } from './components/Feedback'
 import {
-  OrgsIcon, ServicesIcon, CredentialsIcon, OnboardingIcon, UsersIcon,
+  OrgsIcon, PricingIcon, ServicesIcon, CredentialsIcon, OnboardingIcon, UsersIcon,
   LocationsIcon, MetadataIcon, ProductsIcon, StockIcon,
 } from './components/icons'
 
-type Page = 'orgs' | 'services' | 'credentials' | 'onboarding' | 'users'
+type Page = 'orgs' | 'pricing' | 'services' | 'credentials' | 'onboarding' | 'users'
   | 'bime-locations' | 'bime-metadata' | 'bime-products' | 'bime-stock'
 
 const NAV: { labelKey: string; items: { id: Page; labelKey: string; perm: keyof Permissions; icon: NavGroup['items'][number]['icon'] }[] }[] = [
@@ -32,6 +33,7 @@ const NAV: { labelKey: string; items: { id: Page; labelKey: string; perm: keyof 
     labelKey: 'nav.raum',
     items: [
       { id: 'orgs',        labelKey: 'nav.orgs',        perm: 'canManage',  icon: OrgsIcon },
+      { id: 'pricing',     labelKey: 'nav.pricing',     perm: 'canManage',  icon: PricingIcon },
       { id: 'services',    labelKey: 'nav.services',    perm: 'canManage',  icon: ServicesIcon },
       { id: 'credentials', labelKey: 'nav.credentials', perm: 'canManage',  icon: CredentialsIcon },
       { id: 'onboarding',  labelKey: 'nav.onboarding',  perm: 'canOnboard', icon: OnboardingIcon },
@@ -186,6 +188,7 @@ function AppShell() {
       <Sidebar groups={visibleGroups} activeId={activePage} onSelect={id => setPage(id as Page)} onLogout={handleLogout} />
       <main className="content">
         {activePage === 'orgs'           && <OrgsPage token={token} />}
+        {activePage === 'pricing'        && <PricingPage token={token} />}
         {activePage === 'services'       && <ServicesPage token={token} />}
         {activePage === 'credentials'    && <CredentialsPage token={token} />}
         {activePage === 'onboarding'     && <OnboardingPage token={token} />}

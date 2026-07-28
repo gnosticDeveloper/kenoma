@@ -3,10 +3,17 @@ package raum;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import raum.billing.InvoiceDeadlineScheduler;
+import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Exercises the scheduler against a real Postgres instance rather than mocked
@@ -20,6 +27,9 @@ class InvoiceDeadlineSchedulerIT extends BaseIT {
 
     @Test
     void checkInvoiceDeadlines_pastDueOrgInUtc_getsBillingHistoryEntry() throws Exception {
+        when(mailgunService.sendInvoiceEmail(anyString(), any(), anyString(), any()))
+                .thenReturn(Mono.empty());
+
         UUID id = UUID.fromString(firstLine(raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
                 "-t", "-A", "-c",
                 "INSERT INTO organizations (name, contact_name, contact_email, billing_email, " +
@@ -45,6 +55,28 @@ class InvoiceDeadlineSchedulerIT extends BaseIT {
                         "SELECT next_invoice_due_at > current_timestamp FROM organizations WHERE id = '%s';".formatted(id))
                 .getStdout().trim();
         assertThat(nextDueAt).isEqualTo("t");
+
+        // Base pricing is a global, effective-dated price list shared by the whole test
+        // suite (other IT classes may add newer-effective rows), so assert against
+        // whatever the currently active base price actually is rather than a hardcoded
+        // value — this org has no provisioned modules, so its invoice is base-price-only.
+        String currentBasePrice = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum", "-t", "-A", "-c",
+                        "SELECT price || ',' || currency FROM base_pricing " +
+                                "WHERE effective_from <= current_timestamp " +
+                                "ORDER BY effective_from DESC LIMIT 1;")
+                .getStdout().trim();
+
+        String amountAndCurrency = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum", "-t", "-A", "-c",
+                        "SELECT amount || ',' || currency FROM billing_history WHERE org_id = '%s';".formatted(id))
+                .getStdout().trim();
+        assertThat(amountAndCurrency).isEqualTo(currentBasePrice);
+
+        String lineItemsPresent = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum", "-t", "-A", "-c",
+                        "SELECT line_items IS NOT NULL FROM billing_history WHERE org_id = '%s';".formatted(id))
+                .getStdout().trim();
+        assertThat(lineItemsPresent).isEqualTo("t");
+
+        verify(mailgunService, timeout(5000)).sendInvoiceEmail(eq("sched-it-billing@example.com"), any(), anyString(), any());
     }
 
     @Test

@@ -26,7 +26,7 @@ import java.util.UUID;
 public class ServicesController {
     private final ServiceService service;
 
-    @Operation(summary = "Register a service", description = "Registers a new platform service and issues it a UUID. Requires RAUM_MANAGE.")
+    @Operation(summary = "Register a service", description = "Registers a new platform service and issues it a UUID. Requires SERVICE_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Service registered"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -38,7 +38,7 @@ public class ServicesController {
         return service.register(dto);
     }
 
-    @Operation(summary = "Get a service by ID", description = "Requires RAUM_MANAGE.")
+    @Operation(summary = "Get a service by ID", description = "Requires SERVICE_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Service found"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -50,7 +50,7 @@ public class ServicesController {
         return service.getById(id);
     }
 
-    @Operation(summary = "List all services", description = "Requires RAUM_MANAGE.")
+    @Operation(summary = "List all services", description = "Requires SERVICE_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of services (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -61,7 +61,7 @@ public class ServicesController {
         return service.getAll();
     }
 
-    @Operation(summary = "Update a service", description = "Requires RAUM_MANAGE.")
+    @Operation(summary = "Update a service", description = "Requires SERVICE_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Service updated"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -74,7 +74,7 @@ public class ServicesController {
         return service.update(id, dto);
     }
 
-    @Operation(summary = "Delete a service", description = "Requires RAUM_MANAGE.")
+    @Operation(summary = "Delete a service", description = "Requires SERVICE_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Service deleted"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

@@ -1,5 +1,6 @@
 package raum.billing;
 
+import common.mail.MailgunService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -12,6 +13,7 @@ import raum.repository.OrganizationRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -19,6 +21,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,8 +32,19 @@ class InvoiceDeadlineSchedulerTest {
     private OrganizationRepository organizationRepository;
     @Mock
     private BillingHistoryRepository billingHistoryRepository;
+    @Mock
+    private PricingService pricingService;
+    @Mock
+    private InvoiceDocumentService invoiceDocumentService;
+    @Mock
+    private MailgunService mailgunService;
 
     private InvoiceDeadlineScheduler scheduler;
+
+    private void stubZeroInvoice() {
+        lenient().when(pricingService.calculateInvoice(any(), any(), any())).thenReturn(Mono.just(
+                InvoiceCalculation.builder().amount(BigDecimal.ZERO).currency("USD").lineItems(List.of()).build()));
+    }
 
     private Organization orgDueOneCycleBehind() {
         return Organization.builder()
@@ -43,7 +57,8 @@ class InvoiceDeadlineSchedulerTest {
 
     @Test
     void checkInvoiceDeadlines_savesBillingHistoryAndAdvancesDueDate() {
-        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository);
+        stubZeroInvoice();
+        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService);
         Organization org = orgDueOneCycleBehind();
         Instant originalDueAt = org.getNextInvoiceDueAt();
 
@@ -66,7 +81,8 @@ class InvoiceDeadlineSchedulerTest {
 
     @Test
     void checkInvoiceDeadlines_advancesPastMultipleMissedCycles() {
-        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository);
+        stubZeroInvoice();
+        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService);
         Organization org = Organization.builder()
                 .id(UUID.randomUUID())
                 .billingCycle("MONTHLY")
@@ -90,7 +106,8 @@ class InvoiceDeadlineSchedulerTest {
 
     @Test
     void checkInvoiceDeadlines_isolatesFailureToOneOrg() {
-        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository);
+        stubZeroInvoice();
+        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService);
         Organization failingOrg = orgDueOneCycleBehind();
         Organization healthyOrg = orgDueOneCycleBehind();
 

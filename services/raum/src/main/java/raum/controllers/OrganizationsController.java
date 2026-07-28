@@ -32,7 +32,7 @@ public class OrganizationsController {
         this.service = service;
     }
 
-    @Operation(summary = "Register an organisation", description = "Creates a new tenant organisation. Requires RAUM_MANAGE.")
+    @Operation(summary = "Register an organisation", description = "Creates a new tenant organisation. Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Organisation registered"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -44,7 +44,7 @@ public class OrganizationsController {
         return service.registerOrg(dto);
     }
 
-    @Operation(summary = "List organisations", description = "Returns all active (non-deleted) organisations. Requires RAUM_MANAGE.")
+    @Operation(summary = "List organisations", description = "Returns all active (non-deleted) organisations. Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Organisations listed"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -55,7 +55,7 @@ public class OrganizationsController {
         return service.getAllOrgs();
     }
 
-    @Operation(summary = "Get an organisation by ID", description = "Requires RAUM_MANAGE.")
+    @Operation(summary = "Get an organisation by ID", description = "Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Organisation found"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -67,7 +67,7 @@ public class OrganizationsController {
         return service.getOrgDataById(id);
     }
 
-    @Operation(summary = "Update an organisation", description = "Replaces all fields of the organisation. Requires RAUM_MANAGE.")
+    @Operation(summary = "Update an organisation", description = "Replaces all fields of the organisation. Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Organisation updated"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -80,7 +80,7 @@ public class OrganizationsController {
         return service.updateOrg(id, dto);
     }
 
-    @Operation(summary = "Delete an organisation", description = "Soft-deletes the organisation by setting stopped_at. Requires RAUM_MANAGE.")
+    @Operation(summary = "Delete an organisation", description = "Soft-deletes the organisation by setting stopped_at. Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Organisation deleted"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -93,7 +93,7 @@ public class OrganizationsController {
         return service.deleteOrg(id);
     }
 
-    @Operation(summary = "Update billing info", description = "Sets tax ID, fiscal name/address, billing cycle and next invoice due date. Requires RAUM_MANAGE.")
+    @Operation(summary = "Update billing info", description = "Sets tax ID, fiscal name/address, billing cycle and next invoice due date. Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Billing info updated"),
             @ApiResponse(responseCode = "400", description = "Invalid billing cycle", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -106,7 +106,7 @@ public class OrganizationsController {
         return service.updateBillingInfo(id, dto);
     }
 
-    @Operation(summary = "Request billing email verification", description = "Sets the organisation's billing email and sends a confirmation link. Requires RAUM_MANAGE.")
+    @Operation(summary = "Request billing email verification", description = "Sets the organisation's billing email and sends a confirmation link. Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Verification email sent"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

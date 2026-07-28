@@ -79,7 +79,7 @@ class CredentialsController {
             summary = "Register database credentials",
             description = "Stores static database credentials for an org/service pair and registers the database connection with OpenBao's dynamic secrets engine. " +
                     "After registration, callers should use POST /credentials/ephemeral instead of these static credentials. " +
-                    "Cannot be used to register credentials for Raum itself. Requires RAUM_MANAGE."
+                    "Cannot be used to register credentials for Raum itself. Requires CREDENTIAL_MANAGE."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Credentials registered — returns orgId and serviceId only; static credentials are not echoed back"),
