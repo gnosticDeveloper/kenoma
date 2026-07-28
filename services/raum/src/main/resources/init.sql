@@ -17,6 +17,7 @@ ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_email          varcha
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_email_verified bool NOT NULL DEFAULT false;
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_cycle          varchar(16);
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS next_invoice_due_at    timestamptz;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS currency               varchar(3);
 
 CREATE TABLE IF NOT EXISTS services (
                                         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -55,7 +56,44 @@ CREATE TABLE IF NOT EXISTS billing_history (
                                                FOREIGN KEY (org_id) REFERENCES organizations(id)
 );
 
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS amount      numeric(12,2);
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS currency    varchar(3);
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS line_items  jsonb;
+
 CREATE INDEX IF NOT EXISTS idx_billing_history_org_id ON billing_history(org_id);
+
+CREATE TABLE IF NOT EXISTS base_pricing (
+                                            id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                                            price           numeric(12,2) NOT NULL,
+                                            currency        varchar(3) NOT NULL,
+                                            effective_from  timestamptz NOT NULL,
+                                            created_at      timestamptz DEFAULT current_timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_base_pricing_effective_from ON base_pricing(effective_from);
+
+CREATE TABLE IF NOT EXISTS module_pricing (
+                                              id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                                              service_id         uuid NOT NULL REFERENCES services(id),
+                                              price              numeric(12,2) NOT NULL,
+                                              currency           varchar(3) NOT NULL,
+                                              included_in_base   bool NOT NULL DEFAULT false,
+                                              effective_from     timestamptz NOT NULL,
+                                              created_at         timestamptz DEFAULT current_timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_module_pricing_service_effective ON module_pricing(service_id, effective_from);
+
+CREATE TABLE IF NOT EXISTS exchange_rates (
+                                              id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                                              from_currency   varchar(3) NOT NULL,
+                                              to_currency     varchar(3) NOT NULL,
+                                              rate            numeric(18,8) NOT NULL,
+                                              effective_from  timestamptz NOT NULL,
+                                              created_at      timestamptz DEFAULT current_timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_exchange_rates_pair_effective ON exchange_rates(from_currency, to_currency, effective_from);
 
 CREATE TABLE IF NOT EXISTS pending_org_verifications (
                                                           id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -104,3 +142,13 @@ SELECT
 FROM organizations o, services s
 WHERE o.name = 'Platform' AND s.name = 'Bime'
 ON CONFLICT (org_id, service_id) DO NOTHING;
+
+INSERT INTO base_pricing (price, currency, effective_from)
+SELECT 0, 'USD', current_timestamp
+WHERE NOT EXISTS (SELECT 1 FROM base_pricing);
+
+INSERT INTO module_pricing (service_id, price, currency, included_in_base, effective_from)
+SELECT s.id, 0, 'USD', true, current_timestamp
+FROM services s
+WHERE s.name IN ('Raum', 'Vassago', 'Bime')
+  AND NOT EXISTS (SELECT 1 FROM module_pricing mp WHERE mp.service_id = s.id);

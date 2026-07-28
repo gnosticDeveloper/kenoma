@@ -6,7 +6,8 @@ public enum RaumRole {
     RAUM_ADMIN {
         @Override
         public Set<RaumPermission> getPermissions() {
-            return Set.of(RaumPermission.RAUM_MANAGE);
+            return Set.of(RaumPermission.ORG_MANAGE, RaumPermission.SERVICE_MANAGE,
+                    RaumPermission.CREDENTIAL_MANAGE, RaumPermission.PRICING_MANAGE);
         }
     },
     RAUM_ONBOARDING {

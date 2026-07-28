@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -13,17 +14,11 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Organization details")
-public class OrgResponseDTO {
+@Schema(description = "An effective-dated base price entry")
+public class BasePricingResponseDTO {
     UUID id;
-    String name;
-    String contactEmail;
-    String taxId;
-    String fiscalName;
-    String fiscalAddress;
-    String billingEmail;
-    boolean billingEmailVerified;
-    String billingCycle;
-    Instant nextInvoiceDueAt;
+    BigDecimal price;
     String currency;
+    Instant effectiveFrom;
+    Instant createdAt;
 }

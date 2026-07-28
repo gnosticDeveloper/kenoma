@@ -4,7 +4,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import io.r2dbc.postgresql.codec.Json;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
@@ -17,31 +16,25 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table("billing_history")
-public class BillingHistory {
+@Table("exchange_rates")
+public class ExchangeRate {
 
     @Id
     @Column("id")
     UUID id;
 
-    @Column("org_id")
-    UUID orgId;
+    @Column("from_currency")
+    String fromCurrency;
 
-    @Column("billing_cycle")
-    String billingCycle;
+    @Column("to_currency")
+    String toCurrency;
 
-    @Column("due_at")
-    Instant dueAt;
+    @Column("rate")
+    BigDecimal rate;
+
+    @Column("effective_from")
+    Instant effectiveFrom;
 
     @Column("created_at")
     Instant createdAt;
-
-    @Column("amount")
-    BigDecimal amount;
-
-    @Column("currency")
-    String currency;
-
-    @Column("line_items")
-    Json lineItems;
 }

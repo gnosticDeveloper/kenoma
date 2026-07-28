@@ -104,6 +104,7 @@ public class OrganizationService {
                     org.setFiscalAddress(dto.getFiscalAddress());
                     org.setBillingCycle(dto.getBillingCycle());
                     org.setNextInvoiceDueAt(dto.getNextInvoiceDueAt());
+                    org.setCurrency(dto.getCurrency() != null ? dto.getCurrency().toUpperCase() : null);
                     org.setModifiedAt(Instant.now());
                     return repository.save(org);
                 })
@@ -188,6 +189,7 @@ public class OrganizationService {
                 .billingEmailVerified(organization.isBillingEmailVerified())
                 .billingCycle(organization.getBillingCycle())
                 .nextInvoiceDueAt(organization.getNextInvoiceDueAt())
+                .currency(organization.getCurrency())
                 .build();
     }
 }
