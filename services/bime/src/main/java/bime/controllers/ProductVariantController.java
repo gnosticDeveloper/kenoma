@@ -50,7 +50,8 @@ public class ProductVariantController {
         return productVariantService.createVariant(productId, dto);
     }
 
-    @Operation(summary = "List variants for a product", description = "Returns all variants for the given product, each including its defining options and per-location stock balances. Requires BIME_VIEW.")
+    @Operation(summary = "List variants for a product", description = "Returns all variants for the given product, each including its defining options and per-location stock balances. " +
+            "If currency is passed, each variant's price is converted from its stored priceCurrency to it. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of variants (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -59,11 +60,14 @@ public class ProductVariantController {
     })
     @GetMapping
     @PreAuthorize("hasAuthority('BIME_VIEW')")
-    public Flux<ProductVariantResponseDTO> getVariants(@PathVariable UUID productId) {
-        return productVariantService.getVariantsForProduct(productId);
+    public Flux<ProductVariantResponseDTO> getVariants(
+            @PathVariable UUID productId,
+            @RequestParam(required = false) String currency) {
+        return productVariantService.getVariantsForProduct(productId, currency);
     }
 
-    @Operation(summary = "Get a variant by ID", description = "Returns a single variant with its options and stock balances. Requires BIME_VIEW.")
+    @Operation(summary = "Get a variant by ID", description = "Returns a single variant with its options and stock balances. " +
+            "If currency is passed, the price is converted from its stored priceCurrency to it. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Variant found"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -74,8 +78,9 @@ public class ProductVariantController {
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Mono<ProductVariantResponseDTO> getVariantById(
             @PathVariable UUID productId,
-            @PathVariable UUID variantId) {
-        return productVariantService.getVariantById(productId, variantId);
+            @PathVariable UUID variantId,
+            @RequestParam(required = false) String currency) {
+        return productVariantService.getVariantById(productId, variantId, currency);
     }
 
     @Operation(

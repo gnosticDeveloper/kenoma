@@ -18,6 +18,13 @@ ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_email_verified bool N
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_cycle          varchar(16);
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS next_invoice_due_at    timestamptz;
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS currency               varchar(3);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS currency_refresh_mode  varchar(16) NOT NULL DEFAULT 'manual';
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS currency_refresh_cadence varchar(16) NOT NULL DEFAULT 'weekly';
+-- Only meaningful when currency_refresh_cadence = 'every_n_days'
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS currency_refresh_interval_days integer;
+-- Currency the org prices its own catalog/inventory in - independent of `currency`, which is
+-- the currency Kenoma invoices the org's own subscription in.
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS product_pricing_currency varchar(3) NOT NULL DEFAULT 'ARS';
 
 CREATE TABLE IF NOT EXISTS services (
                                         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),

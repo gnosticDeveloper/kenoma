@@ -22,9 +22,19 @@ export interface OrgResponse {
   billingCycle?: string | null
   nextInvoiceDueAt?: string | null
   currency?: string | null
+  currencyRefreshMode?: string | null
+  currencyRefreshCadence?: string | null
+  currencyRefreshIntervalDays?: number | null
+  // Currency the org prices its own catalog/inventory in - independent of `currency` above,
+  // which is what Kenoma invoices the org's own subscription in.
+  productPricingCurrency?: string | null
 }
 
 export type BillingCycle = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
+
+export type CurrencyRefreshMode = 'MANUAL' | 'PERIODIC'
+
+export type CurrencyRefreshCadence = 'DAILY' | 'WEEKLY' | 'EVERY_N_DAYS' | 'MONTHLY'
 
 export interface BillingInfoRequest {
   taxId?: string
@@ -33,6 +43,10 @@ export interface BillingInfoRequest {
   billingCycle?: BillingCycle | ''
   nextInvoiceDueAt?: string
   currency?: string
+  currencyRefreshMode?: CurrencyRefreshMode | ''
+  currencyRefreshCadence?: CurrencyRefreshCadence | ''
+  currencyRefreshIntervalDays?: number
+  productPricingCurrency?: string
 }
 
 export interface BillingEmailRequest {
@@ -251,6 +265,8 @@ export interface ProductVariantRequest {
   optionIds: string[]
   sku?: string
   isActive?: boolean
+  price?: number
+  priceCurrency?: string
 }
 
 export interface ProductVariantResponse {
@@ -262,6 +278,18 @@ export interface ProductVariantResponse {
   createdAt: string
   options: MetadataOptionResponse[]
   stock: VariantStock[]
+  // Canonical price as stored (in priceCurrency), or already converted if ?currency was requested
+  price?: number | null
+  priceCurrency?: string | null
+}
+
+export interface VariantPriceUpdate {
+  variantId: string
+  price: number
+}
+
+export interface VariantBatchPriceRequest {
+  items: VariantPriceUpdate[]
 }
 
 export interface ProductRequest {

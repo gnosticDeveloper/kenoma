@@ -11,6 +11,8 @@ import raum.dto.BillingInfoRequestDTO;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
 import raum.models.BillingCycle;
+import raum.models.CurrencyRefreshCadence;
+import raum.models.CurrencyRefreshMode;
 import raum.models.Organization;
 import raum.models.PendingOrgVerification;
 import raum.repository.OrganizationRepository;
@@ -100,6 +102,28 @@ public class OrganizationService {
         } catch (IllegalArgumentException e) {
             return Mono.error(new BadRequestException("Unknown billing cycle: " + dto.getBillingCycle()));
         }
+        if (dto.getCurrencyRefreshMode() != null) {
+            try {
+                CurrencyRefreshMode.valueOf(dto.getCurrencyRefreshMode().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return Mono.error(new BadRequestException("Unknown currencyRefreshMode: " + dto.getCurrencyRefreshMode()));
+            }
+        }
+        final CurrencyRefreshCadence cadence;
+        if (dto.getCurrencyRefreshCadence() != null) {
+            try {
+                cadence = CurrencyRefreshCadence.valueOf(dto.getCurrencyRefreshCadence().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return Mono.error(new BadRequestException("Unknown currencyRefreshCadence: " + dto.getCurrencyRefreshCadence()));
+            }
+            if (cadence == CurrencyRefreshCadence.EVERY_N_DAYS
+                    && (dto.getCurrencyRefreshIntervalDays() == null || dto.getCurrencyRefreshIntervalDays() < 1)) {
+                return Mono.error(new BadRequestException(
+                        "currencyRefreshIntervalDays must be a positive integer when currencyRefreshCadence is EVERY_N_DAYS"));
+            }
+        } else {
+            cadence = null;
+        }
 
         return repository.findById(orgId)
                 .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
@@ -110,6 +134,17 @@ public class OrganizationService {
                     org.setBillingCycle(dto.getBillingCycle());
                     org.setNextInvoiceDueAt(dto.getNextInvoiceDueAt());
                     org.setCurrency(dto.getCurrency() != null ? dto.getCurrency().toUpperCase() : null);
+                    if (dto.getCurrencyRefreshMode() != null) {
+                        org.setCurrencyRefreshMode(dto.getCurrencyRefreshMode().toUpperCase());
+                    }
+                    if (cadence != null) {
+                        org.setCurrencyRefreshCadence(cadence.name());
+                        org.setCurrencyRefreshIntervalDays(
+                                cadence == CurrencyRefreshCadence.EVERY_N_DAYS ? dto.getCurrencyRefreshIntervalDays() : null);
+                    }
+                    if (dto.getProductPricingCurrency() != null) {
+                        org.setProductPricingCurrency(dto.getProductPricingCurrency().toUpperCase());
+                    }
                     org.setModifiedAt(Instant.now());
                     return repository.save(org);
                 })
@@ -195,6 +230,10 @@ public class OrganizationService {
                 .billingCycle(organization.getBillingCycle())
                 .nextInvoiceDueAt(organization.getNextInvoiceDueAt())
                 .currency(organization.getCurrency())
+                .currencyRefreshMode(organization.getCurrencyRefreshMode())
+                .currencyRefreshCadence(organization.getCurrencyRefreshCadence())
+                .currencyRefreshIntervalDays(organization.getCurrencyRefreshIntervalDays())
+                .productPricingCurrency(organization.getProductPricingCurrency())
                 .build();
     }
 }

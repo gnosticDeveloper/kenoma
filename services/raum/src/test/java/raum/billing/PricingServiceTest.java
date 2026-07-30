@@ -159,4 +159,39 @@ class PricingServiceTest {
                 .expectError(PricingConfigurationException.class)
                 .verify();
     }
+
+    @Test
+    void getRate_sameCurrency_returnsOneWithoutLookup() {
+        init();
+
+        StepVerifier.create(pricingService.getRate("USD", "usd", now))
+                .assertNext(rate -> assertThat(rate).isEqualByComparingTo(BigDecimal.ONE))
+                .verifyComplete();
+    }
+
+    @Test
+    void getRate_readsStoredExchangeRate() {
+        init();
+        when(exchangeRateRepository.findFirstByFromCurrencyAndToCurrencyAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                eq("USD"), eq("ARS"), any()))
+                .thenReturn(Mono.just(ExchangeRate.builder()
+                        .fromCurrency("USD").toCurrency("ARS").rate(new BigDecimal("1000"))
+                        .effectiveFrom(now.minusSeconds(60)).build()));
+
+        StepVerifier.create(pricingService.getRate("USD", "ARS", now))
+                .assertNext(rate -> assertThat(rate).isEqualByComparingTo("1000"))
+                .verifyComplete();
+    }
+
+    @Test
+    void getRate_missingStoredRate_errors() {
+        init();
+        when(exchangeRateRepository.findFirstByFromCurrencyAndToCurrencyAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                eq("USD"), eq("EUR"), any()))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(pricingService.getRate("USD", "EUR", now))
+                .expectError(PricingConfigurationException.class)
+                .verify();
+    }
 }

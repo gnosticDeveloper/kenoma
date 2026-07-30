@@ -52,7 +52,9 @@ public class SecurityConfig {
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/credentials/ephemeral").permitAll()
                         .pathMatchers("/orgs/active-ids").permitAll()
+                        .pathMatchers(HttpMethod.GET, "/orgs/*/currency").permitAll()
                         .pathMatchers(HttpMethod.POST, "/orgs/*/billing-email/confirm").permitAll()
+                        .pathMatchers("/pricing/rate").permitAll()
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/webjars/**").permitAll()
                         .pathMatchers("/onboarding/**").hasAuthority("INITIATE_ONBOARDING")

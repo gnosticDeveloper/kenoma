@@ -8,6 +8,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import raum.dto.BasePricingRequestDTO;
+import raum.dto.BillingInfoRequestDTO;
 import raum.dto.ExchangeRateRequestDTO;
 import raum.dto.ModulePricingRequestDTO;
 import raum.dto.OrgRequestDTO;
@@ -288,5 +289,115 @@ class PricingAdversarialIT extends BaseIT {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.currency").isEqualTo("USD");
+    }
+
+    // --- GET /pricing/rate is vault-token-only: a user JWT alone must never satisfy it,
+    // and a missing/invalid vault token must not leak a 500 ---
+
+    @Test
+    void getRate_noVaultTokenNoJwt_returns401() {
+        client.get().uri("/pricing/rate?from=USD&to=ARS")
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void getRate_validAdminJwtButNoVaultToken_returns401NotBypassable() {
+        mockAdminJwt();
+        client.get().uri("/pricing/rate?from=USD&to=ARS")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void getRate_garbageVaultToken_returns401NotServerError() {
+        client.get().uri("/pricing/rate?from=USD&to=ARS")
+                .header("X-Vault-Token", "not-a-real-token")
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    // --- currencyRefreshMode / currencyRefreshCadence validation on PUT /orgs/{id}/billing-info ---
+
+    @Test
+    void updateBillingInfo_unknownCurrencyRefreshMode_returns400() {
+        mockAdminJwt();
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(
+                "tax", "name", "address", "MONTHLY", null, "USD", "sometimes", null, null, null);
+        client.put().uri("/orgs/{id}/billing-info", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void updateBillingInfo_unknownCurrencyRefreshCadence_returns400() {
+        mockAdminJwt();
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(
+                "tax", "name", "address", "MONTHLY", null, "USD", "PERIODIC", "fortnightly", null, null);
+        client.put().uri("/orgs/{id}/billing-info", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void updateBillingInfo_everyNDaysWithoutInterval_returns400() {
+        mockAdminJwt();
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(
+                "tax", "name", "address", "MONTHLY", null, "USD", "PERIODIC", "EVERY_N_DAYS", null, null);
+        client.put().uri("/orgs/{id}/billing-info", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void updateBillingInfo_everyNDaysWithZeroInterval_returns400() {
+        mockAdminJwt();
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(
+                "tax", "name", "address", "MONTHLY", null, "USD", "PERIODIC", "EVERY_N_DAYS", 0, null);
+        client.put().uri("/orgs/{id}/billing-info", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void updateBillingInfo_everyNDaysWithNegativeInterval_returns400() {
+        mockAdminJwt();
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(
+                "tax", "name", "address", "MONTHLY", null, "USD", "PERIODIC", "EVERY_N_DAYS", -3, null);
+        client.put().uri("/orgs/{id}/billing-info", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void updateBillingInfo_validEveryNDays_persistsIntervalDays() {
+        mockAdminJwt();
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(
+                "tax", "name", "address", "MONTHLY", null, "USD", "PERIODIC", "EVERY_N_DAYS", 5, null);
+        client.put().uri("/orgs/{id}/billing-info", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.currencyRefreshCadence").isEqualTo("EVERY_N_DAYS")
+                .jsonPath("$.currencyRefreshIntervalDays").isEqualTo(5);
     }
 }

@@ -3,6 +3,7 @@ package bime.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,4 +17,7 @@ public class ProductVariantRequestDTO {
     @Schema(description = "Optional variant-specific SKU. When set, overrides the parent product SKU for this variant", example = "WIDGET-001-RED-XL")
     private String sku;
     private Boolean isActive;
+    private BigDecimal price;
+    @Schema(description = "ISO 4217 currency code the price is set in. Required when price is set", example = "USD")
+    private String priceCurrency;
 }

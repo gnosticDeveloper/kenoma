@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS product_variants (
     created_at timestamp NOT NULL DEFAULT current_timestamp
 );
 
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS price numeric(12,2);
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS price_currency varchar(3);
+
 CREATE TABLE IF NOT EXISTS product_variant_options (
     variant_id uuid NOT NULL REFERENCES product_variants(id) ON DELETE CASCADE,
     option_id  uuid NOT NULL REFERENCES product_metadata_option(id) ON DELETE CASCADE,
