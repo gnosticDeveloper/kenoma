@@ -9,11 +9,15 @@ import { DataTable, type Column } from '../components/DataTable'
 import { Combobox } from '../components/Combobox'
 import { Feedback } from '../components/Feedback'
 import type { Permissions } from '../auth'
+import { RowActionsMenu } from '../components/RowActionsMenu'
 import type {
   LocationResponse,
   MovementType,
   ProductResponse,
   ProductVariantResponse,
+  StockAlertResponse,
+  StockAlertThresholdRequest,
+  StockAlertThresholdResponse,
   StockBalanceResponse,
   StockMovementResponse,
 } from '../types'
@@ -25,7 +29,7 @@ interface Props {
 
 const MOVEMENT_TYPES: MovementType[] = ['INBOUND', 'OUTBOUND', 'ADJUSTMENT']
 
-type VariantInfo = { sku: string | null; productName: string; optionsLabel: string }
+type VariantInfo = { productId: string; sku: string | null; productName: string; optionsLabel: string }
 
 export default function BimeStockPage({ token, permissions }: Props) {
   const { t } = useTranslation()
@@ -53,7 +57,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
       full.forEach(p => {
         const vs = p.variants ?? []
         byProduct[p.id] = vs
-        vs.forEach(v => { lookup[v.id] = { sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', ') } })
+        vs.forEach(v => { lookup[v.id] = { productId: p.id, sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', ') } })
       })
       setVariantsByProduct(byProduct)
       setVariantLookup(lookup)
@@ -135,6 +139,71 @@ export default function BimeStockPage({ token, permissions }: Props) {
   }
   useEffect(loadBalances, [])
 
+  // ── Alert thresholds ──
+  const thresholds = useApiCall<StockAlertThresholdResponse[]>()
+  const [thrFilterProduct, setThrFilterProduct] = useState<string | null>(null)
+  const [thrFilterVariant, setThrFilterVariant] = useState<string | null>(null)
+  const [thrFilterLocation, setThrFilterLocation] = useState<string | null>(null)
+
+  function loadThresholds() {
+    thresholds.call(() => bime.stock.listAlertThresholds(token, {
+      variantId: thrFilterVariant ?? undefined,
+      locationId: thrFilterLocation ?? undefined,
+    }))
+  }
+  useEffect(loadThresholds, [])
+
+  const [thresholdModalOpen, setThresholdModalOpen] = useState(false)
+  const [editingThreshold, setEditingThreshold] = useState<StockAlertThresholdResponse | null>(null)
+  const [thresholdProductId, setThresholdProductId] = useState<string | null>(null)
+  const [thresholdForm, setThresholdForm] = useState<StockAlertThresholdRequest>({ variantId: '', locationId: '', threshold: 0 })
+  const saveThreshold = useApiCall<StockAlertThresholdResponse>()
+  const deleteThreshold = useApiCall<void>()
+
+  useEffect(() => {
+    if (saveThreshold.state.status !== 'success') return
+    setThresholdModalOpen(false)
+    loadThresholds()
+    toast.show(t('bimeStockPage.thresholdSaved'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveThreshold.state])
+
+  function openCreateThreshold() {
+    setEditingThreshold(null)
+    setThresholdProductId(null)
+    setThresholdForm({ variantId: '', locationId: '', threshold: 0 })
+    setThresholdModalOpen(true)
+  }
+
+  function openEditThreshold(th: StockAlertThresholdResponse) {
+    setEditingThreshold(th)
+    setThresholdProductId(variantLookup[th.variantId]?.productId ?? null)
+    setThresholdForm({ variantId: th.variantId, locationId: th.locationId, threshold: th.threshold })
+    setThresholdModalOpen(true)
+  }
+
+  function removeThreshold(th: StockAlertThresholdResponse) {
+    if (!window.confirm(t('bimeStockPage.thresholdDeleteConfirm', { variant: variantLabel(th.variantId), location: locationLabel(th.locationId) }))) return
+    deleteThreshold.call(() => bime.stock.deleteAlertThreshold(th.variantId, th.locationId, token)).then(() => {
+      loadThresholds()
+      toast.show(t('bimeStockPage.thresholdDeleted'))
+    })
+  }
+
+  // ── Active alerts ──
+  const activeAlerts = useApiCall<StockAlertResponse[]>()
+  const [alertFilterProduct, setAlertFilterProduct] = useState<string | null>(null)
+  const [alertFilterVariant, setAlertFilterVariant] = useState<string | null>(null)
+  const [alertFilterLocation, setAlertFilterLocation] = useState<string | null>(null)
+
+  function loadActiveAlerts() {
+    activeAlerts.call(() => bime.stock.listActiveAlerts(token, {
+      variantId: alertFilterVariant ?? undefined,
+      locationId: alertFilterLocation ?? undefined,
+    }))
+  }
+  useEffect(loadActiveAlerts, [])
+
   const movementColumns: Column<StockMovementResponse>[] = [
     { key: 'type', header: t('bimeStockPage.type'), render: m => <span className="role-badge">{t(`bimeStockPage.movementTypes.${m.movementType}`)}</span> },
     { key: 'delta', header: t('bimeStockPage.delta'), render: m => <span className={m.delta < 0 ? 'feedback-error' : 'feedback-success'}>{m.delta > 0 ? `+${m.delta}` : m.delta}</span> },
@@ -151,6 +220,31 @@ export default function BimeStockPage({ token, permissions }: Props) {
     { key: 'modified', header: t('bimeStockPage.modified'), render: b => <span className="td-muted">{new Date(b.modifiedAt).toLocaleString()}</span> },
   ]
 
+  const thresholdColumns: Column<StockAlertThresholdResponse>[] = [
+    { key: 'variant', header: t('bimeStockPage.variant'), render: th => variantLabel(th.variantId) },
+    { key: 'location', header: t('bimeStockPage.location'), render: th => locationLabel(th.locationId) },
+    { key: 'threshold', header: t('bimeStockPage.threshold'), render: th => th.threshold },
+    { key: 'modified', header: t('bimeStockPage.modified'), render: th => <span className="td-muted">{new Date(th.modifiedAt).toLocaleString()}</span> },
+    ...(permissions.canManageBime ? [{
+      key: 'actions',
+      header: '',
+      render: (th: StockAlertThresholdResponse) => (
+        <RowActionsMenu actions={[
+          { label: t('common.actions.edit'), onClick: () => openEditThreshold(th) },
+          { label: t('common.actions.delete'), onClick: () => removeThreshold(th), danger: true },
+        ]} />
+      ),
+    }] : []),
+  ]
+
+  const activeAlertColumns: Column<StockAlertResponse>[] = [
+    { key: 'variant', header: t('bimeStockPage.variant'), render: a => variantLabel(a.variantId) },
+    { key: 'location', header: t('bimeStockPage.location'), render: a => locationLabel(a.locationId) },
+    { key: 'quantity', header: t('bimeStockPage.quantity'), render: a => <span className="feedback-error">{a.quantity}</span> },
+    { key: 'threshold', header: t('bimeStockPage.threshold'), render: a => a.threshold },
+    { key: 'triggeredAt', header: t('bimeStockPage.triggeredAt'), render: a => <span className="td-muted">{new Date(a.triggeredAt).toLocaleString()}</span> },
+  ]
+
   return (
     <div className="page">
       <div className="page-header">
@@ -164,6 +258,8 @@ export default function BimeStockPage({ token, permissions }: Props) {
         tabs={[
           { id: 'movements', label: t('bimeStockPage.tabMovements') },
           { id: 'balances', label: t('bimeStockPage.tabBalances') },
+          { id: 'thresholds', label: t('bimeStockPage.tabThresholds') },
+          { id: 'alerts', label: t('bimeStockPage.tabAlerts') },
         ]}
         active={activeTab}
         onChange={setActiveTab}
@@ -228,6 +324,69 @@ export default function BimeStockPage({ token, permissions }: Props) {
             />
           </div>
         )}
+
+        {activeTab === 'thresholds' && (
+          <div className="panel">
+            <p className="panel-hint">{t('bimeStockPage.thresholdsHint')}</p>
+            <div className="fields">
+              <div className="field">
+                <label>{t('bimeStockPage.filterProduct')}</label>
+                <Combobox items={productItems} value={thrFilterProduct} onChange={id => { setThrFilterProduct(id); setThrFilterVariant(null) }} placeholder={t('bimeStockPage.allProducts')} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.filterVariant')}</label>
+                <Combobox items={thrFilterProduct ? variantItemsFor(thrFilterProduct) : []} value={thrFilterVariant} onChange={setThrFilterVariant} placeholder={t('bimeStockPage.allVariants')} disabled={!thrFilterProduct} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.filterLocation')}</label>
+                <Combobox items={locationItems} value={thrFilterLocation} onChange={setThrFilterLocation} placeholder={t('bimeStockPage.allLocations')} />
+              </div>
+            </div>
+            {thresholds.state.status === 'error' && <Feedback state={thresholds.state} />}
+            <DataTable
+              columns={thresholdColumns}
+              rows={thresholds.state.status === 'success' ? thresholds.state.data : []}
+              rowKey={th => `${th.variantId}-${th.locationId}`}
+              emptyLabel={t('bimeStockPage.thresholdsEmptyState')}
+              headerAction={
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-outline" onClick={loadThresholds} type="button">{t('common.actions.load')}</button>
+                  {permissions.canManageBime && (
+                    <button className="btn btn-primary" onClick={openCreateThreshold} type="button">{t('bimeStockPage.setThresholdAction')}</button>
+                  )}
+                </div>
+              }
+            />
+          </div>
+        )}
+
+        {activeTab === 'alerts' && (
+          <div className="panel">
+            <p className="panel-hint">{t('bimeStockPage.alertsHint')}</p>
+            <div className="fields">
+              <div className="field">
+                <label>{t('bimeStockPage.filterProduct')}</label>
+                <Combobox items={productItems} value={alertFilterProduct} onChange={id => { setAlertFilterProduct(id); setAlertFilterVariant(null) }} placeholder={t('bimeStockPage.allProducts')} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.filterVariant')}</label>
+                <Combobox items={alertFilterProduct ? variantItemsFor(alertFilterProduct) : []} value={alertFilterVariant} onChange={setAlertFilterVariant} placeholder={t('bimeStockPage.allVariants')} disabled={!alertFilterProduct} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.filterLocation')}</label>
+                <Combobox items={locationItems} value={alertFilterLocation} onChange={setAlertFilterLocation} placeholder={t('bimeStockPage.allLocations')} />
+              </div>
+            </div>
+            {activeAlerts.state.status === 'error' && <Feedback state={activeAlerts.state} />}
+            <DataTable
+              columns={activeAlertColumns}
+              rows={activeAlerts.state.status === 'success' ? activeAlerts.state.data : []}
+              rowKey={a => `${a.variantId}-${a.locationId}`}
+              emptyLabel={t('bimeStockPage.alertsEmptyState')}
+              headerAction={<button className="btn btn-outline" onClick={loadActiveAlerts} type="button">{t('common.actions.load')}</button>}
+            />
+          </div>
+        )}
       </Tabs>
 
       <Modal open={recordOpen} onClose={() => setRecordOpen(false)} title={t('bimeStockPage.recordTitle')}>
@@ -272,6 +431,61 @@ export default function BimeStockPage({ token, permissions }: Props) {
           </button>
         </div>
         {record.state.status === 'error' && <Feedback state={record.state} />}
+      </Modal>
+
+      <Modal open={thresholdModalOpen} onClose={() => setThresholdModalOpen(false)} title={t(editingThreshold ? 'bimeStockPage.editThresholdTitle' : 'bimeStockPage.setThresholdTitle')}>
+        <p className="panel-hint">{t('bimeStockPage.thresholdHint')}</p>
+        <div className="fields">
+          <div className="field">
+            <label>{t('bimeStockPage.product')}</label>
+            <Combobox
+              items={productItems}
+              value={thresholdProductId}
+              onChange={id => { setThresholdProductId(id); setThresholdForm(f => ({ ...f, variantId: '' })) }}
+              placeholder={t('bimeStockPage.productPlaceholder')}
+              disabled={!!editingThreshold}
+            />
+          </div>
+          <div className="field">
+            <label>{t('bimeStockPage.variant')}</label>
+            <Combobox
+              items={thresholdProductId ? variantItemsFor(thresholdProductId) : []}
+              value={thresholdForm.variantId || null}
+              onChange={id => setThresholdForm(f => ({ ...f, variantId: id ?? '' }))}
+              placeholder={t('bimeStockPage.variantPlaceholder')}
+              disabled={!thresholdProductId || !!editingThreshold}
+            />
+          </div>
+          <div className="field">
+            <label>{t('bimeStockPage.location')}</label>
+            <Combobox
+              items={locationItems}
+              value={thresholdForm.locationId || null}
+              onChange={id => setThresholdForm(f => ({ ...f, locationId: id ?? '' }))}
+              placeholder={t('bimeStockPage.locationPlaceholder')}
+              disabled={!!editingThreshold}
+            />
+          </div>
+          <div className="field">
+            <label>{t('bimeStockPage.threshold')}</label>
+            <input
+              type="number"
+              min={0}
+              value={thresholdForm.threshold}
+              onChange={e => setThresholdForm(f => ({ ...f, threshold: parseInt(e.target.value, 10) || 0 }))}
+            />
+          </div>
+        </div>
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={saveThreshold.state.status === 'loading' || !thresholdForm.variantId || !thresholdForm.locationId}
+            onClick={() => saveThreshold.call(() => bime.stock.setAlertThreshold(thresholdForm, token))}
+          >
+            {saveThreshold.state.status === 'loading' ? t('common.actions.loading') : t(editingThreshold ? 'common.actions.save' : 'common.actions.create')}
+          </button>
+        </div>
+        {saveThreshold.state.status === 'error' && <Feedback state={saveThreshold.state} />}
       </Modal>
     </div>
   )

@@ -10,4 +10,6 @@ public class LocationRequestDTO {
     @Schema(description = "Short alphanumeric code used to identify the location in reports and imports", example = "WH-01")
     private String code;
     private Boolean isActive;
+    @Schema(description = "Address stock alert emails for this location are sent to; alerts are silently skipped if unset")
+    private String notificationEmail;
 }

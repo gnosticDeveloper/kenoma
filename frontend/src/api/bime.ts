@@ -11,6 +11,9 @@ import type {
   ProductResponse,
   ProductVariantRequest,
   ProductVariantResponse,
+  StockAlertResponse,
+  StockAlertThresholdRequest,
+  StockAlertThresholdResponse,
   StockBalanceResponse,
   StockMovementRequest,
   StockMovementResponse,
@@ -81,5 +84,13 @@ export const bime = {
       req<StockMovementResponse[]>(`/stock/movements${query(filters)}`, { method: 'GET' }, token),
     listBalances: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
       req<StockBalanceResponse[]>(`/stock/balances${query(filters)}`, { method: 'GET' }, token),
+    setAlertThreshold: (dto: StockAlertThresholdRequest, token: string) =>
+      req<StockAlertThresholdResponse>('/stock/alerts/thresholds', { method: 'PUT', ...payload(dto) }, token),
+    listAlertThresholds: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
+      req<StockAlertThresholdResponse[]>(`/stock/alerts/thresholds${query(filters)}`, { method: 'GET' }, token),
+    deleteAlertThreshold: (variantId: string, locationId: string, token: string) =>
+      req<void>(`/stock/alerts/thresholds${query({ variantId, locationId })}`, { method: 'DELETE' }, token),
+    listActiveAlerts: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
+      req<StockAlertResponse[]>(`/stock/alerts/active${query(filters)}`, { method: 'GET' }, token),
   },
 }

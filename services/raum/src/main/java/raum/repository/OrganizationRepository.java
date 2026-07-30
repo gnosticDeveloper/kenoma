@@ -12,4 +12,6 @@ import java.util.UUID;
 public interface OrganizationRepository extends ReactiveCrudRepository<Organization, UUID> {
 
     Flux<Organization> findAllByBillingEmailVerifiedTrueAndNextInvoiceDueAtLessThanEqualAndStoppedAtIsNull(Instant now);
+
+    Flux<Organization> findAllByStoppedAtIsNull();
 }

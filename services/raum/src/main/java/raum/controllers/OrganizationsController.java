@@ -1,7 +1,9 @@
 package raum.controllers;
 
 import common.exception.ErrorResponse;
+import common.exception.UnauthorizedException;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -16,6 +18,7 @@ import raum.dto.BillingEmailVerifyRequestDTO;
 import raum.dto.BillingInfoRequestDTO;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
+import raum.openbao.OpenBaoService;
 import raum.services.OrganizationService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -27,9 +30,11 @@ import java.util.UUID;
 @SecurityRequirement(name = "bearerAuth")
 public class OrganizationsController {
     final OrganizationService service;
+    final OpenBaoService openBaoService;
 
-    public OrganizationsController(OrganizationService service) {
+    public OrganizationsController(OrganizationService service, OpenBaoService openBaoService) {
         this.service = service;
+        this.openBaoService = openBaoService;
     }
 
     @Operation(summary = "Register an organisation", description = "Creates a new tenant organisation. Requires ORG_MANAGE.")
@@ -53,6 +58,29 @@ public class OrganizationsController {
     @GetMapping
     Flux<OrgResponseDTO> getAllOrgs() {
         return service.getAllOrgs();
+    }
+
+    @Operation(
+            summary = "List active organisation IDs",
+            description = "Returns the IDs of all active (non-deleted) organisations, with no other org detail. " +
+                    "For machine-to-machine callers only — authenticates via X-Vault-Token (OpenBao AppRole), not a user JWT. " +
+                    "Intended for background jobs in other services (e.g. Bime's stock alert scheduler) that need to iterate over every org."
+    )
+    @SecurityRequirements({@SecurityRequirement(name = "vaultToken")})
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Org IDs listed"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid X-Vault-Token", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/active-ids")
+    Flux<UUID> getActiveOrgIds(
+            @Parameter(description = "OpenBao AppRole token") @RequestHeader(value = "X-Vault-Token", required = false) String vaultToken) {
+        if (vaultToken == null) {
+            return Flux.error(new UnauthorizedException("X-Vault-Token required"));
+        }
+        return openBaoService.validateToken(vaultToken)
+                .flatMapMany(valid -> valid
+                        ? service.getActiveOrgIds()
+                        : Flux.error(new UnauthorizedException("Invalid token")));
     }
 
     @Operation(summary = "Get an organisation by ID", description = "Requires ORG_MANAGE.")

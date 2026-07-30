@@ -13,15 +13,12 @@ import java.util.UUID;
 @SuperBuilder
 @AllArgsConstructor
 @NoArgsConstructor
-@Schema(description = "Stock location details")
-public class LocationResponseDTO {
-    private UUID id;
+@Schema(description = "A variant's configured stock alert threshold at a location")
+public class StockAlertThresholdResponseDTO {
     private UUID orgId;
-    private String name;
-    @Schema(description = "Short alphanumeric code used to identify the location in reports and imports", example = "WH-01")
-    private String code;
-    private Boolean isActive;
-    private String notificationEmail;
+    private UUID variantId;
+    private UUID locationId;
+    private int threshold;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
 }

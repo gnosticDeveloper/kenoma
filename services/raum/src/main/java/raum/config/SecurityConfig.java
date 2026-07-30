@@ -51,6 +51,7 @@ public class SecurityConfig {
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/credentials/ephemeral").permitAll()
+                        .pathMatchers("/orgs/active-ids").permitAll()
                         .pathMatchers(HttpMethod.POST, "/orgs/*/billing-email/confirm").permitAll()
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/webjars/**").permitAll()
