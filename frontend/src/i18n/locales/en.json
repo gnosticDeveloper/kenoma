@@ -98,7 +98,25 @@
       "QUARTERLY": "Quarterly",
       "ANNUAL": "Annual"
     },
-    "currency": "Currency",
+    "currency": "Billing currency",
+    "currencyHint": "What Kenoma invoices this org's subscription in.",
+    "productPricingCurrency": "Product pricing currency",
+    "productPricingCurrencyHint": "What the org prices its own catalog in (Bime) - independent of billing currency, e.g. price in USD to match USD supply costs while being invoiced in ARS.",
+    "currencyRefreshMode": "Exchange rate updates",
+    "selectCurrencyRefreshMode": "Select…",
+    "refreshMode": {
+      "MANUAL": "Manual (curated by an admin)",
+      "PERIODIC": "Automatic"
+    },
+    "currencyRefreshCadence": "Refresh frequency",
+    "selectCurrencyRefreshCadence": "Select…",
+    "refreshCadence": {
+      "DAILY": "Daily",
+      "WEEKLY": "Weekly",
+      "EVERY_N_DAYS": "Every N days",
+      "MONTHLY": "Monthly (on the 1st)"
+    },
+    "currencyRefreshIntervalDays": "Days between refreshes",
     "billingUpdated": "Billing info updated.",
     "billingEmailSectionTitle": "Billing email",
     "billingEmail": "Billing email",
@@ -280,7 +298,21 @@
     "variantsEmptyState": "No variants yet.",
     "deactivateVariantConfirm": "Deactivate this variant?",
     "variantCreated": "Variant created.",
-    "variantDeactivated": "Variant deactivated."
+    "variantDeactivated": "Variant deactivated.",
+    "price": "Price",
+    "priceCurrency": "Currency",
+    "noPriceSet": "No price set",
+    "editVariantAction": "Edit",
+    "editVariantTitle": "Edit variant",
+    "variantUpdated": "Variant updated.",
+    "viewInCurrency": "View prices in",
+    "viewInCurrencyPlaceholder": "Same as stored, e.g. EUR",
+    "selectedCount": "{{count}} selected",
+    "repriceSelectedAction": "Reprice selected",
+    "repriceSelectedTitle": "Reprice {{count}} variants",
+    "repriceSelectedHint": "Sets the same price for all selected variants, in the organization's product pricing currency (see Organizations → Billing & tax to check or change it).",
+    "newPrice": "New price",
+    "pricesUpdated": "Prices updated."
   },
   "bimeStockPage": {
     "title": "Stock",

@@ -55,6 +55,18 @@ public class Organization {
     @Column("currency")
     String currency;
 
+    @Column("currency_refresh_mode")
+    String currencyRefreshMode;
+
+    @Column("currency_refresh_cadence")
+    String currencyRefreshCadence;
+
+    @Column("currency_refresh_interval_days")
+    Integer currencyRefreshIntervalDays;
+
+    @Column("product_pricing_currency")
+    String productPricingCurrency;
+
     @Column("modification_lock")
     boolean modificationLock;
 

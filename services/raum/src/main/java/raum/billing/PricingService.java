@@ -39,6 +39,27 @@ public class PricingService {
         this.serviceRepository = serviceRepository;
     }
 
+    /**
+     * Rate lookup for on-demand price conversion (e.g. Bime displaying variant prices in a
+     * different currency, or invoicing via {@link #convert}). Always reads the latest stored
+     * exchange_rates row - kept fresh by {@link FxRateRefreshScheduler} for PERIODIC orgs, or
+     * hand-curated via POST /pricing/exchange-rates for MANUAL orgs. No live external call is
+     * ever made from a read path, to keep FX provider API usage bounded to the scheduler's cadence.
+     */
+    public Mono<BigDecimal> getRate(String fromCurrency, String toCurrency, Instant now) {
+        String from = fromCurrency.toUpperCase();
+        String to = toCurrency.toUpperCase();
+        if (from.equals(to)) {
+            return Mono.just(BigDecimal.ONE);
+        }
+        return exchangeRateRepository
+                .findFirstByFromCurrencyAndToCurrencyAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                        from, to, now)
+                .switchIfEmpty(Mono.error(new PricingConfigurationException(
+                        "No exchange rate configured for " + from + " -> " + to)))
+                .map(raum.models.ExchangeRate::getRate);
+    }
+
     public Mono<InvoiceCalculation> calculateInvoice(UUID orgId, String orgCurrency, Instant now) {
         return basePricingRepository.findFirstByEffectiveFromLessThanEqualOrderByEffectiveFromDesc(now)
                 .switchIfEmpty(Mono.error(new PricingConfigurationException("No base pricing configured")))
@@ -96,16 +117,6 @@ public class PricingService {
     }
 
     private Mono<BigDecimal> convert(BigDecimal amount, String fromCurrency, String toCurrency, Instant now) {
-        String from = fromCurrency.toUpperCase();
-        String to = toCurrency.toUpperCase();
-        if (from.equals(to)) {
-            return Mono.just(amount);
-        }
-        return exchangeRateRepository
-                .findFirstByFromCurrencyAndToCurrencyAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
-                        from, to, now)
-                .switchIfEmpty(Mono.error(new PricingConfigurationException(
-                        "No exchange rate configured for " + fromCurrency + " -> " + toCurrency)))
-                .map(rate -> amount.multiply(rate.getRate()));
+        return getRate(fromCurrency, toCurrency, now).map(amount::multiply);
     }
 }

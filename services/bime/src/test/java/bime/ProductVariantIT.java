@@ -1,23 +1,33 @@
 package bime;
 
+import bime.clients.RaumClient;
 import bime.dto.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 
 class ProductVariantIT extends BaseIT {
 
     @LocalServerPort
     int port;
+
+    @MockitoBean
+    RaumClient raumClient;
 
     private WebTestClient client;
 
@@ -187,6 +197,131 @@ class ProductVariantIT extends BaseIT {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .exchange()
                 .expectStatus().isNotFound();
+    }
+
+    @Test
+    void batchUpdatePrices_viewerRole_returns403() {
+        mockViewerJwt();
+        VariantPriceUpdateDTO item = new VariantPriceUpdateDTO();
+        item.setVariantId(UUID.randomUUID());
+        item.setPrice(new BigDecimal("10.00"));
+        VariantBatchPriceRequestDTO dto = new VariantBatchPriceRequestDTO();
+        dto.setItems(List.of(item));
+
+        client.patch().uri("/variants/pricing/batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isForbidden();
+    }
+
+    @Test
+    void batchUpdatePrices_noAuth_returns401() {
+        VariantPriceUpdateDTO item = new VariantPriceUpdateDTO();
+        item.setVariantId(UUID.randomUUID());
+        item.setPrice(new BigDecimal("10.00"));
+        VariantBatchPriceRequestDTO dto = new VariantBatchPriceRequestDTO();
+        dto.setItems(List.of(item));
+
+        client.patch().uri("/variants/pricing/batch")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void batchUpdatePrices_updatesVariantsInOrg_rejectsForeignVariant() {
+        when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
+                .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
+
+        Setup s = buildProductWithMetadata();
+        ProductVariantResponseDTO variant1 = createVariant(s.productId, s.optionId, "PRICE-VAR-1");
+
+        Setup s2 = buildProductWithMetadata();
+        ProductVariantResponseDTO variant2 = createVariant(s2.productId, s2.optionId, "PRICE-VAR-2");
+
+        UUID foreignVariantId = UUID.randomUUID();
+
+        VariantPriceUpdateDTO item1 = new VariantPriceUpdateDTO();
+        item1.setVariantId(variant1.getId());
+        item1.setPrice(new BigDecimal("10.00"));
+        VariantPriceUpdateDTO item2 = new VariantPriceUpdateDTO();
+        item2.setVariantId(variant2.getId());
+        item2.setPrice(new BigDecimal("20.00"));
+
+        VariantBatchPriceRequestDTO happyDto = new VariantBatchPriceRequestDTO();
+        happyDto.setItems(List.of(item1, item2));
+
+        client.patch().uri("/variants/pricing/batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(happyDto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(UUID.class)
+                .hasSize(2)
+                .contains(variant1.getId(), variant2.getId());
+
+        ProductVariantResponseDTO refetched = client.get()
+                .uri("/products/{productId}/variants/{variantId}", s.productId, variant1.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(refetched).isNotNull();
+        assertThat(refetched.getPrice()).isEqualByComparingTo("10.00");
+        assertThat(refetched.getPriceCurrency()).isEqualTo("USD");
+
+        VariantPriceUpdateDTO foreignItem = new VariantPriceUpdateDTO();
+        foreignItem.setVariantId(foreignVariantId);
+        foreignItem.setPrice(new BigDecimal("5.00"));
+        VariantBatchPriceRequestDTO mixedDto = new VariantBatchPriceRequestDTO();
+        mixedDto.setItems(List.of(item1, foreignItem));
+
+        client.patch().uri("/variants/pricing/batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(mixedDto)
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void getVariantById_withCurrencyParam_convertsPrice() {
+        when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
+                .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
+        when(raumClient.getRate(eq("USD"), eq("ARS"), any()))
+                .thenReturn(Mono.just(new BigDecimal("1000")));
+
+        Setup s = buildProductWithMetadata();
+        ProductVariantResponseDTO variant = createVariant(s.productId, s.optionId, "PRICE-VAR-CONV");
+
+        VariantPriceUpdateDTO item = new VariantPriceUpdateDTO();
+        item.setVariantId(variant.getId());
+        item.setPrice(new BigDecimal("10.00"));
+        VariantBatchPriceRequestDTO dto = new VariantBatchPriceRequestDTO();
+        dto.setItems(List.of(item));
+        client.patch().uri("/variants/pricing/batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk();
+
+        ProductVariantResponseDTO converted = client.get()
+                .uri("/products/{productId}/variants/{variantId}?currency=ARS", s.productId, variant.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(converted).isNotNull();
+        assertThat(converted.getPrice()).isEqualByComparingTo("10000.00");
+        assertThat(converted.getPriceCurrency()).isEqualTo("ARS");
     }
 
     private record Setup(UUID productId, UUID optionId) {}

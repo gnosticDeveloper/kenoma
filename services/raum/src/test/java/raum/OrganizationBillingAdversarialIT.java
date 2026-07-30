@@ -79,7 +79,7 @@ class OrganizationBillingAdversarialIT extends BaseIT {
     @Test
     void updateBillingInfo_nullBillingCycle_returns400NotServerError() {
         UUID id = createOrg("Null Cycle Org", "null-cycle@example.com");
-        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", null, Instant.now(), null);
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", null, Instant.now(), null, null, null, null, null);
 
         client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -92,7 +92,7 @@ class OrganizationBillingAdversarialIT extends BaseIT {
     @Test
     void updateBillingInfo_blankBillingCycle_returns400() {
         UUID id = createOrg("Blank Cycle Org", "blank-cycle@example.com");
-        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", "   ", Instant.now(), null);
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", "   ", Instant.now(), null, null, null, null, null);
 
         client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -105,7 +105,7 @@ class OrganizationBillingAdversarialIT extends BaseIT {
     @Test
     void updateBillingInfo_lowercaseCycle_rejectedAsUnknown() {
         UUID id = createOrg("Lowercase Cycle Org", "lowercase-cycle@example.com");
-        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", "monthly", Instant.now(), null);
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", "monthly", Instant.now(), null, null, null, null, null);
 
         client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -234,7 +234,7 @@ class OrganizationBillingAdversarialIT extends BaseIT {
     void updateBillingInfo_sqlLikePayload_isStoredVerbatimNotExecuted() {
         UUID id = createOrg("Injection Org", "injection@example.com");
         String payload = "'; DROP TABLE organizations; --";
-        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(payload, payload, payload, "MONTHLY", Instant.now(), null);
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(payload, payload, payload, "MONTHLY", Instant.now(), null, null, null, null, null);
 
         OrgResponseDTO response = client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -284,7 +284,7 @@ class OrganizationBillingAdversarialIT extends BaseIT {
     void updateBillingInfo_taxIdExceedsColumnLimit_failsCleanly() {
         UUID id = createOrg("Oversized Org", "oversized@example.com");
         String tooLong = "9".repeat(200); // column is varchar(64)
-        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(tooLong, "name", "address", "MONTHLY", Instant.now(), null);
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO(tooLong, "name", "address", "MONTHLY", Instant.now(), null, null, null, null, null);
 
         client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -298,7 +298,7 @@ class OrganizationBillingAdversarialIT extends BaseIT {
 
     @Test
     void updateBillingInfo_unknownOrgId_returns404() {
-        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", "MONTHLY", Instant.now(), null);
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("tax", "name", "address", "MONTHLY", Instant.now(), null, null, null, null, null);
 
         client.put().uri("/orgs/{id}/billing-info", UUID.randomUUID())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")

@@ -26,4 +26,8 @@ public class OrgResponseDTO {
     String billingCycle;
     Instant nextInvoiceDueAt;
     String currency;
+    String currencyRefreshMode;
+    String currencyRefreshCadence;
+    Integer currencyRefreshIntervalDays;
+    String productPricingCurrency;
 }

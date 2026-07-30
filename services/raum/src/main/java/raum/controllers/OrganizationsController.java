@@ -1,6 +1,7 @@
 package raum.controllers;
 
 import common.exception.ErrorResponse;
+import common.exception.NotFoundException;
 import common.exception.UnauthorizedException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import raum.dto.BillingEmailRequestDTO;
 import raum.dto.BillingEmailVerifyRequestDTO;
 import raum.dto.BillingInfoRequestDTO;
+import raum.dto.OrgCurrencyResponseDTO;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
 import raum.openbao.OpenBaoService;
@@ -81,6 +83,36 @@ public class OrganizationsController {
                 .flatMapMany(valid -> valid
                         ? service.getActiveOrgIds()
                         : Flux.error(new UnauthorizedException("Invalid token")));
+    }
+
+    @Operation(
+            summary = "Get an organisation's billing and product pricing currencies",
+            description = "Returns the org's billing currency (currency), its product pricing currency " +
+                    "(productPricingCurrency - what it prices its own catalog in, independent of billing), " +
+                    "and currencyRefreshMode, with no other org detail. " +
+                    "For machine-to-machine callers only — authenticates via X-Vault-Token (OpenBao AppRole), not a user JWT. " +
+                    "Intended for other services (e.g. Bime) that need to know an org's currency setup for pricing."
+    )
+    @SecurityRequirements({@SecurityRequirement(name = "vaultToken")})
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Org currency found"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid X-Vault-Token", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/{id}/currency")
+    Mono<OrgCurrencyResponseDTO> getOrgCurrency(
+            @PathVariable("id") UUID id,
+            @Parameter(description = "OpenBao AppRole token") @RequestHeader(value = "X-Vault-Token", required = false) String vaultToken) {
+        if (vaultToken == null) {
+            return Mono.error(new UnauthorizedException("X-Vault-Token required"));
+        }
+        return openBaoService.validateToken(vaultToken)
+                .flatMap(valid -> valid
+                        ? service.getOrgDataById(id)
+                                .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
+                                .map(org -> new OrgCurrencyResponseDTO(
+                                        org.getCurrency(), org.getCurrencyRefreshMode(), org.getProductPricingCurrency()))
+                        : Mono.error(new UnauthorizedException("Invalid token")));
     }
 
     @Operation(summary = "Get an organisation by ID", description = "Requires ORG_MANAGE.")

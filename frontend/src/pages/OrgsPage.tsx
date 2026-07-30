@@ -8,15 +8,26 @@ import { DataTable, type Column } from '../components/DataTable'
 import { RowActionsMenu } from '../components/RowActionsMenu'
 import { CopyButton } from '../components/CopyButton'
 import { Feedback } from '../components/Feedback'
-import type { BillingCycle, BillingHistoryResponse, BillingInfoRequest, OrgRequest, OrgResponse } from '../types'
+import type {
+  BillingCycle,
+  BillingHistoryResponse,
+  BillingInfoRequest,
+  CurrencyRefreshCadence,
+  CurrencyRefreshMode,
+  OrgRequest,
+  OrgResponse,
+} from '../types'
 
 interface Props { token: string }
 
 const EMPTY_FORM: OrgRequest = { name: '', contactEmail: '', contactName: '' }
 const EMPTY_BILLING_FORM: BillingInfoRequest = {
   taxId: '', fiscalName: '', fiscalAddress: '', billingCycle: '', currency: '',
+  currencyRefreshMode: '', currencyRefreshCadence: '', productPricingCurrency: '',
 }
 const BILLING_CYCLES: BillingCycle[] = ['MONTHLY', 'QUARTERLY', 'ANNUAL']
+const CURRENCY_REFRESH_MODES: CurrencyRefreshMode[] = ['MANUAL', 'PERIODIC']
+const CURRENCY_REFRESH_CADENCES: CurrencyRefreshCadence[] = ['DAILY', 'WEEKLY', 'EVERY_N_DAYS', 'MONTHLY']
 
 function billingInfoFromOrg(org: OrgResponse): BillingInfoRequest {
   return {
@@ -26,6 +37,10 @@ function billingInfoFromOrg(org: OrgResponse): BillingInfoRequest {
     billingCycle: (org.billingCycle as BillingCycle) ?? '',
     nextInvoiceDueAt: org.nextInvoiceDueAt ?? undefined,
     currency: org.currency ?? '',
+    currencyRefreshMode: (org.currencyRefreshMode as CurrencyRefreshMode) ?? '',
+    currencyRefreshCadence: (org.currencyRefreshCadence as CurrencyRefreshCadence) ?? '',
+    currencyRefreshIntervalDays: org.currencyRefreshIntervalDays ?? undefined,
+    productPricingCurrency: org.productPricingCurrency ?? '',
   }
 }
 
@@ -106,7 +121,20 @@ export default function OrgsPage({ token }: Props) {
 
   function submitBillingInfo() {
     if (!editing) return
-    saveBilling.call(() => raum.orgs.updateBillingInfo(editing.id, billingForm, token))
+    // Backend only skips validation on null - an empty string from a reset select would be
+    // rejected as an unknown enum value, so omit rather than send blank.
+    const dto: BillingInfoRequest = {
+      ...billingForm,
+      currencyRefreshMode: billingForm.currencyRefreshMode || undefined,
+      currencyRefreshCadence: billingForm.currencyRefreshMode === 'PERIODIC'
+        ? (billingForm.currencyRefreshCadence || undefined)
+        : undefined,
+      currencyRefreshIntervalDays: billingForm.currencyRefreshMode === 'PERIODIC'
+        && billingForm.currencyRefreshCadence === 'EVERY_N_DAYS'
+        ? billingForm.currencyRefreshIntervalDays
+        : undefined,
+    }
+    saveBilling.call(() => raum.orgs.updateBillingInfo(editing.id, dto, token))
   }
 
   function submitBillingEmail() {
@@ -280,12 +308,72 @@ export default function OrgsPage({ token }: Props) {
                   placeholder="USD"
                   maxLength={3}
                 />
+                <p className="panel-hint">{t('orgsPage.currencyHint')}</p>
               </div>
+              <div className="field">
+                <label>{t('orgsPage.productPricingCurrency')}</label>
+                <input
+                  value={billingForm.productPricingCurrency ?? ''}
+                  onChange={e => setBillingForm(f => ({ ...f, productPricingCurrency: e.target.value.toUpperCase() }))}
+                  placeholder="ARS"
+                  maxLength={3}
+                />
+                <p className="panel-hint">{t('orgsPage.productPricingCurrencyHint')}</p>
+              </div>
+              <div className="field">
+                <label>{t('orgsPage.currencyRefreshMode')}</label>
+                <select
+                  value={billingForm.currencyRefreshMode ?? ''}
+                  onChange={e => setBillingForm(f => ({
+                    ...f,
+                    currencyRefreshMode: e.target.value as CurrencyRefreshMode,
+                    ...(e.target.value !== 'PERIODIC' ? { currencyRefreshCadence: '', currencyRefreshIntervalDays: undefined } : {}),
+                  }))}
+                >
+                  <option value="">{t('orgsPage.selectCurrencyRefreshMode')}</option>
+                  {CURRENCY_REFRESH_MODES.map(m => <option key={m} value={m}>{t(`orgsPage.refreshMode.${m}`)}</option>)}
+                </select>
+              </div>
+              {billingForm.currencyRefreshMode === 'PERIODIC' && (
+                <div className="field">
+                  <label>{t('orgsPage.currencyRefreshCadence')}</label>
+                  <select
+                    value={billingForm.currencyRefreshCadence ?? ''}
+                    onChange={e => setBillingForm(f => ({
+                      ...f,
+                      currencyRefreshCadence: e.target.value as CurrencyRefreshCadence,
+                      ...(e.target.value !== 'EVERY_N_DAYS' ? { currencyRefreshIntervalDays: undefined } : {}),
+                    }))}
+                  >
+                    <option value="">{t('orgsPage.selectCurrencyRefreshCadence')}</option>
+                    {CURRENCY_REFRESH_CADENCES.map(c => <option key={c} value={c}>{t(`orgsPage.refreshCadence.${c}`)}</option>)}
+                  </select>
+                </div>
+              )}
+              {billingForm.currencyRefreshMode === 'PERIODIC' && billingForm.currencyRefreshCadence === 'EVERY_N_DAYS' && (
+                <div className="field">
+                  <label>{t('orgsPage.currencyRefreshIntervalDays')}</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={billingForm.currencyRefreshIntervalDays ?? ''}
+                    onChange={e => setBillingForm(f => ({
+                      ...f,
+                      currencyRefreshIntervalDays: e.target.value === '' ? undefined : Number(e.target.value),
+                    }))}
+                  />
+                </div>
+              )}
             </div>
             <div className="actions">
               <button
                 className="btn btn-primary"
-                disabled={saveBilling.state.status === 'loading'}
+                disabled={
+                  saveBilling.state.status === 'loading'
+                  || (billingForm.currencyRefreshMode === 'PERIODIC'
+                    && billingForm.currencyRefreshCadence === 'EVERY_N_DAYS'
+                    && !(billingForm.currencyRefreshIntervalDays && billingForm.currencyRefreshIntervalDays > 0))
+                }
                 onClick={submitBillingInfo}
               >
                 {saveBilling.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.save')}

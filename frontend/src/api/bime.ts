@@ -11,6 +11,7 @@ import type {
   ProductResponse,
   ProductVariantRequest,
   ProductVariantResponse,
+  VariantBatchPriceRequest,
   StockAlertResponse,
   StockAlertThresholdRequest,
   StockAlertThresholdResponse,
@@ -66,14 +67,16 @@ export const bime = {
   variants: {
     create: (productId: string, dto: ProductVariantRequest, token: string) =>
       req<ProductVariantResponse>(`/products/${productId}/variants`, { method: 'POST', ...payload(dto) }, token),
-    list: (productId: string, token: string) =>
-      req<ProductVariantResponse[]>(`/products/${productId}/variants`, { method: 'GET' }, token),
-    get: (productId: string, variantId: string, token: string) =>
-      req<ProductVariantResponse>(`/products/${productId}/variants/${variantId}`, { method: 'GET' }, token),
+    list: (productId: string, token: string, currency?: string) =>
+      req<ProductVariantResponse[]>(`/products/${productId}/variants${query({ currency })}`, { method: 'GET' }, token),
+    get: (productId: string, variantId: string, token: string, currency?: string) =>
+      req<ProductVariantResponse>(`/products/${productId}/variants/${variantId}${query({ currency })}`, { method: 'GET' }, token),
     patch: (productId: string, variantId: string, dto: ProductVariantRequest, token: string) =>
       req<ProductVariantResponse>(`/products/${productId}/variants/${variantId}`, { method: 'PATCH', ...payload(dto) }, token),
     deactivate: (productId: string, variantId: string, token: string) =>
       req<void>(`/products/${productId}/variants/${variantId}`, { method: 'DELETE' }, token),
+    batchUpdatePrices: (dto: VariantBatchPriceRequest, token: string) =>
+      req<string[]>('/variants/pricing/batch', { method: 'PATCH', ...payload(dto) }, token),
   },
   stock: {
     recordMovement: (dto: StockMovementRequest, token: string) =>

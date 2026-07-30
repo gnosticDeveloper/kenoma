@@ -121,21 +121,23 @@ public abstract class BaseIT {
 
     static class Initializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
 
-        private static final AtomicBoolean initialized = new AtomicBoolean(false);
-
         @Override
         public void initialize(ConfigurableApplicationContext ctx) {
-            if (initialized.compareAndSet(false, true)) {
-                TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
-                        "BIME_SERVICE_ID=" + BIME_SERVICE_ID.toString(),
-                        "vassago.jwt.public-key-refresh-cron=-",
-                        "bime.stock-alerts.check-cron=-",
-                        "mailgun.api-key=test-key",
-                        "mailgun.domain=test.example.com",
-                        "mailgun.from=noreply@test.example.com",
-                        "app.base-url=http://localhost:3000"
-                );
-            }
+            // Runs once per distinct Spring context (Spring's test context cache builds a separate
+            // context per unique set of @MockitoBean overrides), so this must NOT be guarded by a
+            // JVM-static "already ran" flag - that previously caused any IT class whose @MockitoBean
+            // set differs from the rest (e.g. one that also mocks RaumClient) to silently boot with
+            // none of these properties set, since the flag had already been tripped by an earlier,
+            // differently-configured context.
+            TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
+                    "BIME_SERVICE_ID=" + BIME_SERVICE_ID.toString(),
+                    "vassago.jwt.public-key-refresh-cron=-",
+                    "bime.stock-alerts.check-cron=-",
+                    "mailgun.api-key=test-key",
+                    "mailgun.domain=test.example.com",
+                    "mailgun.from=noreply@test.example.com",
+                    "app.base-url=http://localhost:3000"
+            );
         }
     }
 }

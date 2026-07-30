@@ -58,7 +58,7 @@ class OrganizationBillingIT extends BaseIT {
         UUID id = createOrg("Billing Org", "billing-org@example.com");
         Instant dueAt = Instant.now().plusSeconds(3600);
         BillingInfoRequestDTO dto = new BillingInfoRequestDTO("20-12345678-9", "Billing Org S.A.",
-                "123 Fiscal St", "MONTHLY", dueAt, null);
+                "123 Fiscal St", "MONTHLY", dueAt, null, null, null, null, null);
 
         OrgResponseDTO response = client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -79,7 +79,7 @@ class OrganizationBillingIT extends BaseIT {
     @Test
     void updateBillingInfo_rejectsUnknownCycle() {
         UUID id = createOrg("Bad Cycle Org", "bad-cycle@example.com");
-        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("id", "name", "address", "WEEKLY", Instant.now(), null);
+        BillingInfoRequestDTO dto = new BillingInfoRequestDTO("id", "name", "address", "WEEKLY", Instant.now(), null, null, null, null, null);
 
         client.put().uri("/orgs/{id}/billing-info", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")

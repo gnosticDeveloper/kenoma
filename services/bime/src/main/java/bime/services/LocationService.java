@@ -3,6 +3,7 @@ package bime.services;
 import bime.db.BimeContextService;
 import bime.dto.LocationRequestDTO;
 import bime.dto.LocationResponseDTO;
+import common.exception.BadRequestException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.r2dbc.core.DatabaseClient;
@@ -21,6 +22,9 @@ public class LocationService {
     private final BimeContextService ctx;
 
     public Mono<LocationResponseDTO> createLocation(LocationRequestDTO dto) {
+        if (dto.getCode() == null || dto.getCode().isBlank()) {
+            return Mono.error(new BadRequestException("code is required"));
+        }
         return ctx.withHandle((caller, handle) -> {
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     INSERT INTO locations (org_id, name, code, notification_email)
@@ -65,6 +69,9 @@ public class LocationService {
     }
 
     public Mono<LocationResponseDTO> updateLocation(UUID id, LocationRequestDTO dto) {
+        if (dto.getCode() == null || dto.getCode().isBlank()) {
+            return Mono.error(new BadRequestException("code is required"));
+        }
         return ctx.withHandle((caller, handle) -> {
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     UPDATE locations

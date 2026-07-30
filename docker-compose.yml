@@ -221,6 +221,9 @@ services:
       MAILGUN_INVOICE_FROM: ${MAILGUN_INVOICE_FROM:-}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      FX_PROVIDER_API_KEY: ${FX_PROVIDER_API_KEY:-}
+      FX_PROVIDER_BASE_URL: ${FX_PROVIDER_BASE_URL:-https://v6.exchangerate-api.com/v6}
+      FX_REFRESH_CRON: ${FX_REFRESH_CRON:-0 0 5 * * *}
       JAVA_TOOL_OPTIONS: ${RAUM_JDWP_OPTS:-}
     volumes:
       - ./.env-out:/env-out
