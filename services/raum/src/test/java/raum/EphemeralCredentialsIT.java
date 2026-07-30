@@ -29,6 +29,7 @@ import raum.dto.OrgResponseDTO;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -428,6 +429,94 @@ class EphemeralCredentialsIT {
                 .bodyToMono(BasicCredentialDTO.class)
                 .block())
                 .isInstanceOf(WebClientResponseException.Forbidden.class);
+    }
+
+    @Test
+    void activeOrgIds_returnsIdsForValidVaultToken() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        List<UUID> ids = client.get()
+                .uri("/orgs/active-ids")
+                .header("X-Vault-Token", vassagoToken)
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block();
+
+        assertThat(ids).isNotNull();
+        assertThat(ids).contains(orgId);
+    }
+
+    // Adversarial: any valid AppRole token authenticates — not just Vassago's — since this
+    // endpoint (like /credentials/ephemeral) trusts any live vault token, not a specific AppRole.
+    @Test
+    void activeOrgIds_acceptsAnyValidAppRoleToken_notJustVassago() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        List<UUID> ids = client.get()
+                .uri("/orgs/active-ids")
+                .header("X-Vault-Token", raumToken)
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block();
+
+        assertThat(ids).isNotNull();
+        assertThat(ids).contains(orgId);
+    }
+
+    @Test
+    void activeOrgIds_rejectsMissingVaultToken() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/active-ids")
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
+    }
+
+    @Test
+    void activeOrgIds_rejectsInvalidVaultToken() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/active-ids")
+                .header("X-Vault-Token", "not-a-real-token")
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
+    }
+
+    // Adversarial: a caller's own user JWT (not a machine vault token) must not work either —
+    // this endpoint is machine-to-machine only, unlike /credentials/ephemeral which accepts both.
+    @Test
+    void activeOrgIds_rejectsUserJwt_vaultTokenOnly() {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/active-ids")
+                .header(HttpHeaders.AUTHORIZATION.toString(), "Bearer test-token")
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
     }
 
     @Test

@@ -24,6 +24,7 @@ public class MailgunService {
     private final String domain;
     private final String from;
     private final String invoiceFrom;
+    private final String stockAlertFrom;
     private final String appBaseUrl;
 
     public MailgunService(
@@ -31,10 +32,12 @@ public class MailgunService {
             @Value("${mailgun.domain}") String domain,
             @Value("${mailgun.from}") String from,
             @Value("${mailgun.invoice-from:${mailgun.from}}") String invoiceFrom,
+            @Value("${mailgun.stock-alert-from:alerts@${mailgun.domain}}") String stockAlertFrom,
             @Value("${app.base-url}") String appBaseUrl) {
         this.domain = domain;
         this.from = from;
         this.invoiceFrom = invoiceFrom;
+        this.stockAlertFrom = stockAlertFrom;
         this.appBaseUrl = appBaseUrl;
         this.webClient = WebClient.builder()
                 .baseUrl("https://api.mailgun.net/v3")
@@ -72,6 +75,26 @@ public class MailgunService {
 
     public Mono<Void> sendBillingEmailVerification(String toEmail, UUID orgId, String token, String locale) {
         return sendLinkEmail(toEmail, orgId, token, locale, "billing_verify.subject", "billing_verify.body");
+    }
+
+    public Mono<Void> sendStockAlertEmail(String toEmail, String productLabel, String locationName,
+                                           int quantity, int threshold, String locale) {
+        ResourceBundle messages = messagesFor(locale);
+
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("from", stockAlertFrom);
+        form.add("to", toEmail);
+        form.add("subject", MessageFormat.format(messages.getString("stock_alert.subject"), productLabel, locationName));
+        form.add("text", MessageFormat.format(messages.getString("stock_alert.body"),
+                productLabel, locationName, quantity, threshold));
+
+        return webClient.post()
+                .uri("/{domain}/messages", domain)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(BodyInserters.fromFormData(form))
+                .retrieve()
+                .toBodilessEntity()
+                .then();
     }
 
     public Mono<Void> sendInvoiceEmail(String toEmail, byte[] pdfBytes, String fileName, String locale) {

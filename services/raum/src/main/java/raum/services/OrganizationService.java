@@ -58,6 +58,11 @@ public class OrganizationService {
                 .map(this::toResponseDTO);
     }
 
+    /** For machine-to-machine callers (e.g. Bime's stock alert scheduler) that only need org IDs to iterate over. */
+    public Flux<UUID> getActiveOrgIds() {
+        return repository.findAllByStoppedAtIsNull().map(Organization::getId);
+    }
+
     public Mono<OrgResponseDTO> getOrgDataById(UUID id) {
         return repository.findById(id).map(this::toResponseDTO);
     }

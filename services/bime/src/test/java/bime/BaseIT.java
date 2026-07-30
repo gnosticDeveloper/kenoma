@@ -2,6 +2,7 @@ package bime;
 
 import bime.db.BimeDbHandle;
 import bime.db.ConnectionPoolService;
+import common.mail.MailgunService;
 import common.security.JwtValidator;
 import io.jsonwebtoken.Claims;
 import io.r2dbc.spi.ConnectionFactories;
@@ -39,6 +40,14 @@ public abstract class BaseIT {
 
     @MockitoBean
     protected ConnectionPoolService connectionPoolService;
+
+    @MockitoBean
+    protected MailgunService mailgunService;
+
+    // No live OpenBao in this suite; disable real AppRole provisioning so context
+    // startup doesn't block on (or retry against) a nonexistent server.
+    @MockitoBean
+    protected bime.openbao.OpenBaoProvisioner openBaoProvisioner;
 
     protected static final UUID BIME_SERVICE_ID = UUID.randomUUID();
     protected static final UUID ORG_ID          = UUID.randomUUID();
@@ -119,7 +128,12 @@ public abstract class BaseIT {
             if (initialized.compareAndSet(false, true)) {
                 TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
                         "BIME_SERVICE_ID=" + BIME_SERVICE_ID.toString(),
-                        "vassago.jwt.public-key-refresh-cron=-"
+                        "vassago.jwt.public-key-refresh-cron=-",
+                        "bime.stock-alerts.check-cron=-",
+                        "mailgun.api-key=test-key",
+                        "mailgun.domain=test.example.com",
+                        "mailgun.from=noreply@test.example.com",
+                        "app.base-url=http://localhost:3000"
                 );
             }
         }

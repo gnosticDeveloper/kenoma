@@ -162,6 +162,7 @@ export interface LocationRequest {
   name: string
   code: string
   isActive?: boolean
+  notificationEmail?: string
 }
 
 export interface LocationResponse {
@@ -170,8 +171,33 @@ export interface LocationResponse {
   name: string
   code: string
   isActive: boolean
+  notificationEmail: string | null
   createdAt: string
   modifiedAt: string
+}
+
+export interface StockAlertThresholdRequest {
+  variantId: string
+  locationId: string
+  threshold: number
+}
+
+export interface StockAlertThresholdResponse {
+  orgId: string
+  variantId: string
+  locationId: string
+  threshold: number
+  createdAt: string
+  modifiedAt: string
+}
+
+export interface StockAlertResponse {
+  orgId: string
+  variantId: string
+  locationId: string
+  threshold: number
+  quantity: number
+  triggeredAt: string
 }
 
 export interface MetadataOptionRequest {

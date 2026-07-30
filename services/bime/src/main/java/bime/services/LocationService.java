@@ -5,6 +5,7 @@ import bime.dto.LocationRequestDTO;
 import bime.dto.LocationResponseDTO;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -20,23 +21,23 @@ public class LocationService {
     private final BimeContextService ctx;
 
     public Mono<LocationResponseDTO> createLocation(LocationRequestDTO dto) {
-        return ctx.withHandle((caller, handle) -> handle.client().sql("""
-                INSERT INTO locations (org_id, name, code)
-                VALUES (:orgId, :name, :code)
-                RETURNING id, org_id, name, code, is_active, created_at, modified_at
-                """)
-                .bind("orgId", caller.getOrgId())
-                .bind("name", dto.getName())
-                .bind("code", dto.getCode())
-                .fetch()
-                .one()
-                .map(this::toResponseDTO)
-        );
+        return ctx.withHandle((caller, handle) -> {
+            DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
+                    INSERT INTO locations (org_id, name, code, notification_email)
+                    VALUES (:orgId, :name, :code, :notificationEmail)
+                    RETURNING id, org_id, name, code, is_active, notification_email, created_at, modified_at
+                    """)
+                    .bind("orgId", caller.getOrgId())
+                    .bind("name", dto.getName())
+                    .bind("code", dto.getCode());
+            spec = bindNullableEmail(spec, dto.getNotificationEmail());
+            return spec.fetch().one().map(this::toResponseDTO);
+        });
     }
 
     public Mono<LocationResponseDTO> getLocationById(UUID id) {
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
-                SELECT id, org_id, name, code, is_active, created_at, modified_at
+                SELECT id, org_id, name, code, is_active, notification_email, created_at, modified_at
                 FROM locations
                 WHERE id = :id AND org_id = :orgId
                 """)
@@ -51,7 +52,7 @@ public class LocationService {
 
     public Flux<LocationResponseDTO> getLocations() {
         return ctx.withHandleMany((caller, handle) -> handle.client().sql("""
-                SELECT id, org_id, name, code, is_active, created_at, modified_at
+                SELECT id, org_id, name, code, is_active, notification_email, created_at, modified_at
                 FROM locations
                 WHERE org_id = :orgId
                 ORDER BY name
@@ -64,23 +65,31 @@ public class LocationService {
     }
 
     public Mono<LocationResponseDTO> updateLocation(UUID id, LocationRequestDTO dto) {
-        return ctx.withHandle((caller, handle) -> handle.client().sql("""
-                UPDATE locations
-                SET name = :name, code = :code, is_active = :isActive, modified_at = :modifiedAt
-                WHERE id = :id AND org_id = :orgId
-                RETURNING id, org_id, name, code, is_active, created_at, modified_at
-                """)
-                .bind("name", dto.getName())
-                .bind("code", dto.getCode())
-                .bind("isActive", dto.getIsActive() != null ? dto.getIsActive() : Boolean.TRUE)
-                .bind("modifiedAt", LocalDateTime.now())
-                .bind("id", id)
-                .bind("orgId", caller.getOrgId())
-                .fetch()
-                .one()
-                .map(this::toResponseDTO)
-                .switchIfEmpty(Mono.error(new NotFoundException("Location not found")))
-        );
+        return ctx.withHandle((caller, handle) -> {
+            DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
+                    UPDATE locations
+                    SET name = :name, code = :code, is_active = :isActive,
+                        notification_email = :notificationEmail, modified_at = :modifiedAt
+                    WHERE id = :id AND org_id = :orgId
+                    RETURNING id, org_id, name, code, is_active, notification_email, created_at, modified_at
+                    """)
+                    .bind("name", dto.getName())
+                    .bind("code", dto.getCode())
+                    .bind("isActive", dto.getIsActive() != null ? dto.getIsActive() : Boolean.TRUE)
+                    .bind("modifiedAt", LocalDateTime.now())
+                    .bind("id", id)
+                    .bind("orgId", caller.getOrgId());
+            spec = bindNullableEmail(spec, dto.getNotificationEmail());
+            return spec.fetch().one()
+                    .map(this::toResponseDTO)
+                    .switchIfEmpty(Mono.error(new NotFoundException("Location not found")));
+        });
+    }
+
+    private static DatabaseClient.GenericExecuteSpec bindNullableEmail(DatabaseClient.GenericExecuteSpec spec, String notificationEmail) {
+        return notificationEmail != null
+                ? spec.bind("notificationEmail", notificationEmail)
+                : spec.bindNull("notificationEmail", String.class);
     }
 
     public Mono<Void> deactivateLocation(UUID id) {
@@ -106,6 +115,7 @@ public class LocationService {
                 .name((String) row.get("name"))
                 .code((String) row.get("code"))
                 .isActive((Boolean) row.get("is_active"))
+                .notificationEmail((String) row.get("notification_email"))
                 .createdAt((LocalDateTime) row.get("created_at"))
                 .modifiedAt((LocalDateTime) row.get("modified_at"))
                 .build();
