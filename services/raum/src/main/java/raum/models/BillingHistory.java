@@ -44,4 +44,13 @@ public class BillingHistory {
 
     @Column("line_items")
     Json lineItems;
+
+    @Column("payment_status")
+    String paymentStatus;
+
+    @Column("paid_at")
+    Instant paidAt;
+
+    @Column("payment_reference")
+    String paymentReference;
 }

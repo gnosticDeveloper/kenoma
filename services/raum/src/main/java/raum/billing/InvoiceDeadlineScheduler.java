@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import raum.models.BillingCycle;
 import raum.models.BillingHistory;
 import raum.models.Organization;
+import raum.models.PaymentStatus;
 import raum.repository.BillingHistoryRepository;
 import raum.repository.OrganizationRepository;
 import reactor.core.publisher.Mono;
@@ -75,6 +76,7 @@ public class InvoiceDeadlineScheduler {
                     .amount(invoice.getAmount())
                     .currency(invoice.getCurrency())
                     .lineItems(Json.of(OBJECT_MAPPER.writeValueAsString(invoice.getLineItems())))
+                    .paymentStatus(PaymentStatus.PENDING.name())
                     .build();
 
             org.setNextInvoiceDueAt(advance(org.getNextInvoiceDueAt(), org.getBillingCycle(), now));

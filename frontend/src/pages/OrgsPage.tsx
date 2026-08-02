@@ -154,11 +154,14 @@ export default function OrgsPage({ token }: Props) {
   const [historyTarget, setHistoryTarget] = useState<OrgResponse | null>(null)
   const history = useApiCall<BillingHistoryResponse[]>()
   const downloadInvoice = useApiCall<Blob>()
+  const updateStatus = useApiCall<BillingHistoryResponse>()
+  const resendInvoice = useApiCall<void>()
 
-  useEffect(() => {
+  function loadHistory() {
     if (historyTarget) history.call(() => raum.billingHistory.list(historyTarget.id, token))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyTarget])
+  }
+
+  useEffect(loadHistory, [historyTarget])
 
   function openHistory(org: OrgResponse) {
     setHistoryTarget(org)
@@ -170,12 +173,34 @@ export default function OrgsPage({ token }: Props) {
       .then(() => {})
   }
 
+  function togglePaymentStatus(row: BillingHistoryResponse) {
+    if (!historyTarget) return
+    if (row.paymentStatus === 'PAID') {
+      updateStatus.call(() => raum.billingHistory.updatePaymentStatus(historyTarget.id, row.id, { status: 'PENDING' }, token))
+        .then(loadHistory)
+      return
+    }
+    const reference = window.prompt(t('orgsPage.markPaidReferencePrompt')) ?? undefined
+    updateStatus.call(() => raum.billingHistory.updatePaymentStatus(historyTarget.id, row.id, { status: 'PAID', reference }, token))
+      .then(loadHistory)
+  }
+
+  function resend(row: BillingHistoryResponse) {
+    if (!historyTarget) return
+    resendInvoice.call(() => raum.billingHistory.resendInvoice(historyTarget.id, row.id, token))
+  }
+
   useEffect(() => {
     if (downloadInvoice.state.status === 'success') {
       triggerDownload(downloadInvoice.state.data, `invoice-${historyTarget?.id ?? ''}.pdf`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadInvoice.state])
+
+  useEffect(() => {
+    if (resendInvoice.state.status === 'success') toast.show(t('orgsPage.invoiceResent'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resendInvoice.state])
 
   const columns: Column<OrgResponse>[] = [
     { key: 'name', header: t('orgsPage.name'), render: o => o.name, sortValue: o => o.name },
@@ -209,17 +234,35 @@ export default function OrgsPage({ token }: Props) {
     { key: 'billingCycle', header: t('orgsPage.billingCycle'), render: h => t(`orgsPage.cycle.${h.billingCycle}`) },
     { key: 'amount', header: t('orgsPage.amount'), render: formatAmount },
     {
-      key: 'invoice',
+      key: 'paymentStatus',
+      header: t('orgsPage.paymentStatus'),
+      render: h => {
+        const label = h.paymentStatus === 'PENDING' && h.overdue ? 'OVERDUE' : h.paymentStatus
+        const title = h.paymentStatus === 'PAID'
+          ? t('orgsPage.paidOnTooltip', {
+            date: h.paidAt ? new Date(h.paidAt).toLocaleDateString() : '—',
+            reference: h.paymentReference || t('orgsPage.noReference'),
+          })
+          : undefined
+        return (
+          <span className={`status-badge ${h.paymentStatus === 'PAID' ? 'status-ok' : 'status-fail'}`} title={title}>
+            {t(`orgsPage.paymentStatusValue.${label}`)}
+          </span>
+        )
+      },
+    },
+    {
+      key: 'actions',
       header: '',
       render: h => (
-        <button
-          type="button"
-          className="btn btn-outline btn-sm"
-          disabled={downloadInvoice.state.status === 'loading'}
-          onClick={() => download(h)}
-        >
-          {t('orgsPage.downloadInvoice')}
-        </button>
+        <RowActionsMenu actions={[
+          { label: t('orgsPage.downloadInvoice'), onClick: () => download(h) },
+          { label: t('orgsPage.resendInvoice'), onClick: () => resend(h) },
+          {
+            label: h.paymentStatus === 'PAID' ? t('orgsPage.markUnpaid') : t('orgsPage.markPaid'),
+            onClick: () => togglePaymentStatus(h),
+          },
+        ]} />
       ),
     },
   ]
@@ -425,6 +468,8 @@ export default function OrgsPage({ token }: Props) {
       >
         {history.state.status === 'error' && <Feedback state={history.state} />}
         {downloadInvoice.state.status === 'error' && <Feedback state={downloadInvoice.state} />}
+        {updateStatus.state.status === 'error' && <Feedback state={updateStatus.state} />}
+        {resendInvoice.state.status === 'error' && <Feedback state={resendInvoice.state} />}
         <DataTable
           columns={historyColumns}
           rows={history.state.status === 'success' ? history.state.data : []}

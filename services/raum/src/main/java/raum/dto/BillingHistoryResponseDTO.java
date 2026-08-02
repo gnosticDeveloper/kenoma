@@ -25,4 +25,10 @@ public class BillingHistoryResponseDTO {
     String currency;
     @Schema(description = "JSON breakdown of the invoiced total, snapshotted at invoice time")
     String lineItems;
+    @Schema(description = "PENDING or PAID, set manually by an admin")
+    String paymentStatus;
+    @Schema(description = "True if still PENDING past its due date; derived, not stored")
+    boolean overdue;
+    Instant paidAt;
+    String paymentReference;
 }
