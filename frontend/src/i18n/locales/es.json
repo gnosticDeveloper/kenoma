@@ -129,7 +129,20 @@
     "billingHistoryEmptyState": "Aún no hay facturas.",
     "dueAt": "Vencimiento",
     "amount": "Monto",
-    "downloadInvoice": "Descargar"
+    "downloadInvoice": "Descargar",
+    "resendInvoice": "Reenviar por email",
+    "invoiceResent": "Correo de factura reenviado.",
+    "paymentStatus": "Pago",
+    "paymentStatusValue": {
+      "PENDING": "Pendiente",
+      "PAID": "Pagado",
+      "OVERDUE": "Vencido"
+    },
+    "markPaid": "Marcar como pagado",
+    "markUnpaid": "Marcar como pendiente",
+    "markPaidReferencePrompt": "Referencia de pago (opcional, ej. ID de transferencia):",
+    "paidOnTooltip": "Pagado el {{date}} — {{reference}}",
+    "noReference": "sin referencia"
   },
   "servicesPage": {
     "title": "Servicios",

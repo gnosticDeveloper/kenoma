@@ -13,6 +13,7 @@ import type {
   OrgRequest,
   OrgResponse,
   OnboardingRequest,
+  PaymentStatusUpdateRequest,
   ServiceRequest,
   ServiceResponse,
 } from '../types'
@@ -51,6 +52,10 @@ export const raum = {
       }
       return res.blob()
     },
+    updatePaymentStatus: (orgId: string, historyId: string, dto: PaymentStatusUpdateRequest, token: string) =>
+      req<BillingHistoryResponse>(`/orgs/${orgId}/billing-history/${historyId}/payment-status`, { method: 'PUT', ...payload(dto) }, token),
+    resendInvoice: (orgId: string, historyId: string, token: string) =>
+      req<void>(`/orgs/${orgId}/billing-history/${historyId}/resend`, { method: 'POST' }, token),
   },
   pricing: {
     base: {

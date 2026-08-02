@@ -129,7 +129,20 @@
     "billingHistoryEmptyState": "No invoices yet.",
     "dueAt": "Due",
     "amount": "Amount",
-    "downloadInvoice": "Download"
+    "downloadInvoice": "Download",
+    "resendInvoice": "Resend email",
+    "invoiceResent": "Invoice email resent.",
+    "paymentStatus": "Payment",
+    "paymentStatusValue": {
+      "PENDING": "Pending",
+      "PAID": "Paid",
+      "OVERDUE": "Overdue"
+    },
+    "markPaid": "Mark as paid",
+    "markUnpaid": "Mark as unpaid",
+    "markPaidReferencePrompt": "Payment reference (optional, e.g. transfer ID):",
+    "paidOnTooltip": "Paid {{date}} — {{reference}}",
+    "noReference": "no reference"
   },
   "servicesPage": {
     "title": "Services",

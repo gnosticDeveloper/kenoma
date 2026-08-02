@@ -54,6 +54,8 @@ export interface BillingEmailRequest {
   locale?: string
 }
 
+export type PaymentStatus = 'PENDING' | 'PAID'
+
 export interface BillingHistoryResponse {
   id: string
   orgId: string
@@ -63,6 +65,15 @@ export interface BillingHistoryResponse {
   amount: number | null
   currency: string | null
   lineItems: string | null
+  paymentStatus: PaymentStatus
+  overdue: boolean
+  paidAt: string | null
+  paymentReference: string | null
+}
+
+export interface PaymentStatusUpdateRequest {
+  status: PaymentStatus
+  reference?: string
 }
 
 export interface BasePricingRequest {

@@ -63,9 +63,12 @@ CREATE TABLE IF NOT EXISTS billing_history (
                                                FOREIGN KEY (org_id) REFERENCES organizations(id)
 );
 
-ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS amount      numeric(12,2);
-ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS currency    varchar(3);
-ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS line_items  jsonb;
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS amount         numeric(12,2);
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS currency       varchar(3);
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS line_items     jsonb;
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS payment_status    varchar(16) NOT NULL DEFAULT 'PENDING';
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS paid_at            timestamptz;
+ALTER TABLE billing_history ADD COLUMN IF NOT EXISTS payment_reference  varchar(255);
 
 CREATE INDEX IF NOT EXISTS idx_billing_history_org_id ON billing_history(org_id);
 
