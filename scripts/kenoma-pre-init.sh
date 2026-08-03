@@ -153,6 +153,14 @@ wget -q -O - \
   "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-role"
 echo "Database role created."
 
+echo "Storing Bime credentials in OpenBao KV..."
+wget -q -O - \
+  --header="Content-Type: application/json" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
+  --post-data="{\"data\":{\"username\":\"${BIME_DB_USER}\",\"password\":\"${BIME_DB_PASSWORD}\"}}" \
+  "${OPENBAO_BASE_URL}/v1/secret/data/credentials/${BIME_CREDENTIAL_ID}"
+echo "Bime credentials stored."
+
 echo "Registering Bime database connection in OpenBao..."
 cat > /tmp/bime-db-config-payload.json << DBCONFIG
 {
