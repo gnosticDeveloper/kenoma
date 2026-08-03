@@ -57,7 +57,7 @@ raum.billing:
   fx-refresh-cron: ${FX_REFRESH_CRON:0 0 5 * * *}
 
 raum.backup:
-  dr-cron: ${DR_BACKUP_CRON}
+  dr-cron: ${DR_BACKUP_CRON:0 0 5 * * *}
 
 raum.fx-provider:
   base-url: ${FX_PROVIDER_BASE_URL:https://v6.exchangerate-api.com/v6}
