@@ -167,14 +167,87 @@ public class OpenBaoService {
     }
 
     public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id) {
-        String roleName = id + "-role";
+        return fetchDatabaseCreds(id + "-role");
+    }
+
+    /**
+     * Ensures a read-only DR-backup role exists for an already-registered database connection
+     * (see {@link #registerDatabaseConnection}). Reuses that connection rather than registering a
+     * new one, since the physical instance behind it is shared across every org/service credential
+     * row that points at the same (host, port, db_name) — one representative connection is enough.
+     *
+     * <p>The connection's {@code allowed_roles} was set at org-onboarding time to only the ephemeral
+     * "{id}-role" — Vault refuses to issue creds for any role not on that list, so this must widen it
+     * to include the backup role before (re)creating it. Re-registering the connection needs the same
+     * admin credentials used originally, fetched back from the static KV entry.
+     */
+    public Mono<Void> registerBackupRole(UUID connectionId, String dbHost, int dbPort, String dbName) {
+        String connectionName = connectionId.toString();
+        String roleName = connectionName + "-dr-backup-role";
+        return getStaticCredentials(connectionId)
+                .flatMap(adminCreds -> allowBackupRoleOnConnection(connectionName, dbHost, dbPort, dbName, roleName, adminCreds))
+                .then(createBackupRole(connectionName, roleName, dbName));
+    }
+
+    private Mono<Void> allowBackupRoleOnConnection(String connectionName, String dbHost, int dbPort, String dbName,
+                                                     String backupRoleName, CredentialsDTO adminCreds) {
+        String connectionUrl = String.format(
+                "postgresql://{{username}}:{{password}}@%s:%d/%s?sslmode=disable",
+                dbHost, dbPort, dbName);
+        return webClient.post()
+                .uri("/v1/database/config/{name}", connectionName)
+                .bodyValue(Map.of(
+                        "plugin_name", "postgresql-database-plugin",
+                        "allowed_roles", connectionName + "-role," + backupRoleName,
+                        "connection_url", connectionUrl,
+                        "username", adminCreds.getUserName(),
+                        "password", adminCreds.getPassword()
+                ))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("allowBackupRoleOnConnection FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("allowBackupRoleOnConnection failed: " + body));
+                        })
+                )
+                .bodyToMono(Void.class);
+    }
+
+    private Mono<Void> createBackupRole(String connectionName, String roleName, String dbName) {
+        return webClient.post()
+                .uri("/v1/database/roles/{role}", roleName)
+                .bodyValue(Map.of(
+                        "db_name", connectionName,
+                        "creation_statements", "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; " +
+                                "GRANT CONNECT ON DATABASE \"" + dbName + "\" TO \"{{name}}\"; " +
+                                "GRANT USAGE ON SCHEMA public TO \"{{name}}\"; " +
+                                "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
+                        "revocation_statements", "DROP ROLE IF EXISTS \"{{name}}\";",
+                        "default_ttl", "1h",
+                        "max_ttl", "2h"
+                ))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("registerBackupRole FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("registerBackupRole failed: " + body));
+                        })
+                )
+                .bodyToMono(Void.class);
+    }
+
+    public Mono<CredentialsDTO> issueBackupCredentials(UUID connectionId) {
+        return fetchDatabaseCreds(connectionId + "-dr-backup-role");
+    }
+
+    private Mono<CredentialsDTO> fetchDatabaseCreds(String roleName) {
         return webClient.get()
                 .uri("/v1/database/creds/{role}", roleName)
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class).flatMap(body -> {
-                            log.error("issueEphemeralCredentials FAILED [{}]: {}", response.statusCode(), body);
-                            return Mono.error(new RuntimeException("issueEphemeralCredentials failed: " + body));
+                            log.error("fetchDatabaseCreds FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("fetchDatabaseCreds failed: " + body));
                         })
                 )
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
@@ -189,6 +262,31 @@ public class OpenBaoService {
                     dto.setLeaseDuration(leaseDuration);
                     dto.setLeaseId(leaseId);
                     return dto;
+                });
+    }
+
+    public Mono<S3CredentialsDTO> getBackupS3Credentials() {
+        return webClient.get()
+                .uri("/v1/{mount}/data/dr-backup/s3", kvMount)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("getBackupS3Credentials FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("getBackupS3Credentials failed: " + body));
+                        })
+                )
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .map(response -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> outer = (Map<String, Object>) response.get("data");
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) outer.get("data");
+                    return new S3CredentialsDTO(
+                            (String) data.get("endpoint"),
+                            (String) data.get("bucket"),
+                            (String) data.get("access_key"),
+                            (String) data.get("secret_key")
+                    );
                 });
     }
 }

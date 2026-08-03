@@ -224,6 +224,7 @@ services:
       FX_PROVIDER_API_KEY: ${FX_PROVIDER_API_KEY:-}
       FX_PROVIDER_BASE_URL: ${FX_PROVIDER_BASE_URL:-https://v6.exchangerate-api.com/v6}
       FX_REFRESH_CRON: ${FX_REFRESH_CRON:-0 0 5 * * *}
+      DR_BACKUP_CRON: ${DR_BACKUP_CRON}
       JAVA_TOOL_OPTIONS: ${RAUM_JDWP_OPTS:-}
     volumes:
       - ./.env-out:/env-out
