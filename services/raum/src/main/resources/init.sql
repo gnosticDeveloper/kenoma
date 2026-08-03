@@ -118,6 +118,19 @@ CREATE TABLE IF NOT EXISTS pending_org_verifications (
 
 CREATE INDEX IF NOT EXISTS idx_pending_org_verifications_org_id ON pending_org_verifications(org_id);
 
+CREATE TABLE IF NOT EXISTS export_jobs (
+                                           id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                                           org_id          uuid NOT NULL REFERENCES organizations(id),
+                                           status          varchar(16) NOT NULL DEFAULT 'PENDING',
+                                           requested_at    timestamptz DEFAULT current_timestamp,
+                                           started_at      timestamptz,
+                                           completed_at    timestamptz,
+                                           error_message   text
+);
+
+CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_export_jobs_org_id ON export_jobs(org_id);
+
 INSERT INTO services (name, description)
 VALUES
     ('Raum', 'Credential and organisation registry'),

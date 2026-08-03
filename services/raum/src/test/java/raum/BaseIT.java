@@ -42,8 +42,10 @@ public abstract class BaseIT {
 
     static final Network network = Network.newNetwork();
 
+    // protected (not package-private) so subclasses outside the `raum` package (e.g. raum.backup's
+    // TenantExportPollerIT) can drive the container directly too.
     @SuppressWarnings({"resource", "rawtypes"})
-    static final PostgreSQLContainer raumDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
+    protected static final PostgreSQLContainer raumDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
             .withNetwork(network)
             .withNetworkAliases("raum-postgres")
             .withDatabaseName("raum")
@@ -125,6 +127,14 @@ public abstract class BaseIT {
                     "spring.r2dbc.url=r2dbc:postgresql://localhost:%d/raum".formatted(raumDb.getMappedPort(5432)),
                     "spring.r2dbc.username=postgres",
                     "spring.r2dbc.password=postgres",
+                    // TenantExportPoller shells out to psql directly (not via R2DBC) for raum's own
+                    // org-scoped table dump, so it needs its own connection coordinates pointed at
+                    // the same testcontainer instead of falling back to its production defaults.
+                    "RAUM_DB_HOST=localhost",
+                    "RAUM_DB_PORT=" + raumDb.getMappedPort(5432),
+                    "RAUM_DB_NAME=raum",
+                    "RAUM_DB_USER=postgres",
+                    "RAUM_DB_PASSWORD=postgres",
                     "openbao.host=http://fake-openbao:8200",
                     "openbao.kv.mount=secret",
                     "RAUM_SERVICE_ID=" + raumServiceIdStr,
@@ -136,6 +146,9 @@ public abstract class BaseIT {
                     "vassago.jwt.public-key-refresh-cron=-",
                     "raum.onboarding.retry-cron=-",
                     "raum.billing.deadline-cron=-",
+                    // Not a cron - fixedDelayString has no "-"-disable syntax, so just push it far out
+                    // to keep TenantExportPoller from racing test assertions on freshly queued jobs.
+                    "raum.backup.export-poll-interval-ms=999999999",
                     "mailgun.api-key=test-key",
                     "mailgun.domain=test.example.com",
                     "mailgun.from=noreply@test.example.com",

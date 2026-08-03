@@ -9,6 +9,7 @@ import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 import common.dto.CredentialsDTO;
 import reactor.core.publisher.Mono;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -180,13 +181,67 @@ public class OpenBaoService {
      * "{id}-role" — Vault refuses to issue creds for any role not on that list, so this must widen it
      * to include the backup role before (re)creating it. Re-registering the connection needs the same
      * admin credentials used originally, fetched back from the static KV entry.
+     *
+     * <p>Checks Vault for actual current state first (rather than caching "already registered" in app
+     * memory) so this stays correct across restarts, multiple raum instances, and anyone changing
+     * things out-of-band in Vault directly — Vault itself is always the source of truth, never a local
+     * assumption that could drift from it. The role's existence and the connection's allowed_roles are
+     * two independent Vault objects — a role can exist while the connection no longer allows it (e.g.
+     * if the connection was re-registered since), so both are checked separately rather than treating
+     * "role exists" as proof the connection already allows it too.
      */
     public Mono<Void> registerBackupRole(UUID connectionId, String dbHost, int dbPort, String dbName) {
         String connectionName = connectionId.toString();
         String roleName = connectionName + "-dr-backup-role";
-        return getStaticCredentials(connectionId)
-                .flatMap(adminCreds -> allowBackupRoleOnConnection(connectionName, dbHost, dbPort, dbName, roleName, adminCreds))
-                .then(createBackupRole(connectionName, roleName, dbName));
+        return Mono.zip(connectionAllowsRole(connectionName, roleName), backupRoleExists(roleName))
+                .flatMap(state -> {
+                    Mono<Void> ensureAllowed = state.getT1()
+                            ? Mono.empty()
+                            : getStaticCredentials(connectionId)
+                                    .flatMap(adminCreds -> allowBackupRoleOnConnection(connectionName, dbHost, dbPort, dbName, roleName, adminCreds));
+                    Mono<Void> ensureRole = state.getT2() ? Mono.empty() : createBackupRole(connectionName, roleName, dbName);
+                    return ensureAllowed.then(ensureRole);
+                });
+    }
+
+    private Mono<Boolean> connectionAllowsRole(String connectionName, String roleName) {
+        return webClient.get()
+                .uri("/v1/database/config/{name}", connectionName)
+                .exchangeToMono(response -> {
+                    if (response.statusCode().is2xxSuccessful()) {
+                        return response.bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                                .map(body -> {
+                                    @SuppressWarnings("unchecked")
+                                    Map<String, Object> data = (Map<String, Object>) body.get("data");
+                                    Object allowedRoles = data == null ? null : data.get("allowed_roles");
+                                    return allowedRoles instanceof List<?> roles && roles.contains(roleName);
+                                });
+                    }
+                    if (response.statusCode().value() == 404) {
+                        return response.releaseBody().thenReturn(false);
+                    }
+                    return response.bodyToMono(String.class).flatMap(body -> {
+                        log.error("connectionAllowsRole FAILED [{}]: {}", response.statusCode(), body);
+                        return Mono.error(new RuntimeException("connectionAllowsRole failed: " + body));
+                    });
+                });
+    }
+
+    private Mono<Boolean> backupRoleExists(String roleName) {
+        return webClient.get()
+                .uri("/v1/database/roles/{role}", roleName)
+                .exchangeToMono(response -> {
+                    if (response.statusCode().is2xxSuccessful()) {
+                        return response.releaseBody().thenReturn(true);
+                    }
+                    if (response.statusCode().value() == 404) {
+                        return response.releaseBody().thenReturn(false);
+                    }
+                    return response.bodyToMono(String.class).flatMap(body -> {
+                        log.error("backupRoleExists FAILED [{}]: {}", response.statusCode(), body);
+                        return Mono.error(new RuntimeException("backupRoleExists failed: " + body));
+                    });
+                });
     }
 
     private Mono<Void> allowBackupRoleOnConnection(String connectionName, String dbHost, int dbPort, String dbName,

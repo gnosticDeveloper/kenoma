@@ -18,9 +18,11 @@ import raum.dto.BillingEmailRequestDTO;
 import raum.dto.BillingEmailVerifyRequestDTO;
 import raum.dto.BillingInfoRequestDTO;
 import raum.dto.OrgCurrencyResponseDTO;
+import raum.dto.ExportJobResponseDTO;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
 import raum.openbao.OpenBaoService;
+import raum.services.ExportJobService;
 import raum.services.OrganizationService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -33,10 +35,12 @@ import java.util.UUID;
 public class OrganizationsController {
     final OrganizationService service;
     final OpenBaoService openBaoService;
+    final ExportJobService exportJobService;
 
-    public OrganizationsController(OrganizationService service, OpenBaoService openBaoService) {
+    public OrganizationsController(OrganizationService service, OpenBaoService openBaoService, ExportJobService exportJobService) {
         this.service = service;
         this.openBaoService = openBaoService;
+        this.exportJobService = exportJobService;
     }
 
     @Operation(summary = "Register an organisation", description = "Creates a new tenant organisation. Requires ORG_MANAGE.")
@@ -189,5 +193,37 @@ public class OrganizationsController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     Mono<Void> confirmBillingEmail(@PathVariable("id") UUID id, @RequestBody BillingEmailVerifyRequestDTO dto) {
         return service.confirmBillingEmail(id, dto);
+    }
+
+    @Operation(
+            summary = "Request a tenant data export",
+            description = "Queues an export of the organization's data (raum's org-scoped rows plus a full " +
+                    "dump of its dedicated Vassago/Bime databases) to object storage, for offboarding. Runs " +
+                    "asynchronously — poll the returned job via GET /orgs/{id}/export/{jobId}. Idempotent: " +
+                    "if a PENDING or RUNNING export job already exists for this org, that job is returned " +
+                    "instead of queuing a duplicate. Requires ORG_MANAGE."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "202", description = "Export job queued"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping("/{id}/export")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    Mono<ExportJobResponseDTO> requestExport(@PathVariable("id") UUID id) {
+        return exportJobService.requestExport(id);
+    }
+
+    @Operation(summary = "Get a tenant export job's status", description = "Requires ORG_MANAGE.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Export job found"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Export job not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/{id}/export/{jobId}")
+    Mono<ExportJobResponseDTO> getExportJob(@PathVariable("id") UUID id, @PathVariable("jobId") UUID jobId) {
+        return exportJobService.getJob(id, jobId);
     }
 }
