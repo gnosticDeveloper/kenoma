@@ -6,9 +6,12 @@ import common.utils.RolesUtils;
 import common.utils.StringUtils;
 import lombok.RequiredArgsConstructor;
 import common.exception.BadRequestException;
+import common.exception.ConflictException;
 import common.exception.ForbiddenException;
 import common.exception.NotFoundException;
 import common.exception.UnauthorizedException;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,6 +22,7 @@ import vassago.dto.PasswordChangeRequestDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
 import vassago.dto.VerifyTokenRequestDTO;
+import vassago.security.RedisTokenService;
 import vassago.security.VassagoAuthentication;
 import vassago.security.VassagoRole;
 
@@ -34,8 +38,15 @@ public class UserService {
     private final UUID serviceId;
     private final MailgunService mailgunService;
     private final VerificationTokenService verificationTokenService;
+    private final RedisTokenService redisTokenService;
+
+    @Value("${vassago.jwt.ttl-seconds:300}")
+    private long jwtTtlSeconds;
 
     public Mono<UserResponseDTO> createUser(UserRequestDTO dto) {
+        if (isBlank(dto.getEmail()) || isBlank(dto.getName()) || isBlank(dto.getLastName()) || isBlank(dto.getUsername())) {
+            return Mono.error(new BadRequestException("email, name, lastName, and username are required"));
+        }
         return getCaller()
                 .flatMap(caller -> {
                     Map<String, List<String>> callerRoles = caller.getRoles();
@@ -95,6 +106,11 @@ public class UserService {
                                                         dto.getEmail(), caller.getOrgId(), verificationToken, locale))
                                                 .thenReturn(toCreateResponseDTO(row));
                                     })
+                                    // username and email are both UNIQUE at the DB level (each org has
+                                    // its own database); without this, a violation surfaces as a raw
+                                    // unhandled 500 instead of a clean 409.
+                                    .onErrorMap(DataIntegrityViolationException.class, e ->
+                                            new ConflictException("A user with this username or email already exists"))
                             );
                 });
     }
@@ -167,6 +183,9 @@ public class UserService {
     }
 
     public Mono<UserResponseDTO> updateUser(UUID id, UserRequestDTO dto) {
+        if (isBlank(dto.getEmail()) || isBlank(dto.getName()) || isBlank(dto.getLastName()) || isBlank(dto.getUsername())) {
+            return Mono.error(new BadRequestException("email, name, lastName, and username are required"));
+        }
         return getCaller()
                 .flatMap(caller -> {
                     boolean isAdmin = caller.getRoles()
@@ -179,6 +198,20 @@ public class UserService {
                             VassagoRole.valueOf(role);
                         } catch (IllegalArgumentException e) {
                             return Mono.error(new BadRequestException("Unknown Vassago role: " + role));
+                        }
+                    }
+
+                    // Same invariant as createUser: a caller can only grant roles they already hold
+                    // themselves. Without this, a non-admin editing their own account (allowed below)
+                    // could self-elevate to VASSAGO_ADMIN by simply naming it in the request.
+                    Map<String, List<String>> callerRoles = caller.getRoles();
+                    for (Map.Entry<String, List<String>> entry : dto.getRoles().entrySet()) {
+                        String service = entry.getKey();
+                        List<String> requested = entry.getValue();
+                        List<String> callerServiceRoles = callerRoles.getOrDefault(service, List.of());
+                        if (!new HashSet<>(callerServiceRoles).containsAll(requested)) {
+                            return Mono.error(new ForbiddenException(
+                                    "Cannot assign roles not held by the calling user for service: " + service));
                         }
                     }
 
@@ -268,7 +301,10 @@ public class UserService {
                                 .rowsUpdated()
                                 .flatMap(rows -> rows == 0
                                         ? Mono.error(new NotFoundException("User not found"))
-                                        : Mono.empty())
+                                        // Any access token already issued to this user is a bearer secret
+                                        // that's otherwise valid until its own (short) expiry regardless of
+                                        // stopped_at — revoke it immediately rather than waiting it out.
+                                        : redisTokenService.revokeUserTokens(id, jwtTtlSeconds))
                         )
                 ).then();
     }
@@ -276,6 +312,10 @@ public class UserService {
     private Mono<VassagoAuthentication> getCaller() {
         return ReactiveSecurityContextHolder.getContext()
                 .mapNotNull(ctx -> (VassagoAuthentication) ctx.getAuthentication());
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     private UserResponseDTO toResponseDTO(Map<String, Object> row) {

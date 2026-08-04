@@ -84,14 +84,19 @@ class BillingHistoryServiceTest {
     }
 
     @Test
-    void updatePaymentStatus_blankReference_storedAsNull() {
-        BillingHistory entry = pendingEntry(Instant.now());
-        when(billingHistoryRepository.findByIdAndOrgId(historyId, orgId)).thenReturn(Mono.just(entry));
-        when(billingHistoryRepository.save(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-
+    void updatePaymentStatus_blankReference_throwsBadRequest() {
+        // A whitespace-only reference normalizes to "no reference" - marking PAID with one is
+        // the same gap as omitting the reference entirely.
         StepVerifier.create(service().updatePaymentStatus(orgId, historyId, "PAID", "   "))
-                .assertNext(dto -> assertThat(dto.getPaymentReference()).isNull())
-                .verifyComplete();
+                .verifyError(BadRequestException.class);
+        verify(billingHistoryRepository, never()).findByIdAndOrgId(any(), any());
+    }
+
+    @Test
+    void updatePaymentStatus_missingReference_throwsBadRequest() {
+        StepVerifier.create(service().updatePaymentStatus(orgId, historyId, "PAID", null))
+                .verifyError(BadRequestException.class);
+        verify(billingHistoryRepository, never()).findByIdAndOrgId(any(), any());
     }
 
     @Test
@@ -118,7 +123,7 @@ class BillingHistoryServiceTest {
     void updatePaymentStatus_entryNotFound_throwsNotFound() {
         when(billingHistoryRepository.findByIdAndOrgId(historyId, orgId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(service().updatePaymentStatus(orgId, historyId, "PAID", null))
+        StepVerifier.create(service().updatePaymentStatus(orgId, historyId, "PAID", "ref-not-found"))
                 .verifyError(NotFoundException.class);
     }
 

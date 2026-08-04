@@ -163,7 +163,6 @@
     "subtitle": "Registra y emite credenciales de base de datos por organización y servicio.",
     "registerTitle": "Registrar credenciales",
     "ephemeralTitle": "Emitir credenciales efímeras",
-    "testTitle": "Probar conexión a la base de datos",
     "org": "Organización",
     "orgPlaceholder": "Selecciona una organización…",
     "service": "Servicio",
@@ -178,11 +177,7 @@
     "registering": "Registrando…",
     "issue": "Emitir",
     "issuing": "Emitiendo…",
-    "test": "Probar",
-    "testing": "Probando…",
-    "registered": "Credenciales registradas.",
-    "reachable": "Base de datos accesible",
-    "unreachable": "Base de datos inaccesible"
+    "registered": "Credenciales registradas."
   },
   "onboardingPage": {
     "title": "Incorporación",

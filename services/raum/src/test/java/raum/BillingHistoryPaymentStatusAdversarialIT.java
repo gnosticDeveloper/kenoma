@@ -170,7 +170,7 @@ class BillingHistoryPaymentStatusAdversarialIT extends BaseIT {
         client.put().uri("/orgs/{orgId}/billing-history/{historyId}/payment-status", orgB, historyId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(new PaymentStatusUpdateRequestDTO("PAID", null))
+                .bodyValue(new PaymentStatusUpdateRequestDTO("PAID", "ref-cross-org"))
                 .exchange()
                 .expectStatus().isNotFound();
 
@@ -205,7 +205,7 @@ class BillingHistoryPaymentStatusAdversarialIT extends BaseIT {
         client.put().uri("/orgs/{orgId}/billing-history/{historyId}/payment-status", org, UUID.randomUUID())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(new PaymentStatusUpdateRequestDTO("PAID", null))
+                .bodyValue(new PaymentStatusUpdateRequestDTO("PAID", "ref-unknown-id"))
                 .exchange()
                 .expectStatus().isNotFound();
     }

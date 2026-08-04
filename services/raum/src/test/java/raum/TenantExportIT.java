@@ -5,11 +5,21 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 import raum.dto.ExportJobResponseDTO;
 import raum.models.ExportJobStatus;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,6 +78,55 @@ class TenantExportIT extends BaseIT {
         // same job instead of queuing a duplicate.
         assertThat(second.getId()).isEqualTo(first.getId());
         assertThat(second.getStatus()).isEqualTo(ExportJobStatus.PENDING.name());
+    }
+
+    @Test
+    void requestExport_concurrentCalls_onlyOneJobCreated() throws Exception {
+        // The idempotency check-then-insert in requestExport isn't atomic, so this fires many
+        // genuinely concurrent requests to exercise the database-level unique constraint that
+        // catches the race the application-level check alone can miss.
+        int concurrency = 8;
+        WebClient webClient = WebClient.builder().baseUrl("http://localhost:" + port).build();
+        ExecutorService pool = Executors.newFixedThreadPool(concurrency);
+        CountDownLatch ready = new CountDownLatch(concurrency);
+        CountDownLatch go = new CountDownLatch(1);
+        AtomicReferenceArray<UUID> results = new AtomicReferenceArray<>(concurrency);
+
+        try {
+            List<Runnable> tasks = IntStream.range(0, concurrency)
+                    .<Runnable>mapToObj(i -> () -> {
+                        ready.countDown();
+                        try {
+                            go.await();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        ExportJobResponseDTO job = webClient.post()
+                                .uri("/orgs/{id}/export", orgId)
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                                .retrieve()
+                                .bodyToMono(ExportJobResponseDTO.class)
+                                .block();
+                        results.set(i, job != null ? job.getId() : null);
+                    })
+                    .collect(Collectors.toList());
+            tasks.forEach(pool::execute);
+
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+            pool.shutdown();
+            assertThat(pool.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        Set<UUID> distinctJobIds = IntStream.range(0, concurrency)
+                .mapToObj(results::get)
+                .collect(Collectors.toSet());
+        assertThat(distinctJobIds)
+                .as("every concurrent request must converge on the same single export job")
+                .hasSize(1)
+                .doesNotContainNull();
     }
 
     @Test

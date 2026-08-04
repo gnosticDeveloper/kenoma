@@ -7,10 +7,17 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -124,6 +131,73 @@ class StockLedgerIT extends BaseIT {
                 .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.OUTBOUND, -20))
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void recordMovement_concurrentOutbound_neverOversellsOrLosesUpdates() throws Exception {
+        // upsertBalance does the arithmetic in a single `UPDATE ... SET quantity = quantity +
+        // :delta` statement rather than a separate read-then-write from application code, so
+        // Postgres's row-level locking should serialize concurrent movements on the same
+        // variant+location correctly. Verify that directly: seed 10 units, fire 20 concurrent
+        // OUTBOUND movements of 1 unit each - exactly 10 must succeed, the other 10 must be
+        // cleanly rejected (not silently lost or allowed to oversell), and the final balance
+        // must be exactly 0, never negative.
+        StockFixture f = buildStockFixture();
+        recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 10);
+
+        int concurrency = 20;
+        WebClient webClient = WebClient.builder().baseUrl("http://localhost:" + port).build();
+        ExecutorService pool = Executors.newFixedThreadPool(concurrency);
+        CountDownLatch ready = new CountDownLatch(concurrency);
+        CountDownLatch go = new CountDownLatch(1);
+        AtomicInteger successCount = new AtomicInteger();
+        AtomicInteger rejectedCount = new AtomicInteger();
+
+        try {
+            List<Runnable> tasks = IntStream.range(0, concurrency)
+                    .<Runnable>mapToObj(i -> () -> {
+                        ready.countDown();
+                        try {
+                            go.await();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        try {
+                            webClient.post().uri("/stock/movements")
+                                    .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.OUTBOUND, -1))
+                                    .retrieve()
+                                    .bodyToMono(StockMovementResponseDTO.class)
+                                    .block();
+                            successCount.incrementAndGet();
+                        } catch (Exception e) {
+                            rejectedCount.incrementAndGet();
+                        }
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+            tasks.forEach(pool::execute);
+
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+            pool.shutdown();
+            assertThat(pool.awaitTermination(20, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(successCount.get()).isEqualTo(10);
+        assertThat(rejectedCount.get()).isEqualTo(10);
+
+        List<StockBalanceResponseDTO> balances = client.get()
+                .uri("/stock/balances?variantId={v}", f.variantId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockBalanceResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(balances).hasSize(1);
+        assertThat(balances.get(0).getQuantity()).isEqualTo(0);
     }
 
     @Test

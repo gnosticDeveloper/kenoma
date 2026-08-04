@@ -44,7 +44,8 @@ public class ProductVariantService {
                         .then(loadPalette(handle, productId))
                         .flatMap(palette -> validateOptions(palette, dto.getOptionIds()))
                         .flatMap(validatedOptionIds ->
-                                insertVariant(handle, productId, caller.getOrgId(), dto)
+                                checkDuplicateOptionCombination(handle, productId, caller.getOrgId(), validatedOptionIds)
+                                        .then(insertVariant(handle, productId, caller.getOrgId(), dto))
                                         .flatMap(variantId ->
                                                 insertVariantOptions(handle, variantId, validatedOptionIds)
                                                         .thenReturn(variantId))
@@ -77,12 +78,21 @@ public class ProductVariantService {
             return Flux.fromIterable(variants);
         }
         String target = targetCurrency.toUpperCase();
+        // Currencies already matching the target need no rate lookup — besides being wasted
+        // work, a lookup for X->X isn't guaranteed to have a stored identity rate.
         Set<String> sourceCurrencies = variants.stream()
                 .map(ProductVariantResponseDTO::getPriceCurrency)
                 .filter(Objects::nonNull)
+                .filter(currency -> !currency.equalsIgnoreCase(target))
                 .collect(Collectors.toSet());
         if (sourceCurrencies.isEmpty()) {
-            return Flux.fromIterable(variants);
+            return Flux.fromIterable(variants)
+                    .map(variant -> {
+                        if (variant.getPriceCurrency() != null) {
+                            variant.setPriceCurrency(target);
+                        }
+                        return variant;
+                    });
         }
         return Flux.fromIterable(sourceCurrencies)
                 .flatMap(source -> raumClient.getRate(source, target, openBaoService.getToken())
@@ -93,7 +103,15 @@ public class ProductVariantService {
                             if (variant.getPrice() == null || variant.getPriceCurrency() == null) {
                                 return variant;
                             }
+                            if (variant.getPriceCurrency().equalsIgnoreCase(target)) {
+                                variant.setPriceCurrency(target);
+                                return variant;
+                            }
                             BigDecimal rate = rates.get(variant.getPriceCurrency());
+                            if (rate == null) {
+                                throw new NotFoundException(
+                                        "No exchange rate available from " + variant.getPriceCurrency() + " to " + target);
+                            }
                             variant.setPrice(variant.getPrice().multiply(rate));
                             variant.setPriceCurrency(target);
                             return variant;
@@ -144,6 +162,9 @@ public class ProductVariantService {
         if ((dto.getPrice() != null) != (dto.getPriceCurrency() != null)) {
             return Mono.error(new BadRequestException("price and priceCurrency must be provided together"));
         }
+        if (dto.getPrice() != null && dto.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            return Mono.error(new BadRequestException("price must be a positive number"));
+        }
         return null;
     }
 
@@ -159,8 +180,29 @@ public class ProductVariantService {
                 .rowsUpdated()
                 .flatMap(rows -> rows == 0
                         ? Mono.error(new NotFoundException("Variant not found"))
-                        : Mono.empty())
+                        // A deactivated variant shouldn't keep tripping (or holding) stock alerts —
+                        // without this, the scheduler happily keeps emailing about inventory that no
+                        // longer exists as far as the catalog is concerned.
+                        : clearStockAlertsForVariant(handle, caller.getOrgId(), variantId))
         ).then();
+    }
+
+    private Mono<Void> clearStockAlertsForVariant(BimeDbHandle handle, UUID orgId, UUID variantId) {
+        return handle.client().sql("""
+                DELETE FROM variant_stock_alerts WHERE org_id = :orgId AND variant_id = :variantId
+                """)
+                .bind("orgId", orgId)
+                .bind("variantId", variantId)
+                .fetch()
+                .rowsUpdated()
+                .then(handle.client().sql("""
+                        DELETE FROM variant_stock_alert_thresholds WHERE org_id = :orgId AND variant_id = :variantId
+                        """)
+                        .bind("orgId", orgId)
+                        .bind("variantId", variantId)
+                        .fetch()
+                        .rowsUpdated())
+                .then();
     }
 
     /**
@@ -177,6 +219,9 @@ public class ProductVariantService {
         for (VariantPriceUpdateDTO item : dto.getItems()) {
             if (item.getVariantId() == null || item.getPrice() == null) {
                 return Mono.error(new BadRequestException("variantId and price are required for each item"));
+            }
+            if (item.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                return Mono.error(new BadRequestException("price must be a positive number for every item"));
             }
         }
         return ctx.withHandle((caller, handle) ->
@@ -451,6 +496,46 @@ public class ProductVariantService {
                         }
                     }
                     return new Palette(assignedMetadataIds, optionToMetadata);
+                });
+    }
+
+    // Two variants of the same product with the exact same option set are almost certainly a
+    // mistake (e.g. a double-submit), not a deliberate second SKU for identical Color/Size. Scoped
+    // to active variants only, so recreating a combination whose earlier variant was deactivated
+    // is still allowed.
+    private Mono<Void> checkDuplicateOptionCombination(BimeDbHandle handle, UUID productId, UUID orgId,
+                                                         List<UUID> optionIds) {
+        Set<UUID> newCombo = new HashSet<>(optionIds);
+        BadRequestException duplicateError =
+                new BadRequestException("A variant with this exact option combination already exists");
+        if (newCombo.isEmpty()) {
+            return handle.client().sql("""
+                    SELECT pv.id FROM product_variants pv
+                    WHERE pv.product_id = :productId AND pv.org_id = :orgId AND pv.is_active = true
+                      AND NOT EXISTS (SELECT 1 FROM product_variant_options pvo WHERE pvo.variant_id = pv.id)
+                    """)
+                    .bind("productId", productId)
+                    .bind("orgId", orgId)
+                    .fetch()
+                    .first()
+                    .flatMap(row -> Mono.<Void>error(duplicateError))
+                    .switchIfEmpty(Mono.empty());
+        }
+        return handle.client().sql("""
+                SELECT pvo.variant_id, pvo.option_id
+                FROM product_variant_options pvo
+                JOIN product_variants pv ON pv.id = pvo.variant_id
+                WHERE pv.product_id = :productId AND pv.org_id = :orgId AND pv.is_active = true
+                """)
+                .bind("productId", productId)
+                .bind("orgId", orgId)
+                .fetch()
+                .all()
+                .collectMultimap(row -> (UUID) row.get("variant_id"), row -> (UUID) row.get("option_id"))
+                .flatMap(byVariant -> {
+                    boolean duplicate = byVariant.values().stream()
+                            .anyMatch(options -> new HashSet<>(options).equals(newCombo));
+                    return duplicate ? Mono.error(duplicateError) : Mono.empty();
                 });
     }
 

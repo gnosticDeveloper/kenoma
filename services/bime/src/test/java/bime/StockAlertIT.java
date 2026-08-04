@@ -59,6 +59,22 @@ class StockAlertIT extends BaseIT {
     }
 
     @Test
+    void setThreshold_rejectsNegativeThreshold() {
+        VariantFixture fixture = buildVariantFixture();
+        StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
+        dto.setVariantId(fixture.variantId());
+        dto.setLocationId(fixture.locationId());
+        dto.setThreshold(-1);
+
+        client.put().uri("/stock/alerts/thresholds")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
     void setThreshold_returns404_forUnknownVariant() {
         LocationResponseDTO location = postLocation("Loc", "L-1");
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
@@ -100,6 +116,45 @@ class StockAlertIT extends BaseIT {
                 .exchange()
                 .expectStatus().isNoContent();
 
+        client.get().uri("/stock/alerts/thresholds?variantId={v}&locationId={l}", fixture.variantId(), fixture.locationId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockAlertThresholdResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void deactivateVariant_clearsItsStockAlertThreshold() {
+        VariantFixture fixture = buildVariantFixture();
+        putThreshold(fixture.variantId(), fixture.locationId(), 5);
+
+        client.delete().uri("/products/{productId}/variants/{variantId}", fixture.productId(), fixture.variantId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isNoContent();
+
+        // The deactivated variant's threshold must not linger — otherwise the scheduler keeps
+        // evaluating (and could keep alerting on) inventory that's no longer active.
+        client.get().uri("/stock/alerts/thresholds?variantId={v}&locationId={l}", fixture.variantId(), fixture.locationId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockAlertThresholdResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void deactivateLocation_clearsItsStockAlertThreshold() {
+        VariantFixture fixture = buildVariantFixture();
+        putThreshold(fixture.variantId(), fixture.locationId(), 5);
+
+        client.delete().uri("/locations/{id}", fixture.locationId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isNoContent();
+
+        // Same as deactivating a variant: a deactivated location's thresholds must not linger.
         client.get().uri("/stock/alerts/thresholds?variantId={v}&locationId={l}", fixture.variantId(), fixture.locationId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .exchange()
@@ -265,7 +320,7 @@ class StockAlertIT extends BaseIT {
         return response;
     }
 
-    private record VariantFixture(UUID variantId, UUID locationId) {}
+    private record VariantFixture(UUID variantId, UUID locationId, UUID productId) {}
 
     private VariantFixture buildVariantFixture() {
         LocationResponseDTO location = postLocation("Loc-" + UUID.randomUUID().toString().substring(0, 6), "LOC-" + UUID.randomUUID().toString().substring(0, 6));
@@ -308,7 +363,7 @@ class StockAlertIT extends BaseIT {
                 .returnResult().getResponseBody();
         assertThat(variant).isNotNull();
 
-        return new VariantFixture(variant.getId(), location.getId());
+        return new VariantFixture(variant.getId(), location.getId(), product.getId());
     }
 
     private LocationResponseDTO postLocation(String name, String code) {

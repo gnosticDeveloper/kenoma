@@ -1,5 +1,6 @@
 package raum.services;
 
+import common.exception.BadRequestException;
 import common.exception.ForbiddenException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,10 @@ public class CredentialsService {
     public Mono<BasicCredentialDTO> saveNewCredentials(CredentialsDTO dto) {
         if (dto.getServiceId().equals(serviceId)) {
             return Mono.error(new ForbiddenException("Credentials cannot be registered for Raum"));
+        }
+        Mono<BasicCredentialDTO> validationError = validationError(dto);
+        if (validationError != null) {
+            return validationError;
         }
         return credentialsRepository.save(Credentials.builder()
                         .orgId(dto.getOrgId())
@@ -52,6 +57,21 @@ public class CredentialsService {
                 );
     }
 
+    private Mono<BasicCredentialDTO> validationError(CredentialsDTO dto) {
+        if (isBlank(dto.getDbHost())) return Mono.error(new BadRequestException("dbHost is required"));
+        if (isBlank(dto.getDbName())) return Mono.error(new BadRequestException("dbName is required"));
+        if (isBlank(dto.getUserName())) return Mono.error(new BadRequestException("userName is required"));
+        if (isBlank(dto.getPassword())) return Mono.error(new BadRequestException("password is required"));
+        if (dto.getDbPort() == null || dto.getDbPort() <= 0) {
+            return Mono.error(new BadRequestException("dbPort must be a positive integer"));
+        }
+        return null;
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
     public Mono<CredentialsDTO> getEphemeralCredentialsByOrgIdAndServiceId(BasicCredentialDTO dto) {
         return credentialsRepository.findByOrgIdAndServiceId(dto.getOrgId(), dto.getServiceId())
                 .flatMap(credentials ->
@@ -72,11 +92,5 @@ public class CredentialsService {
                                 })
                 )
                 .switchIfEmpty(Mono.error(new NotFoundException("No credentials found")));
-    }
-
-    public Mono<Boolean> testDB() {
-        return credentialsRepository.count()
-                .map(count -> true)
-                .doOnError(Throwable::printStackTrace);
     }
 }

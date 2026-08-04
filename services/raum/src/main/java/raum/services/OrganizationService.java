@@ -1,9 +1,11 @@
 package raum.services;
 
 import common.exception.BadRequestException;
+import common.exception.ConflictException;
 import common.exception.NotFoundException;
 import common.mail.MailgunService;
 import common.security.VerificationTokenService;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import raum.dto.BillingEmailRequestDTO;
 import raum.dto.BillingEmailVerifyRequestDTO;
@@ -51,7 +53,14 @@ public class OrganizationService {
                 .name(dto.getName())
                 .build();
 
-        return repository.save(org).map(this::toResponseDTO);
+        // The org name's uniqueness is enforced by a DB-level UNIQUE constraint (the only thing
+        // that's actually race-proof against two concurrent registrations of the same name) -
+        // translate the resulting constraint violation into a clean 409 instead of letting a raw
+        // DB error surface as an unhandled 500.
+        return repository.save(org)
+                .map(this::toResponseDTO)
+                .onErrorMap(DataIntegrityViolationException.class, e ->
+                        new ConflictException("An organization named '" + dto.getName() + "' already exists"));
     }
 
     public Flux<OrgResponseDTO> getAllOrgs() {
@@ -117,9 +126,11 @@ public class OrganizationService {
                 return Mono.error(new BadRequestException("Unknown currencyRefreshCadence: " + dto.getCurrencyRefreshCadence()));
             }
             if (cadence == CurrencyRefreshCadence.EVERY_N_DAYS
-                    && (dto.getCurrencyRefreshIntervalDays() == null || dto.getCurrencyRefreshIntervalDays() < 1)) {
+                    && (dto.getCurrencyRefreshIntervalDays() == null
+                        || dto.getCurrencyRefreshIntervalDays() < 1
+                        || dto.getCurrencyRefreshIntervalDays() > 365)) {
                 return Mono.error(new BadRequestException(
-                        "currencyRefreshIntervalDays must be a positive integer when currencyRefreshCadence is EVERY_N_DAYS"));
+                        "currencyRefreshIntervalDays must be between 1 and 365 when currencyRefreshCadence is EVERY_N_DAYS"));
             }
         } else {
             cadence = null;

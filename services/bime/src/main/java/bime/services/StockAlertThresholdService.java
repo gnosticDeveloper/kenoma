@@ -5,6 +5,7 @@ import bime.dto.StockAlertResponseDTO;
 import bime.dto.StockAlertThresholdRequestDTO;
 import bime.dto.StockAlertThresholdResponseDTO;
 import common.db.WhereClause;
+import common.exception.BadRequestException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.r2dbc.core.DatabaseClient;
@@ -23,6 +24,9 @@ public class StockAlertThresholdService {
     private final BimeContextService ctx;
 
     public Mono<StockAlertThresholdResponseDTO> setThreshold(StockAlertThresholdRequestDTO dto) {
+        if (dto.getThreshold() < 0) {
+            return Mono.error(new BadRequestException("threshold must be zero or a positive integer"));
+        }
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
                 INSERT INTO variant_stock_alert_thresholds (org_id, variant_id, location_id, threshold)
                 SELECT :orgId, pv.id, l.id, :threshold

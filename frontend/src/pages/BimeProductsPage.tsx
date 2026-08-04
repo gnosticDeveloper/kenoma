@@ -292,7 +292,7 @@ export default function BimeProductsPage({ token, permissions }: Props) {
         </span>
       ),
     },
-    { key: 'variants', header: t('bimeProductsPage.variants'), render: p => <span className="td-muted">{p.variants?.length ?? '—'}</span> },
+    { key: 'variants', header: t('bimeProductsPage.variants'), render: p => <span className="td-muted">{p.variantCount ?? '—'}</span> },
     ...(permissions.canManageBime ? [{
       key: 'actions',
       header: '',

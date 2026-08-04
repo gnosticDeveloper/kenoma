@@ -163,7 +163,6 @@
     "subtitle": "Register and issue database credentials per organization and service.",
     "registerTitle": "Register credentials",
     "ephemeralTitle": "Issue ephemeral credentials",
-    "testTitle": "Test database connection",
     "org": "Organization",
     "orgPlaceholder": "Select an organization…",
     "service": "Service",
@@ -178,11 +177,7 @@
     "registering": "Registering…",
     "issue": "Issue",
     "issuing": "Issuing…",
-    "test": "Test",
-    "testing": "Testing…",
-    "registered": "Credentials registered.",
-    "reachable": "Database reachable",
-    "unreachable": "Database unreachable"
+    "registered": "Credentials registered."
   },
   "onboardingPage": {
     "title": "Onboarding",

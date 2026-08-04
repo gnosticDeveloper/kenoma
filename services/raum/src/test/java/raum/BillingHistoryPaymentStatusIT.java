@@ -135,21 +135,37 @@ class BillingHistoryPaymentStatusIT extends BaseIT {
     }
 
     @Test
-    void markPaid_withoutReference_leavesReferenceNull() throws Exception {
+    void markPaid_withoutReference_rejected() throws Exception {
+        // A PAID entry with no reference has no audit trail for the manual payment-status
+        // toggle (issue #124's interim scaffolding) — the frontend already prompts for a
+        // reference when marking paid; the backend must actually require it.
         UUID org = createOrg("Mark Paid No Reference Org", "no-reference@example.com");
+        UUID historyId = insertBillingHistory(org, "current_timestamp + interval '5 days'");
+
+        client.put().uri("/orgs/{orgId}/billing-history/{historyId}/payment-status", org, historyId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new PaymentStatusUpdateRequestDTO("PAID", null))
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void markPaid_withReference_persistsIt() throws Exception {
+        UUID org = createOrg("Mark Paid With Reference Org", "with-reference@example.com");
         UUID historyId = insertBillingHistory(org, "current_timestamp + interval '5 days'");
 
         BillingHistoryResponseDTO paid = client.put().uri("/orgs/{orgId}/billing-history/{historyId}/payment-status", org, historyId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(new PaymentStatusUpdateRequestDTO("PAID", null))
+                .bodyValue(new PaymentStatusUpdateRequestDTO("PAID", "wire-12345"))
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(BillingHistoryResponseDTO.class)
                 .returnResult().getResponseBody();
 
         assertThat(paid).isNotNull();
-        assertThat(paid.getPaymentReference()).isNull();
+        assertThat(paid.getPaymentReference()).isEqualTo("wire-12345");
         assertThat(paid.getPaidAt()).isNotNull();
     }
 
