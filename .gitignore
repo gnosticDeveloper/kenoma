@@ -37,6 +37,7 @@ build/
 codebase.json
 .env
 .env-out/
+kenoma-api-docs.html
 repomix.config.json
 .claude
 gateway/certs/server.key

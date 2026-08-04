@@ -1,0 +1,25 @@
+name: Export API Docs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  export-docs:
+    name: Export API Docs
+    runs-on: [ self-hosted, kenoma-vps ]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Generate and publish docs
+        run: |
+          chmod +x scripts/export-api-docs.sh
+          scripts/export-api-docs.sh --upload
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kenoma-api-docs
+          path: kenoma-api-docs.html
+          retention-days: 30
