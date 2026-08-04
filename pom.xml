@@ -6,7 +6,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>studio.gnosticdeveloper</groupId>
     <artifactId>kenoma</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.1.0-BETA</version>
     <packaging>pom</packaging>
     <name>kenoma</name>
     <description>Kenoma — Privacy-First B2B SaaS Infrastructure</description>
@@ -18,10 +18,10 @@
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring-boot.version>4.0.6</spring-boot.version>
+        <spring-boot.version>4.1.0</spring-boot.version>
         <lombok.version>1.18.46</lombok.version>
         <testcontainers.version>2.0.5</testcontainers.version>
-        <springdoc.version>3.0.2</springdoc.version>
+        <springdoc.version>3.1.0</springdoc.version>
     </properties>
     <dependencyManagement>
         <dependencies>
