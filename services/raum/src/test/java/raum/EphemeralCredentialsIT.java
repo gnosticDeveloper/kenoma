@@ -361,6 +361,60 @@ class EphemeralCredentialsIT {
     }
 
     @Test
+    void ephemeralCredentials_withAdminJwt_succeeds() {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        CredentialsDTO ephemeral = client.post()
+                .uri("/credentials/ephemeral")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(BasicCredentialDTO.builder()
+                        .orgId(orgId)
+                        .serviceId(serviceId)
+                        .build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block();
+
+        assertThat(ephemeral).isNotNull();
+        assertThat(ephemeral.getUserName()).isNotBlank();
+    }
+
+    @Test
+    void ephemeralCredentials_rejectsJwtWithoutCredentialManage() {
+        // A JWT that's authenticated but holds no CREDENTIAL_MANAGE-granting role (e.g. a plain
+        // onboarding-scoped operator) must not be able to pull any org's ephemeral DB credentials
+        // just by being logged in — this was the actual vulnerability: only isAuthenticated() was
+        // checked, so any valid JWT from any org/role could fetch any other org's credentials.
+        Claims claims = mock(Claims.class);
+        String rolesJson = "{\"" + raumServiceId + "\":[\"RAUM_ONBOARDING\"]}";
+        when(claims.getSubject()).thenReturn("test-onboarding-only");
+        when(claims.get(eq("orgId"), eq(String.class))).thenReturn(orgId.toString());
+        when(claims.get(eq("roles"), eq(String.class))).thenReturn(rolesJson);
+        when(jwtValidator.validateToken(anyString())).thenReturn(reactor.core.publisher.Mono.just(claims));
+
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.post()
+                .uri("/credentials/ephemeral")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(BasicCredentialDTO.builder()
+                        .orgId(orgId)
+                        .serviceId(serviceId)
+                        .build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.Forbidden.class);
+    }
+
+    @Test
     void saveCredentials_registersInOpenBaoAndDb() {
         mockAdminJwt();
         WebClient client = WebClient.builder()
@@ -519,20 +573,4 @@ class EphemeralCredentialsIT {
                 .isInstanceOf(WebClientResponseException.Unauthorized.class);
     }
 
-    @Test
-    void testDb_returnsTrue() {
-        mockAdminJwt();
-        WebClient client = WebClient.builder()
-                .baseUrl("http://localhost:%d".formatted(port))
-                .build();
-
-        Boolean result = client.get()
-                .uri("/credentials/test-db")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
-                .retrieve()
-                .bodyToMono(Boolean.class)
-                .block();
-
-        assertThat(result).isTrue();
-    }
 }

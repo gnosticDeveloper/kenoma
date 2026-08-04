@@ -67,6 +67,57 @@ class ProductVariantIT extends BaseIT {
     }
 
     @Test
+    void createVariant_rejectsDuplicateOptionCombination() {
+        Setup s = buildProductWithMetadata();
+
+        ProductVariantRequestDTO first = new ProductVariantRequestDTO();
+        first.setOptionIds(List.of(s.optionId));
+        first.setSku("VAR-DUP-1");
+        client.post().uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(first)
+                .exchange()
+                .expectStatus().isOk();
+
+        ProductVariantRequestDTO duplicate = new ProductVariantRequestDTO();
+        duplicate.setOptionIds(List.of(s.optionId));
+        duplicate.setSku("VAR-DUP-2");
+        client.post().uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(duplicate)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void createVariant_rejectsDuplicateNoOptionCombination() {
+        // Same rule for the "standard" (zero-option) variant shape.
+        ProductResponseDTO product = createProduct("SKU-DUP-STD", "No Metadata Product");
+
+        ProductVariantRequestDTO first = new ProductVariantRequestDTO();
+        first.setOptionIds(List.of());
+        first.setSku("VAR-STD-1");
+        client.post().uri("/products/{productId}/variants", product.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(first)
+                .exchange()
+                .expectStatus().isOk();
+
+        ProductVariantRequestDTO duplicate = new ProductVariantRequestDTO();
+        duplicate.setOptionIds(List.of());
+        duplicate.setSku("VAR-STD-2");
+        client.post().uri("/products/{productId}/variants", product.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(duplicate)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
     void createVariant_rejectsOptionNotInPalette() {
         Setup s = buildProductWithMetadata();
 
@@ -232,6 +283,58 @@ class ProductVariantIT extends BaseIT {
     }
 
     @Test
+    void batchUpdatePrices_rejectsNegativeOrZeroPrice() {
+        when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
+                .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
+        Setup s = buildProductWithMetadata();
+        ProductVariantResponseDTO variant = createVariant(s.productId, s.optionId, "PRICE-VAR-NEG");
+
+        VariantPriceUpdateDTO negative = new VariantPriceUpdateDTO();
+        negative.setVariantId(variant.getId());
+        negative.setPrice(new BigDecimal("-1.00"));
+        VariantBatchPriceRequestDTO negativeDto = new VariantBatchPriceRequestDTO();
+        negativeDto.setItems(List.of(negative));
+
+        client.patch().uri("/variants/pricing/batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(negativeDto)
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        VariantPriceUpdateDTO zero = new VariantPriceUpdateDTO();
+        zero.setVariantId(variant.getId());
+        zero.setPrice(BigDecimal.ZERO);
+        VariantBatchPriceRequestDTO zeroDto = new VariantBatchPriceRequestDTO();
+        zeroDto.setItems(List.of(zero));
+
+        client.patch().uri("/variants/pricing/batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(zeroDto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void createVariant_rejectsNegativeOrZeroPrice() {
+        Setup s = buildProductWithMetadata();
+
+        ProductVariantRequestDTO dto = new ProductVariantRequestDTO();
+        dto.setOptionIds(List.of(s.optionId));
+        dto.setSku("PRICE-VAR-CREATE-NEG");
+        dto.setPrice(new BigDecimal("-5.00"));
+        dto.setPriceCurrency("USD");
+
+        client.post().uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
     void batchUpdatePrices_updatesVariantsInOrg_rejectsForeignVariant() {
         when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
                 .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
@@ -322,6 +425,71 @@ class ProductVariantIT extends BaseIT {
         assertThat(converted).isNotNull();
         assertThat(converted.getPrice()).isEqualByComparingTo("10000.00");
         assertThat(converted.getPriceCurrency()).isEqualTo("ARS");
+    }
+
+    @Test
+    void getVariantById_withCurrencyParam_missingRate_returns404NotCrash() {
+        // raumClient.getRate completing empty (no rate on file for this pair) must surface as a
+        // clean error, not an NPE from multiplying by a null rate.
+        when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
+                .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
+        when(raumClient.getRate(eq("USD"), eq("XYZ"), any()))
+                .thenReturn(Mono.empty());
+
+        Setup s = buildProductWithMetadata();
+        ProductVariantResponseDTO variant = createVariant(s.productId, s.optionId, "PRICE-VAR-NORATE");
+
+        VariantPriceUpdateDTO item = new VariantPriceUpdateDTO();
+        item.setVariantId(variant.getId());
+        item.setPrice(new BigDecimal("10.00"));
+        VariantBatchPriceRequestDTO dto = new VariantBatchPriceRequestDTO();
+        dto.setItems(List.of(item));
+        client.patch().uri("/variants/pricing/batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk();
+
+        client.get()
+                .uri("/products/{productId}/variants/{variantId}?currency=XYZ", s.productId, variant.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void getVariantById_withCurrencyParam_sameAsStoredCurrency_skipsRateLookup() {
+        when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
+                .thenReturn(Mono.just(new OrgCurrencyDTO("USD", "MANUAL", "USD")));
+
+        Setup s = buildProductWithMetadata();
+        ProductVariantResponseDTO variant = createVariant(s.productId, s.optionId, "PRICE-VAR-SAME");
+
+        VariantPriceUpdateDTO item = new VariantPriceUpdateDTO();
+        item.setVariantId(variant.getId());
+        item.setPrice(new BigDecimal("10.00"));
+        VariantBatchPriceRequestDTO dto = new VariantBatchPriceRequestDTO();
+        dto.setItems(List.of(item));
+        client.patch().uri("/variants/pricing/batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk();
+
+        ProductVariantResponseDTO result = client.get()
+                .uri("/products/{productId}/variants/{variantId}?currency=USD", s.productId, variant.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(result).isNotNull();
+        assertThat(result.getPrice()).isEqualByComparingTo("10.00");
+        assertThat(result.getPriceCurrency()).isEqualTo("USD");
+        org.mockito.Mockito.verify(raumClient, org.mockito.Mockito.never()).getRate(any(), any(), any());
     }
 
     private record Setup(UUID productId, UUID optionId) {}

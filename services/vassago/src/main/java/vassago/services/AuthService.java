@@ -1,5 +1,6 @@
 package vassago.services;
 
+import common.exception.BadRequestException;
 import common.exception.NotFoundException;
 import common.exception.UnauthorizedException;
 import common.mail.MailgunService;
@@ -46,10 +47,17 @@ public class AuthService {
     @Value("${vassago.refresh-token.ttl-seconds:2592000}")
     private long refreshTtlSeconds;
 
+    @Value("${vassago.jwt.ttl-seconds:300}")
+    private long jwtTtlSeconds;
+
     @Value("${vassago.cookie.domain:}")
     private String cookieDomain;
 
     public Mono<String> login(LoginRequestDTO dto, ServerHttpResponse response) {
+        if (dto.getOrgId() == null || dto.getUsername() == null || dto.getUsername().isBlank()
+                || dto.getPassword() == null || dto.getPassword().isBlank()) {
+            return Mono.error(new BadRequestException("orgId, username, and password are required"));
+        }
         return vassagoDbService.getClient(dto.getOrgId())
                 .onErrorMap(NotFoundException.class, ex -> new UnauthorizedException("Invalid credentials"))
                 .flatMap(client -> client.sql("""
@@ -75,7 +83,7 @@ public class AuthService {
                                 String rtHash = verificationTokenService.hashToken(rtRaw);
                                 String fpRaw = verificationTokenService.generateToken();
                                 String fpHash = verificationTokenService.hashToken(fpRaw);
-                                return redisTokenService.storeRefreshToken(rtHash, dto.getOrgId(), dto.getUsername(), fpHash)
+                                return redisTokenService.storeRefreshToken(rtHash, dto.getOrgId(), userId, dto.getUsername(), fpHash)
                                         .then(Mono.fromRunnable(() -> {
                                             setCookie(response, REFRESH_COOKIE, rtRaw);
                                             setCookie(response, FP_COOKIE, fpRaw);
@@ -91,13 +99,16 @@ public class AuthService {
             return Mono.error(new UnauthorizedException("No session"));
         }
         String rtHash = verificationTokenService.hashToken(rtCookie.getValue());
-        return redisTokenService.lookupRefreshToken(rtHash)
-                .switchIfEmpty(Mono.error(new UnauthorizedException("Invalid or expired session")))
+        // consumeRefreshToken atomically reads-and-removes the entry (Redis GETDEL), so two
+        // requests racing on the same still-valid token can't both observe live data — only one
+        // proceeds past this point, the other falls straight through to handlePossibleReplay
+        // having simply lost the race (not because the token was already known-replayed).
+        return redisTokenService.consumeRefreshToken(rtHash)
+                .switchIfEmpty(Mono.defer(() -> handlePossibleReplay(rtHash)))
                 .flatMap(data -> {
                     HttpCookie fpCookie = exchange.getRequest().getCookies().getFirst(FP_COOKIE);
                     if (fpCookie == null || !verificationTokenService.hashToken(fpCookie.getValue()).equals(data.fpHash())) {
-                        return redisTokenService.deleteRefreshToken(rtHash)
-                                .then(Mono.error(new UnauthorizedException("Session binding mismatch")));
+                        return Mono.error(new UnauthorizedException("Session binding mismatch"));
                     }
                     return vassagoDbService.getClient(data.orgId())
                             .flatMap(client -> client.sql("""
@@ -119,8 +130,8 @@ public class AuthService {
                                 String newRtHash = verificationTokenService.hashToken(newRtRaw);
                                 String newFpRaw = verificationTokenService.generateToken();
                                 String newFpHash = verificationTokenService.hashToken(newFpRaw);
-                                return redisTokenService.deleteRefreshToken(rtHash)
-                                        .then(redisTokenService.storeRefreshToken(newRtHash, data.orgId(), data.username(), newFpHash))
+                                return redisTokenService.markRotated(rtHash, data.userId())
+                                        .then(redisTokenService.storeRefreshToken(newRtHash, data.orgId(), data.userId(), data.username(), newFpHash))
                                         .then(Mono.fromRunnable(() -> {
                                             setCookie(exchange.getResponse(), REFRESH_COOKIE, newRtRaw);
                                             setCookie(exchange.getResponse(), FP_COOKIE, newFpRaw);
@@ -128,6 +139,19 @@ public class AuthService {
                                         .thenReturn(token);
                             });
                 });
+    }
+
+    /**
+     * A refresh-token hash with no live entry is either genuinely unknown/expired, or it's a
+     * replay of a token that was already rotated out — the signature of a stolen token racing (or
+     * following) the legitimate client's own refresh. In the replay case, the session that resulted
+     * from the legitimate rotation is revoked immediately rather than left to run its course,
+     * since presenting the old token again means whoever holds it wasn't the one who rotated it.
+     */
+    private Mono<RedisTokenService.RefreshTokenData> handlePossibleReplay(String rtHash) {
+        return redisTokenService.checkReplayedToken(rtHash)
+                .flatMap(userId -> redisTokenService.revokeUserTokens(userId, jwtTtlSeconds))
+                .then(Mono.error(new UnauthorizedException("Invalid or expired session")));
     }
 
     public Mono<Void> logout(ServerWebExchange exchange) {

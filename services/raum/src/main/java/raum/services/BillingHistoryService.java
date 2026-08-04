@@ -55,6 +55,9 @@ public class BillingHistoryService {
         if (trimmedReference != null && trimmedReference.length() > 255) {
             return Mono.error(new BadRequestException("Payment reference must be 255 characters or fewer"));
         }
+        if (parsed == PaymentStatus.PAID && trimmedReference == null) {
+            return Mono.error(new BadRequestException("Payment reference is required when marking as PAID"));
+        }
         return billingHistoryRepository.findByIdAndOrgId(historyId, orgId)
                 .switchIfEmpty(Mono.error(new NotFoundException("Billing history entry not found")))
                 .flatMap(entry -> {

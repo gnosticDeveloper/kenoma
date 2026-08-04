@@ -141,6 +141,52 @@ class OrganizationBillingIT extends BaseIT {
     }
 
     @Test
+    void confirmBillingEmail_returns404_whenTokenBelongsToAnotherOrg() {
+        // The token is bound to the org it was issued for; presenting a valid, unexpired token
+        // under a different org's URL must not confirm that other org's billing email.
+        when(mailgunService.sendBillingEmailVerification(anyString(), any(UUID.class), anyString(), anyString()))
+                .thenReturn(Mono.empty());
+
+        UUID orgAId = createOrg("Mismatch Org A", "org-a@example.com");
+        UUID orgBId = createOrg("Mismatch Org B", "org-b@example.com");
+
+        client.post().uri("/orgs/{id}/billing-email", orgAId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new BillingEmailRequestDTO("billing@org-a.com", "en"))
+                .exchange()
+                .expectStatus().isNoContent();
+
+        var tokenCaptor = forClass(String.class);
+        org.mockito.Mockito.verify(mailgunService)
+                .sendBillingEmailVerification(anyString(), any(UUID.class), tokenCaptor.capture(), anyString());
+        String orgAToken = tokenCaptor.getValue();
+
+        client.post().uri("/orgs/{id}/billing-email/confirm", orgBId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new BillingEmailVerifyRequestDTO(orgAToken))
+                .exchange()
+                .expectStatus().isNotFound();
+
+        OrgResponseDTO orgB = client.get().uri("/orgs/{id}", orgBId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(OrgResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(orgB).isNotNull();
+        assertThat(orgB.isBillingEmailVerified()).isFalse();
+
+        // The token is still valid for its actual org afterward — the mismatched attempt didn't
+        // consume it.
+        client.post().uri("/orgs/{id}/billing-email/confirm", orgAId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new BillingEmailVerifyRequestDTO(orgAToken))
+                .exchange()
+                .expectStatus().isNoContent();
+    }
+
+    @Test
     void confirmBillingEmail_returns404_forUnknownToken() {
         UUID id = createOrg("Unknown Token Org", "unknown-token@example.com");
 

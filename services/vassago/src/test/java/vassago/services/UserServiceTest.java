@@ -23,6 +23,7 @@ import vassago.db.VassagoDbService;
 import vassago.dto.PasswordChangeRequestDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
+import vassago.security.RedisTokenService;
 import vassago.security.VassagoAuthentication;
 import vassago.security.VassagoRole;
 
@@ -45,6 +46,8 @@ class UserServiceTest {
     private PasswordEncoder encoder;
     @Mock
     private MailgunService mailgunService;
+    @Mock
+    private RedisTokenService redisTokenService;
 
     private static final UUID ORG_ID     = UUID.randomUUID();
     private static final UUID USER_ID    = UUID.randomUUID();
@@ -55,7 +58,7 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(vassagoDbService, encoder, SERVICE_ID, mailgunService, new VerificationTokenService());
+        userService = new UserService(vassagoDbService, encoder, SERVICE_ID, mailgunService, new VerificationTokenService(), redisTokenService);
     }
 
     private static final Map<String, List<String>> ADMIN_ROLES = Map.of(

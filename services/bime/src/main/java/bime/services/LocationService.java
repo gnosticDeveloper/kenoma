@@ -1,6 +1,7 @@
 package bime.services;
 
 import bime.db.BimeContextService;
+import bime.db.BimeDbHandle;
 import bime.dto.LocationRequestDTO;
 import bime.dto.LocationResponseDTO;
 import common.exception.BadRequestException;
@@ -111,8 +112,29 @@ public class LocationService {
                 .rowsUpdated()
                 .flatMap(rows -> rows == 0
                         ? Mono.error(new NotFoundException("Location not found"))
-                        : Mono.empty())
+                        // A deactivated location shouldn't keep tripping (or holding) stock alerts —
+                        // without this, the scheduler happily keeps emailing about a location that no
+                        // longer exists as far as the catalog is concerned.
+                        : clearStockAlertsForLocation(handle, caller.getOrgId(), id))
         ).then();
+    }
+
+    private Mono<Void> clearStockAlertsForLocation(BimeDbHandle handle, UUID orgId, UUID locationId) {
+        return handle.client().sql("""
+                DELETE FROM variant_stock_alerts WHERE org_id = :orgId AND location_id = :locationId
+                """)
+                .bind("orgId", orgId)
+                .bind("locationId", locationId)
+                .fetch()
+                .rowsUpdated()
+                .then(handle.client().sql("""
+                        DELETE FROM variant_stock_alert_thresholds WHERE org_id = :orgId AND location_id = :locationId
+                        """)
+                        .bind("orgId", orgId)
+                        .bind("locationId", locationId)
+                        .fetch()
+                        .rowsUpdated())
+                .then();
     }
 
     private LocationResponseDTO toResponseDTO(Map<String, Object> row) {

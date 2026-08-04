@@ -1,6 +1,7 @@
 package raum.services;
 
 import common.exception.NotFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import raum.dto.ExportJobResponseDTO;
 import raum.models.ExportJob;
@@ -37,10 +38,18 @@ public class ExportJobService {
                 .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
                 .flatMap(org -> exportJobRepository.findFirstByOrgIdAndStatusIn(orgId, ACTIVE_STATUSES)
                         .switchIfEmpty(Mono.defer(() -> exportJobRepository.save(ExportJob.builder()
-                                .orgId(orgId)
-                                .status(ExportJobStatus.PENDING.name())
-                                .requestedAt(Instant.now())
-                                .build()))))
+                                        .orgId(orgId)
+                                        .status(ExportJobStatus.PENDING.name())
+                                        .requestedAt(Instant.now())
+                                        .build())
+                                // The check above is not atomic with this insert, so a concurrent
+                                // request can win the race and insert its own active job first. The
+                                // partial unique index on (org_id) WHERE status IN (...) catches that
+                                // at the database level; fall back to returning whichever job won
+                                // instead of surfacing the constraint violation to the caller.
+                                .onErrorResume(DataIntegrityViolationException.class, e ->
+                                        exportJobRepository.findFirstByOrgIdAndStatusIn(orgId, ACTIVE_STATUSES)
+                                                .switchIfEmpty(Mono.error(e))))))
                 .map(this::toResponseDTO);
     }
 

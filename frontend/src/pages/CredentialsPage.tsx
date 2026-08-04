@@ -38,8 +38,6 @@ export default function CredentialsPage({ token }: Props) {
   const ephemeral = useApiCall<Credentials>()
   const [ephForm, setEphForm] = useState<BasicCredential>({ orgId: '', serviceId: '' })
 
-  const testDb = useApiCall<boolean>()
-
   return (
     <div className="page">
       <div className="page-header">
@@ -140,21 +138,6 @@ export default function CredentialsPage({ token }: Props) {
         </div>
         {ephemeral.state.status === 'success' && <CredentialCard cred={ephemeral.state.data} />}
         {ephemeral.state.status === 'error' && <Feedback state={ephemeral.state} />}
-      </div>
-
-      <div className="panel">
-        <h2>{t('credentialsPage.testTitle')}</h2>
-        <div className="actions">
-          <button className="btn btn-outline" disabled={testDb.state.status === 'loading'} onClick={() => testDb.call(() => raum.credentials.testDb(token))}>
-            {testDb.state.status === 'loading' ? t('credentialsPage.testing') : t('credentialsPage.test')}
-          </button>
-        </div>
-        {testDb.state.status === 'success' && (
-          <div className={`status-badge ${testDb.state.data ? 'status-ok' : 'status-fail'}`}>
-            {testDb.state.data ? t('credentialsPage.reachable') : t('credentialsPage.unreachable')}
-          </div>
-        )}
-        {testDb.state.status === 'error' && <Feedback state={testDb.state} />}
       </div>
     </div>
   )

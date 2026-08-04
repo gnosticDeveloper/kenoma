@@ -16,6 +16,7 @@ import { vassago } from './api/vassago'
 import { useApiCall } from './hooks/useApiCall'
 import { parseJwtClaims, derivePermissions, jwtExp } from './auth'
 import type { Permissions } from './auth'
+import { parseRoute, buildPath } from './routing'
 import type { LoginRequest } from './types'
 import { ToastProvider } from './components/Toast'
 import { Sidebar, type NavGroup } from './components/Sidebar'
@@ -68,14 +69,17 @@ function safePermissions(token: string): Permissions {
 
 function AppShell() {
   const { t } = useTranslation()
-  const [page, setPage] = useState<Page>('orgs')
+  const initialRoute = parseRoute(window.location.pathname)
+  const [page, setPage] = useState<Page>((initialRoute.page as Page) || 'orgs')
+  const [urlOrgId, setUrlOrgId] = useState<string | null>(initialRoute.orgId)
   const [authView, setAuthView] = useState<'login' | 'recover'>('login')
   const [token, setToken] = useState<string | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const timerRef = useRef<number | null>(null)
+  const freshLoginRef = useRef(false)
 
   const loginCall = useApiCall<{ token: string }>()
-  const [loginForm, setLoginForm] = useState<LoginRequest>({ orgId: '', username: '', password: '' })
+  const [loginForm, setLoginForm] = useState<LoginRequest>({ orgId: initialRoute.orgId ?? '', username: '', password: '' })
 
   const permissions: Permissions = token ? safePermissions(token) : EMPTY_PERMISSIONS
 
@@ -105,9 +109,53 @@ function AppShell() {
     return () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current) }
   }, [startRefreshLoop])
 
+  // Back/forward navigation: re-derive org id and page from the URL.
+  useEffect(() => {
+    function onPopState() {
+      const route = parseRoute(window.location.pathname)
+      setUrlOrgId(route.orgId)
+      if (route.page) setPage(route.page as Page)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  // While logged out, keep the login form's org id in sync with whatever org the URL names.
+  useEffect(() => {
+    if (token) return
+    if (urlOrgId) setLoginForm(f => ({ ...f, orgId: urlOrgId }))
+  }, [urlOrgId, token])
+
+  // Reconcile the URL with the authenticated session: the URL's org id must match the JWT's,
+  // since the JWT (not the URL) is what actually scopes every API call to an org. If they
+  // disagree — e.g. a stale session still open in this tab while the URL points at another org —
+  // the session is dropped rather than silently serving org A's data under org B's URL.
+  useEffect(() => {
+    if (!authReady || !token) return
+    let claims: ReturnType<typeof parseJwtClaims>
+    try { claims = parseJwtClaims(token) } catch { setToken(null); return }
+
+    const freshLogin = freshLoginRef.current
+    freshLoginRef.current = false
+
+    if (!freshLogin && urlOrgId && urlOrgId !== claims.orgId) {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+      vassago.logout(token).catch(() => {})
+      setToken(null)
+      return
+    }
+
+    const currentPageInUrl = parseRoute(window.location.pathname).page
+    if (urlOrgId !== claims.orgId || currentPageInUrl !== activePage) {
+      setUrlOrgId(claims.orgId)
+      window.history.replaceState(null, '', buildPath(claims.orgId, activePage))
+    }
+  }, [authReady, token, urlOrgId, activePage])
+
   function handleLogin() {
     loginCall.call(async () => {
       const r = await vassago.login(loginForm)
+      freshLoginRef.current = true
       setToken(r.token)
       startRefreshLoop(r.token)
       return r
@@ -119,6 +167,12 @@ function AppShell() {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current)
     vassago.logout(token).catch(() => {})
     setToken(null)
+    if (urlOrgId) window.history.replaceState(null, '', buildPath(urlOrgId))
+  }
+
+  function handleNavigate(id: string) {
+    setPage(id as Page)
+    if (urlOrgId) window.history.pushState(null, '', buildPath(urlOrgId, id))
   }
 
   if (!authReady) return null
@@ -185,7 +239,7 @@ function AppShell() {
 
   return (
     <div className="app-layout">
-      <Sidebar groups={visibleGroups} activeId={activePage} onSelect={id => setPage(id as Page)} onLogout={handleLogout} />
+      <Sidebar groups={visibleGroups} activeId={activePage} onSelect={handleNavigate} onLogout={handleLogout} />
       <main className="content">
         {activePage === 'orgs'           && <OrgsPage token={token} />}
         {activePage === 'pricing'        && <PricingPage token={token} />}

@@ -5,6 +5,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -97,5 +99,64 @@ class CreateUserIT extends BaseIT {
         assertThat(r1).isNotNull();
         assertThat(r2).isNotNull();
         assertThat(r1.getId()).isNotEqualTo(r2.getId());
+    }
+
+    @Test
+    void createUser_duplicateUsername_returns409NotUnhandled500() {
+        when(mailgunService.sendVerificationEmail(anyString(), any(UUID.class), anyString(), anyString()))
+                .thenReturn(Mono.empty());
+
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+        String token = obtainToken(client);
+
+        UserRequestDTO first = new UserRequestDTO();
+        first.setName("Dup");
+        first.setLastName("One");
+        first.setEmail("dup-one@example.com");
+        first.setUsername("dupuser");
+        first.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+        client.post().uri("/user")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .bodyValue(first)
+                .retrieve().bodyToMono(UserResponseDTO.class).block();
+
+        UserRequestDTO duplicate = new UserRequestDTO();
+        duplicate.setName("Dup");
+        duplicate.setLastName("Two");
+        duplicate.setEmail("dup-two@example.com");
+        duplicate.setUsername("dupuser");
+        duplicate.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+
+        assertThatThrownBy(() -> client.post().uri("/user")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .bodyValue(duplicate)
+                .retrieve().bodyToMono(UserResponseDTO.class).block())
+                .isInstanceOf(WebClientResponseException.Conflict.class);
+    }
+
+    @Test
+    void createUser_missingUsername_returns400NotUnhandled500() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+        String token = obtainToken(client);
+
+        Map<String, Object> incomplete = Map.of(
+                "email", "no-username@example.com",
+                "name", "No",
+                "lastName", "Username",
+                "roles", Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER"))
+        );
+
+        assertThatThrownBy(() -> client.post().uri("/user")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .bodyValue(incomplete)
+                .retrieve().bodyToMono(UserResponseDTO.class).block())
+                .isInstanceOf(WebClientResponseException.BadRequest.class);
     }
 }

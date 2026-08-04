@@ -130,6 +130,11 @@ CREATE TABLE IF NOT EXISTS export_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_export_jobs_org_id ON export_jobs(org_id);
+-- Enforces "at most one active export per org" at the database level, closing the race where two
+-- concurrent requests both see no active job (application-level check-then-insert) and both
+-- insert one.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_export_jobs_active_per_org ON export_jobs(org_id)
+    WHERE status IN ('PENDING', 'RUNNING');
 
 INSERT INTO services (name, description)
 VALUES

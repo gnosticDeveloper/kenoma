@@ -61,15 +61,28 @@ public class ProductService {
 
     public Flux<ProductResponseDTO> getProducts() {
         return ctx.withHandleMany((caller, handle) -> handle.client().sql("""
-                SELECT id, org_id, sku, name, description, is_active, created_at, modified_at
-                FROM products
-                WHERE org_id = :orgId
-                ORDER BY name
+                SELECT p.id, p.org_id, p.sku, p.name, p.description, p.is_active, p.created_at, p.modified_at,
+                       COUNT(pv.id) AS variant_count
+                FROM products p
+                LEFT JOIN product_variants pv ON pv.product_id = p.id
+                WHERE p.org_id = :orgId
+                GROUP BY p.id
+                ORDER BY p.name
                 """)
                 .bind("orgId", caller.getOrgId())
                 .fetch()
                 .all()
-                .map(this::toResponseDTO)
+                .map(row -> ProductResponseDTO.builder()
+                        .id((UUID) row.get("id"))
+                        .orgId((UUID) row.get("org_id"))
+                        .sku((String) row.get("sku"))
+                        .name((String) row.get("name"))
+                        .description((String) row.get("description"))
+                        .isActive((Boolean) row.get("is_active"))
+                        .createdAt((LocalDateTime) row.get("created_at"))
+                        .modifiedAt((LocalDateTime) row.get("modified_at"))
+                        .variantCount(((Long) row.get("variant_count")).intValue())
+                        .build())
         );
     }
 

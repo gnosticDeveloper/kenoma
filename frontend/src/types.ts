@@ -322,6 +322,8 @@ export interface ProductResponse {
   // Populated by GET /products/{id}; omitted (null) by the GET /products list endpoint
   metadata: AssignedMetadata[] | null
   variants: ProductVariantResponse[] | null
+  // Populated by GET /products (list); omitted (null) by GET /products/{id}, which reports variants instead
+  variantCount: number | null
 }
 
 export interface StockMovementRequest {

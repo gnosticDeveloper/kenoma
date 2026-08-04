@@ -94,8 +94,6 @@ export const raum = {
       req<BasicCredential>('/credentials', { method: 'POST', ...payload(dto) }, token),
     ephemeral: (dto: BasicCredential, token: string) =>
       req<Credentials>('/credentials/ephemeral', { method: 'POST', ...payload(dto) }, token),
-    testDb: (token: string) =>
-      req<boolean>('/credentials/test-db', { method: 'GET' }, token),
   },
   onboarding: {
     initiate: (orgId: string, dto: OnboardingRequest, token: string) =>
