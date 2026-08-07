@@ -5,6 +5,7 @@
 [![CI](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/ci.yml/badge.svg)](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/codeql.yml/badge.svg)](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/codeql.yml)
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0--BETA-informational.svg)](pom.xml)
 
 ---
 
@@ -12,17 +13,17 @@
 
 | Service | Port | Description |
 |---|---|---|
-| **Raum** | `8080` | Organization registry. Manages tenants, registered services, and ephemeral database credentials via OpenBao |
+| **Raum** | `8080` | Organization registry. Manages tenants, registered services, ephemeral database credentials via OpenBao, and billing/invoicing |
 | **Vassago** | `8081` | Authentication and identity. JWT issuance, session management, user lifecycle, and password recovery |
 | **Bime** | `8082` | Inventory management. Products, variants, metadata, stock ledger, and warehouse locations |
-| **Common** | No port | Shared library: DTOs, exception handling, JWT validation, and R2DBC connection pooling |
+| **Common** | No port | Shared library: DTOs, exception handling, JWT validation, R2DBC connection pooling, and the Mailgun email client |
 | **Frontend** | `5173` (dev) | React/Vite admin UI. Dark/light/auto themes, EN/ES i18n |
 
-All backend traffic is fronted by **nginx**, which terminates TLS and reverse-proxies `api.<BASE_DOMAIN>` to the three services by path, plus `grafana.<BASE_DOMAIN>` to the observability stack.
+All backend traffic is fronted by **nginx** (config templated from `gateway/nginx.conf.template`), which terminates TLS, applies per-IP rate limiting in front of Vassago's public endpoints, and reverse-proxies `api.<BASE_DOMAIN>` to the three services by path, plus `grafana.<BASE_DOMAIN>` to the observability stack.
 
 ### Raum: Organization & Credential Registry
 
-Raum is the platform's administrative backbone. It provisions tenant organizations, registers services that consume the platform, and issues ephemeral database credentials through OpenBao AppRole so downstream services never hold long-lived secrets. It also orchestrates new organization onboarding. Provisioning the org admin account in Vassago and seeding initial inventory data in Bime according to a configurable preset, with Redis-backed retry so partial failures can be recovered automatically.
+Raum is the platform's administrative backbone. It provisions tenant organizations, registers services that consume the platform, and issues ephemeral database credentials through OpenBao AppRole so downstream services never hold long-lived secrets. It also orchestrates new organization onboarding, provisioning the org admin account in Vassago and seeding initial inventory data in Bime according to a configurable preset, with Redis-backed retry so partial failures can be recovered automatically. Raum additionally owns billing: per-module pricing, multi-currency support with a scheduled FX rate refresh, invoice generation and delivery, manual payment-status management, disaster-recovery backups, and on-demand per-tenant data export.
 
 **API surface:**
 
@@ -32,6 +33,19 @@ Raum is the platform's administrative backbone. It provisions tenant organizatio
 | `GET` | `/orgs/{id}` | Get an organization |
 | `PUT` | `/orgs/{id}` | Update an organization |
 | `DELETE` | `/orgs/{id}` | Delete an organization |
+| `PUT` | `/orgs/{id}/billing-info` | Update an organization's billing details |
+| `POST` | `/orgs/{id}/billing-email` | Set/change the organization's billing email |
+| `POST` | `/orgs/{id}/billing-email/confirm` | Confirm a billing email change |
+| `POST` | `/orgs/{id}/export` | Kick off an async per-tenant data export job |
+| `GET` | `/orgs/{id}/export/{jobId}` | Poll export job status / retrieve the result |
+| `GET` | `/orgs/{orgId}/billing-history` | List an organization's billing history |
+| `GET` | `/orgs/{orgId}/billing-history/{historyId}/invoice` | Download a generated invoice |
+| `PUT` | `/orgs/{orgId}/billing-history/{historyId}/payment-status` | Manually set a payment's status |
+| `POST` | `/orgs/{orgId}/billing-history/{historyId}/resend` | Resend an invoice email |
+| `GET`/`POST` | `/pricing/base` | Get/set base module pricing |
+| `GET`/`POST` | `/pricing/modules` | Get/set per-module (service) pricing |
+| `GET`/`POST` | `/pricing/exchange-rates` | Get/set exchange rates |
+| `GET` | `/pricing/rate` | Get the current exchange rate for a currency pair |
 | `POST` | `/services` | Register a service |
 | `GET` | `/services` | List all services |
 | `GET` | `/services/{id}` | Get a service |
@@ -40,6 +54,8 @@ Raum is the platform's administrative backbone. It provisions tenant organizatio
 | `POST` | `/credentials` | Register credentials for a service |
 | `POST` | `/credentials/ephemeral` | Issue ephemeral credentials for an org/service pair |
 | `POST` | `/onboarding/{orgId}` | Onboard an organization. Seed Vassago admin user and Bime inventory preset |
+
+**Scheduled jobs:** daily DR backup (`pg_dump` per database, gzipped, uploaded to S3-compatible storage), invoice deadline notifications, and periodic FX rate refresh (org-configurable periodic vs. real-time).
 
 **Roles:** `RAUM_ADMIN`, `RAUM_ONBOARDING`
 
@@ -101,6 +117,12 @@ Bime is a multi-tenant inventory service with tenant data isolated at the data l
 | `GET` | `/stock/movements` | List stock movements |
 | `GET` | `/stock/movements/{id}` | Get a stock movement |
 | `GET` | `/stock/balances` | Get current stock balances per variant/location |
+| `PUT` | `/stock/alerts/thresholds` | Set a low-stock alert threshold for a variant/location |
+| `GET` | `/stock/alerts/thresholds` | List configured alert thresholds |
+| `DELETE` | `/stock/alerts/thresholds` | Remove an alert threshold |
+| `GET` | `/stock/alerts/active` | List currently active (triggered) alerts |
+
+**Scheduled jobs:** daily stock-threshold check that emails alerts for any variant/location below its configured threshold.
 
 **Roles:** `BIME_ADMIN`, `BIME_MANAGER`, `BIME_VIEWER`, `BIME_USER`
 
@@ -112,9 +134,16 @@ Bime is a multi-tenant inventory service with tenant data isolated at the data l
 ---
 config:
   layout: elk
+  theme: base
+  themeVariables:
+    primaryColor: "#f8fafc"
+    primaryTextColor: "#1f2937"
+    primaryBorderColor: "#94a3b8"
+    lineColor: "#64748b"
+    edgeLabelBackground: "#f8fafc"
 ---
 flowchart TB
-    Nginx["nginx (TLS, reverse proxy)"] --> Vassago["Vassago Service"] & Bime["Bime Service"] & Raum["Raum Service"] & Grafana["Grafana"]
+    Nginx["nginx (TLS, reverse proxy, rate limiting)"] --> Vassago["Vassago Service"] & Bime["Bime Service"] & Raum["Raum Service"] & Grafana["Grafana"]
     OpenBao[("OpenBao")] -- public api keys --> Vassago
     Redis[("Redis")] -- onboarding --> Raum
     Redis -- refresh tokens --> Vassago
@@ -126,6 +155,9 @@ flowchart TB
     OpenBao -- db credentials --> Raum
     Raum & Vassago & Bime -- logs --> Promtail --> Loki[("Loki")] --> Grafana
     Raum & Vassago & Bime -- metrics --> Prometheus[("Prometheus")] --> Grafana
+    Raum & Vassago & Bime -- transactional emails --> Mailgun(["Mailgun"])
+    Raum -- DR backups, tenant exports, API docs --> BackupStore[("S3-compatible storage")]
+    Raum -- exchange rates --> FxProvider(["FX rate provider"])
 
      OpenBao:::orange
      Vassago:::sky
@@ -136,23 +168,31 @@ flowchart TB
      VassagoDB:::indigo
      BimeDB:::indigo
      Grafana:::orange
-    classDef orange stroke:#fb923c,fill:#fff7ed
-    classDef teal stroke:#2dd4bf,fill:#f0fdfa
-    classDef indigo stroke:#818cf8,fill:#eef2ff
-    classDef violet stroke:#a78bfa,fill:#f5f3ff
-    classDef sky stroke:#38bdf8,fill:#f0f9ff
-    classDef green stroke:#4ade80,fill:#f0fdf4
+     Mailgun:::slate
+     BackupStore:::slate
+     FxProvider:::slate
+    classDef orange stroke:#fb923c,fill:#fff7ed,color:#1f2937
+    classDef teal stroke:#2dd4bf,fill:#f0fdfa,color:#1f2937
+    classDef indigo stroke:#818cf8,fill:#eef2ff,color:#1f2937
+    classDef violet stroke:#a78bfa,fill:#f5f3ff,color:#1f2937
+    classDef sky stroke:#38bdf8,fill:#f0f9ff,color:#1f2937
+    classDef green stroke:#4ade80,fill:#f0fdf4,color:#1f2937
+    classDef slate stroke:#94a3b8,fill:#f8fafc,color:#1f2937,stroke-dasharray: 4 3
 ```
+
+Rounded nodes (Mailgun, FX rate provider) and the dashed-border style mark third-party external services; everything else runs inside the Kenoma stack.
 
 - All services are **reactive** (Spring WebFlux + R2DBC).
 - JWT signing keys live in **OpenBao**'s transit engine, managed by Vassago. Vassago and Raum read the public key directly from OpenBao; Bime fetches it from Vassago's public key endpoint.
 - Database credentials are short-lived and issued through Raum. Vassago and Bime call Raum to obtain ephemeral credentials, which Raum provisions via OpenBao. No service holds a static database password.
 - **Redis** is shared between Vassago (session tokens) and Raum (onboarding preset config for retry).
 - During onboarding, Raum calls Vassago and Bime over HTTP to seed the new tenant. A scheduled retry recovers any credential that failed mid-flow using the preset config stored in Redis.
-- The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, and a unified exception hierarchy.
+- The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, a unified exception hierarchy, and the Mailgun email client (used by Raum, Vassago, and Bime for transactional emails).
 - **nginx** terminates TLS and reverse-proxies `api.<BASE_DOMAIN>` (path-routed to Raum/Vassago/Bime) and `grafana.<BASE_DOMAIN>`. No service publishes its app port directly to the host.
 - **OpenBao runs in production mode**: Raft integrated storage, Shamir secret sharing (5 key shares, 3-share unseal threshold), and per-service AppRole auth (Vassago, Raum, and a Raum-service role). Services fetch and renew their own AppRole tokens at runtime and retry indefinitely rather than failing at boot.
 - **Observability**: Promtail ships container logs to Loki; each service exposes metrics that Prometheus scrapes; Grafana ships with a default "Kenoma overview" dashboard covering both, provisioned automatically.
+- **Localization**: transactional emails (password recovery, invoices, stock alerts) and onboarding presets are localized in English and Spanish, shared across services via the `common` module's resource bundles.
+- **Data protection**: Raum runs a nightly `pg_dump`-based disaster-recovery backup per database to S3-compatible storage, and exposes an on-demand per-tenant export (`POST /orgs/{id}/export`) that pulls an organization's own data — excluding platform-internal credentials.
 
 > **Database separation note:** The three databases run as separate containers in development to enforce proper tenant isolation at the infrastructure level during testing. In practice, they can all live on the same PostgreSQL instance without issue, although it is not the intended setup.
 
@@ -212,6 +252,10 @@ Key variables:
 | `BASE_DOMAIN` | Root domain nginx serves; API at `api.<BASE_DOMAIN>` | `localhost` |
 | `CORS_ALLOWED_ORIGINS` | Allowed CORS origins, shared by all three services | *(empty — CORS disabled)* |
 | `RAUM_JDWP_OPTS` / `VASSAGO_JDWP_OPTS` / `BIME_JDWP_OPTS` | Opt-in JDWP remote-debug agent per service | *(unset — debugging off)* |
+| `DR_BACKUP_S3_ENDPOINT` / `_BUCKET` / `_ACCESS_KEY` / `_SECRET_KEY` | S3-compatible storage for DR backups, tenant exports, and generated API docs | *(required for backups)* |
+| `DR_BACKUP_CRON` | Cron schedule for the nightly DR backup job | `0 0 2 * * *` |
+| `MAILGUN_INVOICE_FROM` / `MAILGUN_STOCK_ALERT_FROM` | Sender addresses for invoice and stock-alert emails | *(required)* |
+| `FX_PROVIDER_API_KEY` / `FX_PROVIDER_BASE_URL` | External exchange-rate provider used for multi-currency pricing | *(required for FX refresh)* |
 
 OpenBao itself has no root-token env var to configure: on first boot it initializes with Shamir key shares and auto-unseals using the keys it writes to a Docker volume (see `scripts/init-openbao.sh`); nothing to set in `.env` for it.
 
