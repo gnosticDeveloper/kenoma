@@ -336,7 +336,7 @@ Integration tests use Testcontainers and spin up real PostgreSQL, OpenBao, and R
 
 ## CI
 
-GitHub Actions runs on every pull request to `main`:
+GitHub Actions runs on every pull request to `main` or `develop`:
 
 - **Unit Tests**: fast feedback; no Docker required
 - **Integration Tests**: full Testcontainers suite against real dependencies
