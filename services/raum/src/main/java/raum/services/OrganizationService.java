@@ -47,6 +47,13 @@ public class OrganizationService {
     }
 
     public Mono<OrgResponseDTO> registerOrg(OrgRequestDTO dto) {
+        Mono<OrgResponseDTO> blank = requireNonBlank(dto.getName(), "name");
+        if (blank == null) blank = requireNonBlank(dto.getContactName(), "contactName");
+        if (blank == null) blank = requireNonBlank(dto.getContactEmail(), "contactEmail");
+        if (blank != null) {
+            return blank;
+        }
+
         Organization org = Organization.builder()
                 .contactName(dto.getContactName())
                 .contactEmail(dto.getContactEmail())

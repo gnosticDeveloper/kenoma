@@ -6,8 +6,10 @@ import bime.dto.AssignedMetadataDTO;
 import bime.dto.MetadataOptionResponseDTO;
 import bime.dto.ProductRequestDTO;
 import bime.dto.ProductResponseDTO;
+import common.exception.ConflictException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -36,6 +38,8 @@ public class ProductService {
                 .fetch()
                 .one()
                 .map(this::toResponseDTO)
+                .onErrorMap(DataIntegrityViolationException.class, e ->
+                        new ConflictException("A product with the same SKU already exists"))
         );
     }
 
@@ -105,6 +109,8 @@ public class ProductService {
                 .one()
                 .map(this::toResponseDTO)
                 .switchIfEmpty(Mono.error(new NotFoundException("Product not found")))
+                .onErrorMap(DataIntegrityViolationException.class, e ->
+                        new ConflictException("A product with the same SKU already exists"))
         );
     }
 

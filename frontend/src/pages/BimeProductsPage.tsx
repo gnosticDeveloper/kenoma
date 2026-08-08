@@ -28,8 +28,13 @@ interface Props {
 }
 
 interface AssignmentRow {
+  key: string
   metadataId: string
   optionIds: string[]
+}
+
+function newAssignmentRowKey(): string {
+  return crypto.randomUUID()
 }
 
 const VIEW_CURRENCY_KEY = 'kenoma.bime.viewCurrency'
@@ -47,29 +52,29 @@ function AssignmentsInput({ value, onChange, metadataDefs }: {
   const metadataItems = metadataDefs.map(m => ({ id: m.id, label: m.name }))
   return (
     <div className="roles-input">
-      {value.map((row, i) => {
+      {value.map(row => {
         const options = metadataDefs.find(m => m.id === row.metadataId)?.options ?? []
         const optionItems = options.map(o => ({ id: o.id, label: o.value }))
         return (
-          <div key={i} className="role-row">
+          <div key={row.key} className="role-row">
             <Combobox
               items={metadataItems}
               value={row.metadataId || null}
-              onChange={id => onChange(value.map((r, j) => j === i ? { metadataId: id ?? '', optionIds: [] } : r))}
+              onChange={id => onChange(value.map(r => r.key === row.key ? { key: row.key, metadataId: id ?? '', optionIds: [] } : r))}
               placeholder={t('bimeProductsPage.metadataPlaceholder')}
             />
             <MultiCombobox
               items={optionItems}
               value={row.optionIds}
-              onChange={ids => onChange(value.map((r, j) => j === i ? { ...r, optionIds: ids } : r))}
+              onChange={ids => onChange(value.map(r => r.key === row.key ? { ...r, optionIds: ids } : r))}
               placeholder={t('bimeProductsPage.optionsPlaceholder')}
               disabled={!row.metadataId}
             />
-            <button className="btn btn-outline btn-sm" type="button" onClick={() => onChange(value.filter((_, j) => j !== i))}>−</button>
+            <button className="btn btn-outline btn-sm" type="button" onClick={() => onChange(value.filter(r => r.key !== row.key))}>−</button>
           </div>
         )
       })}
-      <button className="btn btn-outline btn-sm" type="button" onClick={() => onChange([...value, { metadataId: '', optionIds: [] }])}>
+      <button className="btn btn-outline btn-sm" type="button" onClick={() => onChange([...value, { key: newAssignmentRowKey(), metadataId: '', optionIds: [] }])}>
         {t('bimeProductsPage.addAssignment')}
       </button>
     </div>
@@ -130,7 +135,8 @@ export default function BimeProductsPage({ token, permissions }: Props) {
 
   function remove(product: ProductResponse) {
     if (!window.confirm(t('bimeProductsPage.deactivateConfirm', { name: product.name }))) return
-    deactivate.call(() => bime.products.deactivate(product.id, token)).then(() => {
+    deactivate.call(() => bime.products.deactivate(product.id, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       reload()
       toast.show(t('bimeProductsPage.deactivated'))
     })
@@ -152,6 +158,7 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   function openAssign(product: ProductResponse) {
     setAssignTarget(product)
     setAssignRows((product.metadata ?? []).map(m => ({
+      key: newAssignmentRowKey(),
       metadataId: m.metadataId,
       optionIds: m.selectedOptions.map(o => o.id),
     })))
@@ -211,7 +218,8 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   function removeVariant(v: ProductVariantResponse) {
     if (!selectedProductId) return
     if (!window.confirm(t('bimeProductsPage.deactivateVariantConfirm'))) return
-    deactivateVariant.call(() => bime.variants.deactivate(selectedProductId, v.id, token)).then(() => {
+    deactivateVariant.call(() => bime.variants.deactivate(selectedProductId, v.id, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       reloadVariants()
       toast.show(t('bimeProductsPage.variantDeactivated'))
     })

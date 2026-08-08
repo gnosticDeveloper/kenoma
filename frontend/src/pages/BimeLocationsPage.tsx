@@ -59,7 +59,8 @@ export default function BimeLocationsPage({ token, permissions }: Props) {
 
   function remove(loc: LocationResponse) {
     if (!window.confirm(t('bimeLocationsPage.deactivateConfirm', { name: loc.name }))) return
-    deactivate.call(() => bime.locations.deactivate(loc.id, token)).then(() => {
+    deactivate.call(() => bime.locations.deactivate(loc.id, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       reload()
       toast.show(t('bimeLocationsPage.deactivated'))
     })

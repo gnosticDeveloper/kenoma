@@ -9,13 +9,16 @@ export type ApiState<T> =
 export function useApiCall<T>() {
   const [state, setState] = useState<ApiState<T>>({ status: 'idle' })
 
-  async function call(fn: () => Promise<T>) {
+  async function call(fn: () => Promise<T>): Promise<{ ok: true } | { ok: false; message: string }> {
     setState({ status: 'loading' })
     try {
       const data = await fn()
       setState({ status: 'success', data })
+      return { ok: true }
     } catch (e) {
-      setState({ status: 'error', message: e instanceof Error ? e.message : String(e) })
+      const message = e instanceof Error ? e.message : String(e)
+      setState({ status: 'error', message })
+      return { ok: false, message }
     }
   }
 

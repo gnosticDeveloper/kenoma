@@ -20,8 +20,13 @@ interface Props {
 }
 
 interface RoleRow {
+  key: string
   serviceId: string
   role: string
+}
+
+function newRoleRowKey(): string {
+  return crypto.randomUUID()
 }
 
 const KNOWN_ROLES = ['VASSAGO_ADMIN', 'VASSAGO_USER', 'RAUM_ADMIN', 'RAUM_ONBOARDING']
@@ -39,7 +44,7 @@ function buildRolesMap(rows: RoleRow[]): Record<string, string[]> {
 
 function parseRolesMap(roles: Record<string, string[]>): RoleRow[] {
   return Object.entries(roles ?? {}).flatMap(([svcId, roleList]) =>
-    roleList.map(role => ({ serviceId: svcId, role }))
+    roleList.map(role => ({ key: newRoleRowKey(), serviceId: svcId, role }))
   )
 }
 
@@ -48,24 +53,24 @@ function RolesInput({ value, onChange, services }: { value: RoleRow[]; onChange:
   const serviceItems = services.map(s => ({ id: s.id, label: s.name }))
   return (
     <div className="roles-input">
-      {value.map((row, i) => (
-        <div key={i} className="role-row">
+      {value.map(row => (
+        <div key={row.key} className="role-row">
           <Combobox
             items={serviceItems}
             value={row.serviceId || null}
-            onChange={id => onChange(value.map((r, j) => j === i ? { ...r, serviceId: id ?? '' } : r))}
+            onChange={id => onChange(value.map(r => r.key === row.key ? { ...r, serviceId: id ?? '' } : r))}
             placeholder={t('usersPage.servicePlaceholder')}
           />
           <Combobox
             items={ROLE_ITEMS}
             value={row.role || null}
-            onChange={id => onChange(value.map((r, j) => j === i ? { ...r, role: id ?? '' } : r))}
+            onChange={id => onChange(value.map(r => r.key === row.key ? { ...r, role: id ?? '' } : r))}
             placeholder={t('usersPage.rolePlaceholder')}
           />
-          <button className="btn btn-outline btn-sm" onClick={() => onChange(value.filter((_, j) => j !== i))} type="button">−</button>
+          <button className="btn btn-outline btn-sm" onClick={() => onChange(value.filter(r => r.key !== row.key))} type="button">−</button>
         </div>
       ))}
-      <button className="btn btn-outline btn-sm" onClick={() => onChange([...value, { serviceId: '', role: '' }])} type="button">
+      <button className="btn btn-outline btn-sm" onClick={() => onChange([...value, { key: newRoleRowKey(), serviceId: '', role: '' }])} type="button">
         {t('usersPage.addRole')}
       </button>
     </div>
@@ -124,7 +129,8 @@ export default function UsersPage({ token, permissions }: Props) {
 
   function remove(user: UserResponse) {
     if (!window.confirm(t('usersPage.offboardConfirm', { name: `${user.name} ${user.lastName}` }))) return
-    offboard.call(() => vassago.users.offboard(user.id, token)).then(() => {
+    offboard.call(() => vassago.users.offboard(user.id, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       reload()
       toast.show(t('usersPage.offboarded'))
     })

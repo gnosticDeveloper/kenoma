@@ -24,7 +24,7 @@ public class CredentialsService {
     private final UUID serviceId;
 
     public Mono<BasicCredentialDTO> saveNewCredentials(CredentialsDTO dto) {
-        if (dto.getServiceId().equals(serviceId)) {
+        if (dto.getServiceId() != null && dto.getServiceId().equals(serviceId)) {
             return Mono.error(new ForbiddenException("Credentials cannot be registered for Raum"));
         }
         Mono<BasicCredentialDTO> validationError = validationError(dto);
@@ -58,6 +58,7 @@ public class CredentialsService {
     }
 
     private Mono<BasicCredentialDTO> validationError(CredentialsDTO dto) {
+        if (dto.getServiceId() == null) return Mono.error(new BadRequestException("serviceId is required"));
         if (isBlank(dto.getDbHost())) return Mono.error(new BadRequestException("dbHost is required"));
         if (isBlank(dto.getDbName())) return Mono.error(new BadRequestException("dbName is required"));
         if (isBlank(dto.getUserName())) return Mono.error(new BadRequestException("userName is required"));

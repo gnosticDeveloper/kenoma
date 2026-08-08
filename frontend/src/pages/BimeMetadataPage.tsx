@@ -56,7 +56,8 @@ export default function BimeMetadataPage({ token, permissions }: Props) {
 
   function removeOptionFrom(def: ProductMetadataResponse, optionId: string, value: string) {
     if (!window.confirm(t('bimeMetadataPage.removeOptionConfirm', { value }))) return
-    removeOption.call(() => bime.metadata.removeOption(def.id, optionId, token)).then(() => {
+    removeOption.call(() => bime.metadata.removeOption(def.id, optionId, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       reload()
       toast.show(t('bimeMetadataPage.optionRemoved'))
     })
@@ -64,7 +65,8 @@ export default function BimeMetadataPage({ token, permissions }: Props) {
 
   function remove(def: ProductMetadataResponse) {
     if (!window.confirm(t('bimeMetadataPage.deleteConfirm', { name: def.name }))) return
-    deleteCall.call(() => bime.metadata.delete(def.id, token)).then(() => {
+    deleteCall.call(() => bime.metadata.delete(def.id, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       reload()
       toast.show(t('bimeMetadataPage.deleted'))
     })
