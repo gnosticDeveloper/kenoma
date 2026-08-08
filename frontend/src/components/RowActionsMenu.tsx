@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { MoreIcon } from './icons'
 
 export interface RowAction {
@@ -9,6 +10,7 @@ export interface RowAction {
 }
 
 export function RowActionsMenu({ actions }: { actions: RowAction[] }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -38,7 +40,7 @@ export function RowActionsMenu({ actions }: { actions: RowAction[] }) {
 
   return (
     <div className="row-actions-menu" onClick={e => e.stopPropagation()}>
-      <button type="button" ref={triggerRef} className="row-actions-trigger" onClick={toggle} aria-label="Row actions">
+      <button type="button" ref={triggerRef} className="row-actions-trigger" onClick={toggle} aria-label={t('common.aria.rowActions')}>
         <MoreIcon />
       </button>
       {open && createPortal(

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CloseIcon } from './icons'
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function Modal({ open, onClose, title, children }: Props) {
+  const { t } = useTranslation()
   useEffect(() => {
     if (!open) return
     function onKeyDown(e: KeyboardEvent) {
@@ -26,7 +28,7 @@ export function Modal({ open, onClose, title, children }: Props) {
       <div className="modal-panel" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-header">
           <h2>{title}</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Close" type="button">
+          <button className="modal-close" onClick={onClose} aria-label={t('common.actions.close')} type="button">
             <CloseIcon />
           </button>
         </div>

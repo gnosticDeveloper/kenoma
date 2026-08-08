@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { SearchIcon } from './icons'
 
 export interface Column<T> {
@@ -20,6 +21,7 @@ interface Props<T> {
 }
 
 export function DataTable<T>({ columns, rows, rowKey, searchable, searchText, onRowClick, emptyLabel, headerAction }: Props<T>) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null)
 
@@ -53,7 +55,7 @@ export function DataTable<T>({ columns, rows, rowKey, searchable, searchText, on
           {searchable && (
             <div className="data-table-search">
               <SearchIcon />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('common.search')} />
             </div>
           )}
           {headerAction}

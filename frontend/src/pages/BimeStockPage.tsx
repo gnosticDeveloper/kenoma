@@ -184,7 +184,8 @@ export default function BimeStockPage({ token, permissions }: Props) {
 
   function removeThreshold(th: StockAlertThresholdResponse) {
     if (!window.confirm(t('bimeStockPage.thresholdDeleteConfirm', { variant: variantLabel(th.variantId), location: locationLabel(th.locationId) }))) return
-    deleteThreshold.call(() => bime.stock.deleteAlertThreshold(th.variantId, th.locationId, token)).then(() => {
+    deleteThreshold.call(() => bime.stock.deleteAlertThreshold(th.variantId, th.locationId, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       loadThresholds()
       toast.show(t('bimeStockPage.thresholdDeleted'))
     })

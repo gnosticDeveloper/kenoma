@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CheckIcon, ChevronDownIcon, CloseIcon, SearchIcon } from './icons'
 
 export interface ComboboxItem {
@@ -38,6 +39,7 @@ interface Props {
 }
 
 export function Combobox({ items, value, onChange, placeholder, loading, disabled }: Props) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
@@ -79,7 +81,7 @@ export function Combobox({ items, value, onChange, placeholder, loading, disable
             type="button"
             className="combobox-clear"
             onClick={e => { e.stopPropagation(); onChange(null) }}
-            aria-label="Clear selection"
+            aria-label={t('common.aria.clearSelection')}
           >
             <CloseIcon width={14} height={14} />
           </button>
@@ -88,8 +90,8 @@ export function Combobox({ items, value, onChange, placeholder, loading, disable
       </div>
       {open && (
         <div className="combobox-dropdown">
-          {loading && <div className="combobox-empty">Loading…</div>}
-          {!loading && filtered.length === 0 && <div className="combobox-empty">No matches.</div>}
+          {loading && <div className="combobox-empty">{t('common.actions.loading')}</div>}
+          {!loading && filtered.length === 0 && <div className="combobox-empty">{t('common.combobox.noMatches')}</div>}
           {!loading && filtered.map((item, i) => (
             <div
               key={item.id}
@@ -119,6 +121,7 @@ interface MultiProps {
 }
 
 export function MultiCombobox({ items, value, onChange, placeholder, disabled }: MultiProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const filtered = useFilteredItems(items, query).filter(i => !value.includes(i.id))
@@ -135,7 +138,7 @@ export function MultiCombobox({ items, value, onChange, placeholder, disabled }:
               <button
                 type="button"
                 onClick={e => { e.stopPropagation(); onChange(value.filter(id => id !== item.id)) }}
-                aria-label={`Remove ${item.label}`}
+                aria-label={t('common.aria.removeItem', { label: item.label })}
               >
                 <CloseIcon width={12} height={12} />
               </button>
@@ -152,7 +155,7 @@ export function MultiCombobox({ items, value, onChange, placeholder, disabled }:
       </div>
       {open && (
         <div className="combobox-dropdown">
-          {filtered.length === 0 && <div className="combobox-empty">No more options.</div>}
+          {filtered.length === 0 && <div className="combobox-empty">{t('common.combobox.noMoreOptions')}</div>}
           {filtered.map(item => (
             <div
               key={item.id}

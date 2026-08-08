@@ -144,7 +144,8 @@ export default function OrgsPage({ token }: Props) {
 
   function remove(org: OrgResponse) {
     if (!window.confirm(t('orgsPage.deleteConfirm', { name: org.name }))) return
-    del.call(() => raum.orgs.delete(org.id, token)).then(() => {
+    del.call(() => raum.orgs.delete(org.id, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       reload()
       toast.show(t('orgsPage.deleted'))
     })

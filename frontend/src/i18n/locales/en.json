@@ -34,6 +34,18 @@
       "auto": "Auto",
       "dark": "Dark",
       "light": "Light"
+    },
+    "search": "Search…",
+    "combobox": {
+      "noMatches": "No matches.",
+      "noMoreOptions": "No more options."
+    },
+    "aria": {
+      "clearSelection": "Clear selection",
+      "removeItem": "Remove {{label}}",
+      "toggleSidebar": "Toggle sidebar",
+      "dismiss": "Dismiss",
+      "rowActions": "Row actions"
     }
   },
   "nav": {
@@ -178,6 +190,15 @@
     "issue": "Issue",
     "issuing": "Issuing…",
     "registered": "Credentials registered."
+  },
+  "credentialCard": {
+    "host": "Host",
+    "database": "Database",
+    "engine": "Engine",
+    "username": "Username",
+    "password": "Password",
+    "leaseId": "Lease ID",
+    "expiresIn": "Expires in"
   },
   "onboardingPage": {
     "title": "Onboarding",

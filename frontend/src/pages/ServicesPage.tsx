@@ -55,7 +55,8 @@ export default function ServicesPage({ token }: Props) {
 
   function remove(svc: ServiceResponse) {
     if (!window.confirm(t('servicesPage.deleteConfirm', { name: svc.name }))) return
-    del.call(() => raum.services.delete(svc.id, token)).then(() => {
+    del.call(() => raum.services.delete(svc.id, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
       reload()
       toast.show(t('servicesPage.deleted'))
     })

@@ -50,7 +50,7 @@ public class UserService {
         return getCaller()
                 .flatMap(caller -> {
                     Map<String, List<String>> callerRoles = caller.getRoles();
-                    Map<String, List<String>> requestedRoles = dto.getRoles();
+                    Map<String, List<String>> requestedRoles = dto.getRoles() == null ? Map.of() : dto.getRoles();
 
                     for (Map.Entry<String, List<String>> entry : requestedRoles.entrySet()) {
                         String service = entry.getKey();
@@ -193,7 +193,9 @@ public class UserService {
                             .flatMap(List::stream)
                             .anyMatch(r -> r.equals(VassagoRole.VASSAGO_ADMIN.name()));
 
-                    for (String role : dto.getRoles().getOrDefault(serviceId.toString(), List.of())) {
+                    Map<String, List<String>> requestedRoles = dto.getRoles() == null ? Map.of() : dto.getRoles();
+
+                    for (String role : requestedRoles.getOrDefault(serviceId.toString(), List.of())) {
                         try {
                             VassagoRole.valueOf(role);
                         } catch (IllegalArgumentException e) {
@@ -205,7 +207,7 @@ public class UserService {
                     // themselves. Without this, a non-admin editing their own account (allowed below)
                     // could self-elevate to VASSAGO_ADMIN by simply naming it in the request.
                     Map<String, List<String>> callerRoles = caller.getRoles();
-                    for (Map.Entry<String, List<String>> entry : dto.getRoles().entrySet()) {
+                    for (Map.Entry<String, List<String>> entry : requestedRoles.entrySet()) {
                         String service = entry.getKey();
                         List<String> requested = entry.getValue();
                         List<String> callerServiceRoles = callerRoles.getOrDefault(service, List.of());
@@ -240,7 +242,7 @@ public class UserService {
                                                 .bind("lastName", dto.getLastName())
                                                 .bind("email", dto.getEmail())
                                                 .bind("username", dto.getUsername())
-                                                .bind("roles", RolesUtils.serialize(dto.getRoles()))
+                                                .bind("roles", RolesUtils.serialize(requestedRoles))
                                                 .bind("modifiedAt", Instant.now())
                                                 .bind("id", id)
                                                 .fetch()

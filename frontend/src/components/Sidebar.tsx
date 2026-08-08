@@ -42,7 +42,7 @@ export function Sidebar({ groups, activeId, onSelect, onLogout }: Props) {
       <div className="sidebar-logo">
         <div className="sidebar-mark">K</div>
         <span className="sidebar-title">Kenoma</span>
-        <button className="sidebar-collapse-btn" onClick={toggle} aria-label="Toggle sidebar" type="button">
+        <button className="sidebar-collapse-btn" onClick={toggle} aria-label={t('common.aria.toggleSidebar')} type="button">
           {collapsed ? <ExpandIcon /> : <CollapseIcon />}
         </button>
       </div>

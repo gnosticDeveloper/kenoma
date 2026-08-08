@@ -5,8 +5,10 @@ import bime.db.BimeDbHandle;
 import bime.dto.LocationRequestDTO;
 import bime.dto.LocationResponseDTO;
 import common.exception.BadRequestException;
+import common.exception.ConflictException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -36,7 +38,9 @@ public class LocationService {
                     .bind("name", dto.getName())
                     .bind("code", dto.getCode());
             spec = bindNullableEmail(spec, dto.getNotificationEmail());
-            return spec.fetch().one().map(this::toResponseDTO);
+            return spec.fetch().one().map(this::toResponseDTO)
+                    .onErrorMap(DataIntegrityViolationException.class, e ->
+                            new ConflictException("A location with the same code already exists"));
         });
     }
 
@@ -90,7 +94,9 @@ public class LocationService {
             spec = bindNullableEmail(spec, dto.getNotificationEmail());
             return spec.fetch().one()
                     .map(this::toResponseDTO)
-                    .switchIfEmpty(Mono.error(new NotFoundException("Location not found")));
+                    .switchIfEmpty(Mono.error(new NotFoundException("Location not found")))
+                    .onErrorMap(DataIntegrityViolationException.class, e ->
+                            new ConflictException("A location with the same code already exists"));
         });
     }
 

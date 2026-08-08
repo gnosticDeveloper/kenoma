@@ -17,6 +17,18 @@
       "hide": "Ocultar",
       "details": "Detalles sin procesar"
     },
+    "search": "Buscar…",
+    "combobox": {
+      "noMatches": "Sin coincidencias.",
+      "noMoreOptions": "No hay más opciones."
+    },
+    "aria": {
+      "clearSelection": "Borrar selección",
+      "removeItem": "Quitar {{label}}",
+      "toggleSidebar": "Alternar barra lateral",
+      "dismiss": "Descartar",
+      "rowActions": "Acciones de la fila"
+    },
     "fields": {
       "id": "ID",
       "name": "Nombre"
@@ -178,6 +190,15 @@
     "issue": "Emitir",
     "issuing": "Emitiendo…",
     "registered": "Credenciales registradas."
+  },
+  "credentialCard": {
+    "host": "Host",
+    "database": "Base de datos",
+    "engine": "Motor",
+    "username": "Usuario",
+    "password": "Contraseña",
+    "leaseId": "ID de arrendamiento",
+    "expiresIn": "Expira en"
   },
   "onboardingPage": {
     "title": "Incorporación",

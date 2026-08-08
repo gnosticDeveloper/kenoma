@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CheckIcon, CloseIcon } from './icons'
 
 type ToastKind = 'success' | 'error' | 'info'
@@ -16,6 +17,7 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null)
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t: translate } = useTranslation()
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const nextId = useRef(0)
 
@@ -33,7 +35,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div key={t.id} className={`toast toast-${t.kind}`}>
             {t.kind === 'success' && <CheckIcon width={16} height={16} />}
             <span>{t.message}</span>
-            <button onClick={() => setToasts(ts => ts.filter(x => x.id !== t.id))} aria-label="Dismiss">
+            <button onClick={() => setToasts(ts => ts.filter(x => x.id !== t.id))} aria-label={translate('common.aria.dismiss')}>
               <CloseIcon width={14} height={14} />
             </button>
           </div>
