@@ -214,6 +214,7 @@ Rounded nodes (Mailgun, FX rate provider) and the dashed-border style mark third
 | Reverse proxy / TLS | nginx |
 | Observability | Grafana, Loki, Promtail, Prometheus |
 | CI | GitHub Actions |
+| Diagrams | [Mermaid](https://mermaid.js.org/) |
 
 ---
 

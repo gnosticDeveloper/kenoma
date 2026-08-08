@@ -9,6 +9,18 @@ if [ ! -f /init-out/unseal-keys.env ]; then
 fi
 . /init-out/unseal-keys.env
 
+if [ -n "${DR_BACKUP_S3_ENDPOINT:-}" ]; then
+  echo "Storing DR backup S3 credentials in OpenBao KV..."
+  wget -q -O - \
+    --header="Content-Type: application/json" \
+    --header="X-Vault-Token: ${ROOT_TOKEN}" \
+    --post-data="{\"data\":{\"endpoint\":\"${DR_BACKUP_S3_ENDPOINT}\",\"bucket\":\"${DR_BACKUP_S3_BUCKET}\",\"access_key\":\"${DR_BACKUP_S3_ACCESS_KEY}\",\"secret_key\":\"${DR_BACKUP_S3_SECRET_KEY}\"}}" \
+    "${OPENBAO_BASE_URL}/v1/secret/data/dr-backup/s3"
+  echo "DR backup S3 credentials stored."
+else
+  echo "DR_BACKUP_S3_ENDPOINT not set; skipping DR backup credential seeding."
+fi
+
 echo "Reading bootstrap IDs from Raum database..."
 
 RAUM_SERVICE_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \

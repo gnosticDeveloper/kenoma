@@ -175,6 +175,10 @@ services:
       OPERATOR_USERNAME: ${OPERATOR_USERNAME:-platform_operator}
       OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-Ch4ng3me!Ops#}
       KENOMA_INIT_MODE: ${KENOMA_INIT_MODE:-seeded}
+      DR_BACKUP_S3_ENDPOINT: ${DR_BACKUP_S3_ENDPOINT:-}
+      DR_BACKUP_S3_BUCKET: ${DR_BACKUP_S3_BUCKET:-}
+      DR_BACKUP_S3_ACCESS_KEY: ${DR_BACKUP_S3_ACCESS_KEY:-}
+      DR_BACKUP_S3_SECRET_KEY: ${DR_BACKUP_S3_SECRET_KEY:-}
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/kenoma-pre-init.sh:/kenoma-pre-init.sh
