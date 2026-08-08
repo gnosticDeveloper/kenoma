@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +24,10 @@ public class ProductVariantResponseDTO {
     private String sku;
     private Boolean isActive;
     private LocalDateTime createdAt;
+    @Schema(description = "Canonical price as stored (in priceCurrency), or already converted to the requested ?currency if one was passed")
+    private BigDecimal price;
+    @Schema(description = "Currency of the price field above - the stored currency, or the requested conversion target if ?currency was passed", example = "USD")
+    private String priceCurrency;
     @Schema(description = "The metadata options that define this variant (e.g. Colour=Red, Size=XL)")
     private List<MetadataOptionResponseDTO> options;
     @Schema(description = "Current stock balances for this variant across all locations")

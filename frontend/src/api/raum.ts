@@ -1,12 +1,24 @@
 import type {
+  BasePricingRequest,
+  BasePricingResponse,
   BasicCredential,
+  BillingEmailRequest,
+  BillingHistoryResponse,
+  BillingInfoRequest,
   Credentials,
+  ExchangeRateRequest,
+  ExchangeRateResponse,
+  ModulePricingRequest,
+  ModulePricingResponse,
   OrgRequest,
   OrgResponse,
   OnboardingRequest,
+  PaymentStatusUpdateRequest,
   ServiceRequest,
   ServiceResponse,
 } from '../types'
+import { API_BASE_URL } from './base'
+import { ApiError } from './client'
 import { payload, req } from './client'
 
 export const raum = {
@@ -21,6 +33,49 @@ export const raum = {
       req<OrgResponse>(`/orgs/${id}`, { method: 'PUT', ...payload(dto) }, token),
     delete: (id: string, token: string) =>
       req<void>(`/orgs/${id}`, { method: 'DELETE' }, token),
+    updateBillingInfo: (id: string, dto: BillingInfoRequest, token: string) =>
+      req<OrgResponse>(`/orgs/${id}/billing-info`, { method: 'PUT', ...payload(dto) }, token),
+    requestBillingEmailVerification: (id: string, dto: BillingEmailRequest, token: string) =>
+      req<void>(`/orgs/${id}/billing-email`, { method: 'POST', ...payload(dto) }, token),
+  },
+  billingHistory: {
+    list: (orgId: string, token: string) =>
+      req<BillingHistoryResponse[]>(`/orgs/${orgId}/billing-history`, { method: 'GET' }, token),
+    downloadInvoice: async (orgId: string, historyId: string, token: string): Promise<Blob> => {
+      const res = await fetch(`${API_BASE_URL}/orgs/${orgId}/billing-history/${historyId}/invoice`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new ApiError(res.status, res.statusText, text)
+      }
+      return res.blob()
+    },
+    updatePaymentStatus: (orgId: string, historyId: string, dto: PaymentStatusUpdateRequest, token: string) =>
+      req<BillingHistoryResponse>(`/orgs/${orgId}/billing-history/${historyId}/payment-status`, { method: 'PUT', ...payload(dto) }, token),
+    resendInvoice: (orgId: string, historyId: string, token: string) =>
+      req<void>(`/orgs/${orgId}/billing-history/${historyId}/resend`, { method: 'POST' }, token),
+  },
+  pricing: {
+    base: {
+      list: (token: string) =>
+        req<BasePricingResponse[]>('/pricing/base', { method: 'GET' }, token),
+      add: (dto: BasePricingRequest, token: string) =>
+        req<BasePricingResponse>('/pricing/base', { method: 'POST', ...payload(dto) }, token),
+    },
+    modules: {
+      list: (token: string) =>
+        req<ModulePricingResponse[]>('/pricing/modules', { method: 'GET' }, token),
+      add: (dto: ModulePricingRequest, token: string) =>
+        req<ModulePricingResponse>('/pricing/modules', { method: 'POST', ...payload(dto) }, token),
+    },
+    exchangeRates: {
+      list: (token: string) =>
+        req<ExchangeRateResponse[]>('/pricing/exchange-rates', { method: 'GET' }, token),
+      add: (dto: ExchangeRateRequest, token: string) =>
+        req<ExchangeRateResponse>('/pricing/exchange-rates', { method: 'POST', ...payload(dto) }, token),
+    },
   },
   services: {
     create: (dto: ServiceRequest, token: string) =>
@@ -39,8 +94,6 @@ export const raum = {
       req<BasicCredential>('/credentials', { method: 'POST', ...payload(dto) }, token),
     ephemeral: (dto: BasicCredential, token: string) =>
       req<Credentials>('/credentials/ephemeral', { method: 'POST', ...payload(dto) }, token),
-    testDb: (token: string) =>
-      req<boolean>('/credentials/test-db', { method: 'GET' }, token),
   },
   onboarding: {
     initiate: (orgId: string, dto: OnboardingRequest, token: string) =>

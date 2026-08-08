@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
@@ -50,10 +51,18 @@ public class SecurityConfig {
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/credentials/ephemeral").permitAll()
+                        .pathMatchers("/orgs/active-ids").permitAll()
+                        .pathMatchers(HttpMethod.GET, "/orgs/*/currency").permitAll()
+                        .pathMatchers(HttpMethod.POST, "/orgs/*/billing-email/confirm").permitAll()
+                        .pathMatchers("/pricing/rate").permitAll()
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/webjars/**").permitAll()
                         .pathMatchers("/onboarding/**").hasAuthority("INITIATE_ONBOARDING")
-                        .anyExchange().hasAuthority("RAUM_MANAGE")
+                        .pathMatchers("/orgs/**").hasAuthority("ORG_MANAGE")
+                        .pathMatchers("/services/**").hasAuthority("SERVICE_MANAGE")
+                        .pathMatchers("/credentials/**").hasAuthority("CREDENTIAL_MANAGE")
+                        .pathMatchers("/pricing/**").hasAuthority("PRICING_MANAGE")
+                        .anyExchange().denyAll()
                 )
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((exchange, ex) ->

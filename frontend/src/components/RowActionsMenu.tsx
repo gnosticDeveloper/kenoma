@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { MoreIcon } from './icons'
 
 export interface RowAction {
@@ -9,24 +10,43 @@ export interface RowAction {
 
 export function RowActionsMenu({ actions }: { actions: RowAction[] }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     function onDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
+        triggerRef.current && !triggerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false)
+      }
     }
     window.addEventListener('mousedown', onDown)
     return () => window.removeEventListener('mousedown', onDown)
   }, [open])
 
+  function toggle() {
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      setPosition({ top: rect.bottom + 4, left: rect.right })
+    }
+    setOpen(o => !o)
+  }
+
   return (
-    <div className="row-actions-menu" ref={ref} onClick={e => e.stopPropagation()}>
-      <button type="button" className="row-actions-trigger" onClick={() => setOpen(o => !o)} aria-label="Row actions">
+    <div className="row-actions-menu" onClick={e => e.stopPropagation()}>
+      <button type="button" ref={triggerRef} className="row-actions-trigger" onClick={toggle} aria-label="Row actions">
         <MoreIcon />
       </button>
-      {open && (
-        <div className="row-actions-dropdown">
+      {open && createPortal(
+        <div
+          className="row-actions-dropdown row-actions-dropdown-portal"
+          ref={dropdownRef}
+          style={{ top: position.top, left: position.left }}
+        >
           {actions.map(a => (
             <button
               key={a.label}
@@ -37,7 +57,8 @@ export function RowActionsMenu({ actions }: { actions: RowAction[] }) {
               {a.label}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

@@ -4,6 +4,9 @@ path "secret/data/credentials/*" {
 path "secret/metadata/credentials/*" {
   capabilities = ["read", "list"]
 }
+path "secret/data/dr-backup/*" {
+  capabilities = ["read"]
+}
 path "database/config/*" {
   capabilities = ["create", "update", "read"]
 }

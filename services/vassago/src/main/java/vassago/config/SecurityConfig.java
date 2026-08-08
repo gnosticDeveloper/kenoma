@@ -35,8 +35,10 @@ public class SecurityConfig {
                                                          ReactiveStringRedisTemplate redisTemplate,
                                                          @Value("${vassago.rate-limit.window-seconds:60}") long rateLimitWindowSeconds,
                                                          @Value("${vassago.rate-limit.max-requests:20}") long rateLimitMaxRequests,
+                                                         @Value("${vassago.rate-limit.trust-x-real-ip:true}") boolean trustXRealIp,
                                                          CorsConfigurationSource corsConfigurationSource) {
-        RateLimitFilter rateLimitFilter = new RateLimitFilter(redisTemplate, rateLimitWindowSeconds, rateLimitMaxRequests);
+        RateLimitFilter rateLimitFilter =
+                new RateLimitFilter(redisTemplate, rateLimitWindowSeconds, rateLimitMaxRequests, trustXRealIp);
         return http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)

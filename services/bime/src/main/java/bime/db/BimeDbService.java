@@ -22,4 +22,9 @@ public class BimeDbService {
     public Mono<BimeDbHandle> getHandle(UUID orgId) {
         return connectionPoolService.getHandle(orgId);
     }
+
+    /** For scheduled jobs with no live user session — see {@link ConnectionPoolService#getHandleViaVaultToken}. */
+    public Mono<BimeDbHandle> getHandleViaVaultToken(UUID orgId, String vaultToken) {
+        return connectionPoolService.getHandleViaVaultToken(orgId, vaultToken);
+    }
 }

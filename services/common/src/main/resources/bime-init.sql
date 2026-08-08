@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS locations (
     modified_at timestamp    NOT NULL DEFAULT current_timestamp,
     UNIQUE (org_id, code)
 );
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS notification_email varchar(255);
 
 CREATE TABLE IF NOT EXISTS products (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -63,6 +64,9 @@ CREATE TABLE IF NOT EXISTS product_variants (
     created_at timestamp NOT NULL DEFAULT current_timestamp
 );
 
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS price numeric(12,2);
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS price_currency varchar(3);
+
 CREATE TABLE IF NOT EXISTS product_variant_options (
     variant_id uuid NOT NULL REFERENCES product_variants(id) ON DELETE CASCADE,
     option_id  uuid NOT NULL REFERENCES product_metadata_option(id) ON DELETE CASCADE,
@@ -96,5 +100,28 @@ CREATE TABLE IF NOT EXISTS variant_stock_balances (
     location_id uuid    NOT NULL REFERENCES locations(id),
     quantity    integer NOT NULL DEFAULT 0 CHECK (quantity >= 0),
     modified_at timestamp NOT NULL DEFAULT current_timestamp,
+    PRIMARY KEY (org_id, variant_id, location_id)
+);
+
+CREATE TABLE IF NOT EXISTS variant_stock_alert_thresholds (
+    org_id      uuid    NOT NULL,
+    variant_id  uuid    NOT NULL REFERENCES product_variants(id),
+    location_id uuid    NOT NULL REFERENCES locations(id),
+    threshold   integer NOT NULL CHECK (threshold >= 0),
+    created_at  timestamp NOT NULL DEFAULT current_timestamp,
+    modified_at timestamp NOT NULL DEFAULT current_timestamp,
+    PRIMARY KEY (org_id, variant_id, location_id)
+);
+
+-- Active alerts: a row exists only while a variant/location's stock is at or below its
+-- threshold. Inserted (and the email sent) the moment a dip is first detected, deleted the
+-- moment stock recovers above threshold, so a later dip can trigger a fresh email.
+CREATE TABLE IF NOT EXISTS variant_stock_alerts (
+    org_id       uuid    NOT NULL,
+    variant_id   uuid    NOT NULL REFERENCES product_variants(id),
+    location_id  uuid    NOT NULL REFERENCES locations(id),
+    threshold    integer NOT NULL,
+    quantity     integer NOT NULL,
+    triggered_at timestamp NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (org_id, variant_id, location_id)
 );

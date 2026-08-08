@@ -2,6 +2,7 @@ package bime;
 
 import bime.db.BimeDbHandle;
 import bime.db.ConnectionPoolService;
+import common.mail.MailgunService;
 import common.security.JwtValidator;
 import io.jsonwebtoken.Claims;
 import io.r2dbc.spi.ConnectionFactories;
@@ -39,6 +40,14 @@ public abstract class BaseIT {
 
     @MockitoBean
     protected ConnectionPoolService connectionPoolService;
+
+    @MockitoBean
+    protected MailgunService mailgunService;
+
+    // No live OpenBao in this suite; disable real AppRole provisioning so context
+    // startup doesn't block on (or retry against) a nonexistent server.
+    @MockitoBean
+    protected bime.openbao.OpenBaoProvisioner openBaoProvisioner;
 
     protected static final UUID BIME_SERVICE_ID = UUID.randomUUID();
     protected static final UUID ORG_ID          = UUID.randomUUID();
@@ -112,16 +121,23 @@ public abstract class BaseIT {
 
     static class Initializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
 
-        private static final AtomicBoolean initialized = new AtomicBoolean(false);
-
         @Override
         public void initialize(ConfigurableApplicationContext ctx) {
-            if (initialized.compareAndSet(false, true)) {
-                TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
-                        "BIME_SERVICE_ID=" + BIME_SERVICE_ID.toString(),
-                        "vassago.jwt.public-key-refresh-cron=-"
-                );
-            }
+            // Runs once per distinct Spring context (Spring's test context cache builds a separate
+            // context per unique set of @MockitoBean overrides), so this must NOT be guarded by a
+            // JVM-static "already ran" flag - that previously caused any IT class whose @MockitoBean
+            // set differs from the rest (e.g. one that also mocks RaumClient) to silently boot with
+            // none of these properties set, since the flag had already been tripped by an earlier,
+            // differently-configured context.
+            TestPropertySourceUtils.addInlinedPropertiesToEnvironment(ctx,
+                    "BIME_SERVICE_ID=" + BIME_SERVICE_ID.toString(),
+                    "vassago.jwt.public-key-refresh-cron=-",
+                    "bime.stock-alerts.check-cron=-",
+                    "mailgun.api-key=test-key",
+                    "mailgun.domain=test.example.com",
+                    "mailgun.from=noreply@test.example.com",
+                    "app.base-url=http://localhost:3000"
+            );
         }
     }
 }

@@ -3,6 +3,7 @@ package bime.db;
 import bime.clients.RaumClient;
 import common.db.DatabaseConnectionService;
 import common.dto.BasicCredentialDTO;
+import common.dto.CredentialsDTO;
 import common.metrics.ConnectionPoolMetrics;
 import common.pool.ConnectionPoolEntry;
 import common.pool.ConnectionPoolKey;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 @Service
 @RequiredArgsConstructor
@@ -72,17 +74,27 @@ public class ConnectionPoolService {
 
     public Mono<BimeDbHandle> getHandle(UUID orgId) {
         ConnectionPoolKey key = new ConnectionPoolKey(orgId, UUID.fromString(serviceId));
-        return getHandleForKey(key);
+        return getHandleForKey(key, this::fetchCredentialsViaUserJwt);
     }
 
-    private Mono<BimeDbHandle> getHandleForKey(ConnectionPoolKey key) {
+    /**
+     * Same pooled-handle resolution as {@link #getHandle(UUID)}, but fetches fresh credentials
+     * (on a cache miss) using Bime's own OpenBao AppRole token instead of a user's JWT. Used by
+     * scheduled jobs, which have no live user session to pull a JWT from.
+     */
+    public Mono<BimeDbHandle> getHandleViaVaultToken(UUID orgId, String vaultToken) {
+        ConnectionPoolKey key = new ConnectionPoolKey(orgId, UUID.fromString(serviceId));
+        return getHandleForKey(key, k -> fetchCredentialsViaVaultToken(k, vaultToken));
+    }
+
+    private Mono<BimeDbHandle> getHandleForKey(ConnectionPoolKey key, Function<ConnectionPoolKey, Mono<CredentialsDTO>> credentialsFetcher) {
         return pool
-                .computeIfAbsent(key, this::buildEntryMono)
+                .computeIfAbsent(key, k -> buildEntryMono(k, credentialsFetcher))
                 .flatMap(entry -> {
                     if (entry.isExpired()) {
                         pool.remove(key);
                         disposeQuietly(entry);
-                        return getHandleForKey(key);
+                        return getHandleForKey(key, credentialsFetcher);
                     }
                     DatabaseClient client = DatabaseClient.create(entry.connectionFactory());
                     TransactionalOperator tx = TransactionalOperator.create(
@@ -91,12 +103,22 @@ public class ConnectionPoolService {
                 });
     }
 
-    private Mono<ConnectionPoolEntry> buildEntryMono(ConnectionPoolKey key) {
+    private Mono<CredentialsDTO> fetchCredentialsViaUserJwt(ConnectionPoolKey key) {
         BasicCredentialDTO request = new BasicCredentialDTO();
         request.setOrgId(key.orgId());
         request.setServiceId(key.serviceId());
+        return raumClient.getEphemeralCredentials(request);
+    }
 
-        return raumClient.getEphemeralCredentials(request)
+    private Mono<CredentialsDTO> fetchCredentialsViaVaultToken(ConnectionPoolKey key, String vaultToken) {
+        BasicCredentialDTO request = new BasicCredentialDTO();
+        request.setOrgId(key.orgId());
+        request.setServiceId(key.serviceId());
+        return raumClient.getEphemeralCredentials(request, vaultToken);
+    }
+
+    private Mono<ConnectionPoolEntry> buildEntryMono(ConnectionPoolKey key, Function<ConnectionPoolKey, Mono<CredentialsDTO>> credentialsFetcher) {
+        return credentialsFetcher.apply(key)
                 .<ConnectionPoolEntry>handle((credentials, sink) -> {
                     long bufferSeconds = (credentials.getLeaseDuration() * expiryBufferPercent) / 100;
                     long effectiveTtl  = credentials.getLeaseDuration() - bufferSeconds;

@@ -21,6 +21,7 @@ public class LocationResponseDTO {
     @Schema(description = "Short alphanumeric code used to identify the location in reports and imports", example = "WH-01")
     private String code;
     private Boolean isActive;
+    private String notificationEmail;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
 }

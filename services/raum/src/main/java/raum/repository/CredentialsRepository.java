@@ -12,4 +12,5 @@ import java.util.UUID;
 public interface CredentialsRepository extends ReactiveCrudRepository<Credentials, UUID> {
     Mono<Credentials> findByOrgIdAndServiceId(UUID orgId, UUID serviceId);
     Flux<Credentials> findAllByInitializedFalse();
+    Flux<Credentials> findAllByOrgId(UUID orgId);
 }

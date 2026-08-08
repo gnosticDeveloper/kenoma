@@ -34,11 +34,28 @@ public class RateLimitFilter implements WebFilter {
     private final ReactiveStringRedisTemplate redis;
     private final long windowSeconds;
     private final long maxRequests;
+    private final boolean trustXRealIp;
 
     public RateLimitFilter(ReactiveStringRedisTemplate redis, long windowSeconds, long maxRequests) {
+        this(redis, windowSeconds, maxRequests, true);
+    }
+
+    /**
+     * @param trustXRealIp Whether to key the limiter off the caller-supplied X-Real-IP header.
+     *                      Safe to leave true only because vassago's HTTP port is never exposed
+     *                      to the host (only nginx is — see docker-compose.yml), so in this
+     *                      deployment the header is always set by nginx, never by the actual
+     *                      client. If that assumption ever changes (vassago reachable directly,
+     *                      or fronted by something that doesn't set/strip this header itself), a
+     *                      caller could set an arbitrary value to dodge or frame another IP's
+     *                      bucket — set this to false in that case to fall back to the socket's
+     *                      remote address.
+     */
+    public RateLimitFilter(ReactiveStringRedisTemplate redis, long windowSeconds, long maxRequests, boolean trustXRealIp) {
         this.redis = redis;
         this.windowSeconds = windowSeconds;
         this.maxRequests = maxRequests;
+        this.trustXRealIp = trustXRealIp;
     }
 
     @Override
@@ -63,9 +80,11 @@ public class RateLimitFilter implements WebFilter {
     }
 
     private String clientIp(ServerHttpRequest request) {
-        String forwardedFor = request.getHeaders().getFirst("X-Real-IP");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor;
+        if (trustXRealIp) {
+            String forwardedFor = request.getHeaders().getFirst("X-Real-IP");
+            if (forwardedFor != null && !forwardedFor.isBlank()) {
+                return forwardedFor;
+            }
         }
         InetSocketAddress remoteAddress = request.getRemoteAddress();
         return remoteAddress != null && remoteAddress.getAddress() != null

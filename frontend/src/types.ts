@@ -14,6 +14,115 @@ export interface OrgResponse {
   id: string
   name: string
   contactEmail: string
+  taxId?: string | null
+  fiscalName?: string | null
+  fiscalAddress?: string | null
+  billingEmail?: string | null
+  billingEmailVerified?: boolean
+  billingCycle?: string | null
+  nextInvoiceDueAt?: string | null
+  currency?: string | null
+  currencyRefreshMode?: string | null
+  currencyRefreshCadence?: string | null
+  currencyRefreshIntervalDays?: number | null
+  // Currency the org prices its own catalog/inventory in - independent of `currency` above,
+  // which is what Kenoma invoices the org's own subscription in.
+  productPricingCurrency?: string | null
+}
+
+export type BillingCycle = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
+
+export type CurrencyRefreshMode = 'MANUAL' | 'PERIODIC'
+
+export type CurrencyRefreshCadence = 'DAILY' | 'WEEKLY' | 'EVERY_N_DAYS' | 'MONTHLY'
+
+export interface BillingInfoRequest {
+  taxId?: string
+  fiscalName?: string
+  fiscalAddress?: string
+  billingCycle?: BillingCycle | ''
+  nextInvoiceDueAt?: string
+  currency?: string
+  currencyRefreshMode?: CurrencyRefreshMode | ''
+  currencyRefreshCadence?: CurrencyRefreshCadence | ''
+  currencyRefreshIntervalDays?: number
+  productPricingCurrency?: string
+}
+
+export interface BillingEmailRequest {
+  billingEmail: string
+  locale?: string
+}
+
+export type PaymentStatus = 'PENDING' | 'PAID'
+
+export interface BillingHistoryResponse {
+  id: string
+  orgId: string
+  billingCycle: string
+  dueAt: string
+  createdAt: string
+  amount: number | null
+  currency: string | null
+  lineItems: string | null
+  paymentStatus: PaymentStatus
+  overdue: boolean
+  paidAt: string | null
+  paymentReference: string | null
+}
+
+export interface PaymentStatusUpdateRequest {
+  status: PaymentStatus
+  reference?: string
+}
+
+export interface BasePricingRequest {
+  price: number
+  currency: string
+  effectiveFrom?: string
+}
+
+export interface BasePricingResponse {
+  id: string
+  price: number
+  currency: string
+  effectiveFrom: string
+  createdAt: string
+}
+
+export interface ModulePricingRequest {
+  serviceId: string
+  price: number
+  currency: string
+  includedInBase: boolean
+  effectiveFrom?: string
+}
+
+export interface ModulePricingResponse {
+  id: string
+  serviceId: string
+  serviceName: string | null
+  price: number
+  currency: string
+  includedInBase: boolean
+  effectiveFrom: string
+  createdAt: string
+}
+
+export interface ExchangeRateRequest {
+  fromCurrency: string
+  toCurrency: string
+  rate: number
+  effectiveFrom?: string
+}
+
+export interface ExchangeRateResponse {
+  id: string
+  fromCurrency: string
+  toCurrency: string
+  rate: number
+  effectiveFrom: string
+  createdAt: string
 }
 
 export interface ServiceRequest {
@@ -78,6 +187,7 @@ export interface LocationRequest {
   name: string
   code: string
   isActive?: boolean
+  notificationEmail?: string
 }
 
 export interface LocationResponse {
@@ -86,8 +196,33 @@ export interface LocationResponse {
   name: string
   code: string
   isActive: boolean
+  notificationEmail: string | null
   createdAt: string
   modifiedAt: string
+}
+
+export interface StockAlertThresholdRequest {
+  variantId: string
+  locationId: string
+  threshold: number
+}
+
+export interface StockAlertThresholdResponse {
+  orgId: string
+  variantId: string
+  locationId: string
+  threshold: number
+  createdAt: string
+  modifiedAt: string
+}
+
+export interface StockAlertResponse {
+  orgId: string
+  variantId: string
+  locationId: string
+  threshold: number
+  quantity: number
+  triggeredAt: string
 }
 
 export interface MetadataOptionRequest {
@@ -141,6 +276,8 @@ export interface ProductVariantRequest {
   optionIds: string[]
   sku?: string
   isActive?: boolean
+  price?: number
+  priceCurrency?: string
 }
 
 export interface ProductVariantResponse {
@@ -152,6 +289,18 @@ export interface ProductVariantResponse {
   createdAt: string
   options: MetadataOptionResponse[]
   stock: VariantStock[]
+  // Canonical price as stored (in priceCurrency), or already converted if ?currency was requested
+  price?: number | null
+  priceCurrency?: string | null
+}
+
+export interface VariantPriceUpdate {
+  variantId: string
+  price: number
+}
+
+export interface VariantBatchPriceRequest {
+  items: VariantPriceUpdate[]
 }
 
 export interface ProductRequest {
@@ -173,6 +322,8 @@ export interface ProductResponse {
   // Populated by GET /products/{id}; omitted (null) by the GET /products list endpoint
   metadata: AssignedMetadata[] | null
   variants: ProductVariantResponse[] | null
+  // Populated by GET /products (list); omitted (null) by GET /products/{id}, which reports variants instead
+  variantCount: number | null
 }
 
 export interface StockMovementRequest {

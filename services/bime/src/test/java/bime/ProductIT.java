@@ -2,6 +2,8 @@ package bime;
 
 import bime.dto.ProductRequestDTO;
 import bime.dto.ProductResponseDTO;
+import bime.dto.ProductVariantRequestDTO;
+import bime.dto.ProductVariantResponseDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -10,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -76,6 +79,54 @@ class ProductIT extends BaseIT {
                 .expectStatus().isOk()
                 .expectBodyList(ProductResponseDTO.class)
                 .hasSize(2);
+    }
+
+    @Test
+    void getProducts_variantCount_reflectsActualVariants() {
+        ProductResponseDTO noVariants = createProduct("SKU-NOVAR", "No Variants Product");
+        ProductResponseDTO withVariant = createProduct("SKU-WITHVAR", "With Variant Product");
+
+        List<ProductResponseDTO> beforeVariant = client.get().uri("/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(beforeVariant).isNotNull();
+        assertThat(findBySku(beforeVariant, "SKU-NOVAR").getVariantCount()).isZero();
+        assertThat(findBySku(beforeVariant, "SKU-WITHVAR").getVariantCount()).isZero();
+
+        // withVariant has no assigned metadata, so an empty option set is a complete ("standard")
+        // variant.
+        ProductVariantRequestDTO variantDto = new ProductVariantRequestDTO();
+        variantDto.setOptionIds(List.of());
+        variantDto.setSku("WITHVAR-STD");
+        ProductVariantResponseDTO variant = client.post().uri("/products/{id}/variants", withVariant.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(variantDto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(variant).isNotNull();
+
+        List<ProductResponseDTO> afterVariant = client.get().uri("/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(afterVariant).isNotNull();
+        assertThat(findBySku(afterVariant, "SKU-NOVAR").getVariantCount()).isZero();
+        assertThat(findBySku(afterVariant, "SKU-WITHVAR").getVariantCount()).isEqualTo(1);
+    }
+
+    private static ProductResponseDTO findBySku(List<ProductResponseDTO> products, String sku) {
+        return products.stream()
+                .filter(p -> sku.equals(p.getSku()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(sku + " not found in product list"));
     }
 
     @Test

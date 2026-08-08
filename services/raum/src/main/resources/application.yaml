@@ -51,3 +51,23 @@ bime:
 raum.onboarding:
   retry-cron: ${ONBOARDING_RETRY_CRON:0 */10 * * * *}
   config-ttl-seconds: ${ONBOARDING_CONFIG_TTL_SECONDS:86400}
+
+raum.billing:
+  deadline-cron: ${INVOICE_DEADLINE_CRON:0 0 3 * * *}
+  fx-refresh-cron: ${FX_REFRESH_CRON:0 0 5 * * *}
+
+raum.backup:
+  dr-cron: ${DR_BACKUP_CRON:0 0 5 * * *}
+
+raum.fx-provider:
+  base-url: ${FX_PROVIDER_BASE_URL:https://v6.exchangerate-api.com/v6}
+  api-key: ${FX_PROVIDER_API_KEY:}
+
+mailgun:
+  api-key: ${MAILGUN_API_KEY}
+  domain: ${MAILGUN_DOMAIN}
+  from: ${MAILGUN_FROM:noreply@${mailgun.domain}}
+  invoice-from: ${MAILGUN_INVOICE_FROM:${mailgun.from}}
+
+app:
+  base-url: ${APP_BASE_URL:http://localhost:3000}

@@ -19,6 +19,7 @@ import type {
   ProductResponse,
   ProductVariantRequest,
   ProductVariantResponse,
+  VariantPriceUpdate,
 } from '../types'
 
 interface Props {
@@ -30,6 +31,8 @@ interface AssignmentRow {
   metadataId: string
   optionIds: string[]
 }
+
+const VIEW_CURRENCY_KEY = 'kenoma.bime.viewCurrency'
 
 function buildAssignments(rows: AssignmentRow[]): ProductMetadataAssignmentItem[] {
   return rows.filter(r => r.metadataId).map(r => ({ metadataId: r.metadataId, optionIds: r.optionIds }))
@@ -156,25 +159,39 @@ export default function BimeProductsPage({ token, permissions }: Props) {
 
   // ── Variants tab ──
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
-  const variants = useApiCall<ProductVariantResponse[]>()
+  const [viewCurrency, setViewCurrency] = useState(() => localStorage.getItem(VIEW_CURRENCY_KEY) ?? '')
+  useEffect(() => { localStorage.setItem(VIEW_CURRENCY_KEY, viewCurrency) }, [viewCurrency])
+  // ISO 4217 codes are always 3 letters - only apply (and refetch) once the field is empty
+  // (native prices) or a full code, not on every keystroke while typing one. Decoupled from
+  // viewCurrency so refreshes triggered by other actions (create/edit/reprice) still use the
+  // last valid currency instead of being blocked by an in-progress partial edit.
+  const [appliedViewCurrency, setAppliedViewCurrency] = useState(viewCurrency)
   useEffect(() => {
-    if (selectedProductId) variants.call(() => bime.variants.list(selectedProductId, token))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProductId])
+    if (viewCurrency.length === 0 || viewCurrency.length === 3) setAppliedViewCurrency(viewCurrency)
+  }, [viewCurrency])
+  const variants = useApiCall<ProductVariantResponse[]>()
+  function reloadVariants() {
+    if (selectedProductId) variants.call(() => bime.variants.list(selectedProductId, token, appliedViewCurrency || undefined))
+  }
+  useEffect(reloadVariants, [selectedProductId, appliedViewCurrency])
   const variantList = variants.state.status === 'success' ? variants.state.data : []
 
   const [variantModalOpen, setVariantModalOpen] = useState(false)
   const [variantSku, setVariantSku] = useState('')
+  const [variantPrice, setVariantPrice] = useState('')
+  const [variantPriceCurrency, setVariantPriceCurrency] = useState('')
   const [variantRows, setVariantRows] = useState<AssignmentRow[]>([])
   const createVariant = useApiCall<ProductVariantResponse>()
   const deactivateVariant = useApiCall<void>()
 
   useEffect(() => {
-    if (createVariant.state.status !== 'success' || !selectedProductId) return
+    if (createVariant.state.status !== 'success') return
     setVariantModalOpen(false)
     setVariantSku('')
+    setVariantPrice('')
+    setVariantPriceCurrency('')
     setVariantRows([])
-    variants.call(() => bime.variants.list(selectedProductId, token))
+    reloadVariants()
     toast.show(t('bimeProductsPage.variantCreated'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createVariant.state])
@@ -182,7 +199,12 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   function submitVariant() {
     if (!selectedProductId) return
     const optionIds = buildAssignments(variantRows).flatMap(a => a.optionIds)
-    const dto: ProductVariantRequest = { optionIds, sku: variantSku.trim() || undefined }
+    const dto: ProductVariantRequest = {
+      optionIds,
+      sku: variantSku.trim() || undefined,
+      price: variantPrice.trim() ? Number(variantPrice) : undefined,
+      priceCurrency: variantPrice.trim() ? (variantPriceCurrency.trim() || undefined) : undefined,
+    }
     createVariant.call(() => bime.variants.create(selectedProductId, dto, token))
   }
 
@@ -190,9 +212,72 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     if (!selectedProductId) return
     if (!window.confirm(t('bimeProductsPage.deactivateVariantConfirm'))) return
     deactivateVariant.call(() => bime.variants.deactivate(selectedProductId, v.id, token)).then(() => {
-      variants.call(() => bime.variants.list(selectedProductId, token))
+      reloadVariants()
       toast.show(t('bimeProductsPage.variantDeactivated'))
     })
+  }
+
+  // ── Edit variant (SKU / price) ──
+  const [editingVariant, setEditingVariant] = useState<ProductVariantResponse | null>(null)
+  const [editVariantSku, setEditVariantSku] = useState('')
+  const [editVariantPrice, setEditVariantPrice] = useState('')
+  const [editVariantPriceCurrency, setEditVariantPriceCurrency] = useState('')
+  const updateVariant = useApiCall<ProductVariantResponse>()
+
+  useEffect(() => {
+    if (updateVariant.state.status !== 'success') return
+    setEditingVariant(null)
+    reloadVariants()
+    toast.show(t('bimeProductsPage.variantUpdated'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateVariant.state])
+
+  function openEditVariant(v: ProductVariantResponse) {
+    setEditingVariant(v)
+    setEditVariantSku(v.sku ?? '')
+    setEditVariantPrice(v.price != null ? String(v.price) : '')
+    setEditVariantPriceCurrency(v.priceCurrency ?? '')
+  }
+
+  function submitEditVariant() {
+    if (!selectedProductId || !editingVariant) return
+    // optionIds isn't read by PATCH on the backend - only create uses it - so it's omitted here.
+    const dto: ProductVariantRequest = {
+      optionIds: [],
+      sku: editVariantSku.trim() || undefined,
+      price: editVariantPrice.trim() ? Number(editVariantPrice) : undefined,
+      priceCurrency: editVariantPrice.trim() ? (editVariantPriceCurrency.trim() || undefined) : undefined,
+    }
+    updateVariant.call(() => bime.variants.patch(selectedProductId, editingVariant.id, dto, token))
+  }
+
+  // ── Batch reprice selected variants ──
+  const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set())
+  function toggleVariantSelected(id: string) {
+    setSelectedVariantIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  const [repriceModalOpen, setRepriceModalOpen] = useState(false)
+  const [repriceValue, setRepriceValue] = useState('')
+  const batchReprice = useApiCall<string[]>()
+
+  useEffect(() => {
+    if (batchReprice.state.status !== 'success') return
+    setRepriceModalOpen(false)
+    setRepriceValue('')
+    setSelectedVariantIds(new Set())
+    reloadVariants()
+    toast.show(t('bimeProductsPage.pricesUpdated'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchReprice.state])
+
+  function submitBatchReprice() {
+    const price = Number(repriceValue)
+    const items: VariantPriceUpdate[] = Array.from(selectedVariantIds).map(variantId => ({ variantId, price }))
+    batchReprice.call(() => bime.variants.batchUpdatePrices({ items }, token))
   }
 
   const productColumns: Column<ProductResponse>[] = [
@@ -207,7 +292,7 @@ export default function BimeProductsPage({ token, permissions }: Props) {
         </span>
       ),
     },
-    { key: 'variants', header: t('bimeProductsPage.variants'), render: p => <span className="td-muted">{p.variants?.length ?? '—'}</span> },
+    { key: 'variants', header: t('bimeProductsPage.variants'), render: p => <span className="td-muted">{p.variantCount ?? '—'}</span> },
     ...(permissions.canManageBime ? [{
       key: 'actions',
       header: '',
@@ -223,6 +308,18 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   ]
 
   const variantColumns: Column<ProductVariantResponse>[] = [
+    ...(permissions.canManageBime ? [{
+      key: 'select',
+      header: '',
+      render: (v: ProductVariantResponse) => (
+        <input
+          type="checkbox"
+          checked={selectedVariantIds.has(v.id)}
+          onChange={() => toggleVariantSelected(v.id)}
+          onClick={e => e.stopPropagation()}
+        />
+      ),
+    }] : []),
     { key: 'sku', header: t('bimeProductsPage.sku'), render: v => <span className="td-muted">{v.sku ?? '—'}</span> },
     {
       key: 'options',
@@ -232,6 +329,13 @@ export default function BimeProductsPage({ token, permissions }: Props) {
           {v.options.map(o => <span key={o.id} className="role-badge">{o.value}</span>)}
         </div>
       ),
+    },
+    {
+      key: 'price',
+      header: t('bimeProductsPage.price'),
+      render: v => v.price != null
+        ? <span>{v.priceCurrency} {v.price}</span>
+        : <span className="td-muted">{t('bimeProductsPage.noPriceSet')}</span>,
     },
     {
       key: 'active',
@@ -257,7 +361,10 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       key: 'actions',
       header: '',
       render: (v: ProductVariantResponse) => (
-        <RowActionsMenu actions={[{ label: t('common.actions.deactivate'), onClick: () => removeVariant(v), danger: true }]} />
+        <RowActionsMenu actions={[
+          { label: t('bimeProductsPage.editVariantAction'), onClick: () => openEditVariant(v) },
+          { label: t('common.actions.deactivate'), onClick: () => removeVariant(v), danger: true },
+        ]} />
       ),
     }] : []),
   ]
@@ -303,23 +410,57 @@ export default function BimeProductsPage({ token, permissions }: Props) {
           <div className="panel">
             <div className="field" style={{ marginBottom: '16px', maxWidth: '320px' }}>
               <label>{t('bimeProductsPage.name')}</label>
-              <Combobox items={productItems} value={selectedProductId} onChange={setSelectedProductId} placeholder={t('bimeProductsPage.productPlaceholder')} />
+              <Combobox
+                items={productItems}
+                value={selectedProductId}
+                onChange={id => { setSelectedProductId(id); setSelectedVariantIds(new Set()) }}
+                placeholder={t('bimeProductsPage.productPlaceholder')}
+              />
             </div>
             {!selectedProductId ? (
               <div className="empty-state">{t('bimeProductsPage.selectProductHint')}</div>
             ) : (
               <>
+              <div className="field" style={{ marginBottom: '16px', maxWidth: '200px' }}>
+                <label>{t('bimeProductsPage.viewInCurrency')}</label>
+                <input
+                  value={viewCurrency}
+                  onChange={e => setViewCurrency(e.target.value.toUpperCase())}
+                  placeholder={t('bimeProductsPage.viewInCurrencyPlaceholder')}
+                  maxLength={3}
+                />
+              </div>
               {variants.state.status === 'error' && <Feedback state={variants.state} />}
               <DataTable
                 columns={variantColumns}
                 rows={variantList}
                 rowKey={v => v.id}
                 emptyLabel={t('bimeProductsPage.variantsEmptyState')}
-                headerAction={permissions.canManageBime
-                  ? <button className="btn btn-primary" onClick={() => { setVariantSku(''); setVariantRows([]); setVariantModalOpen(true) }} type="button">
-                      {t('bimeProductsPage.createVariantAction')}
-                    </button>
-                  : undefined}
+                headerAction={
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {selectedVariantIds.size > 0 && permissions.canManageBime && (
+                      <>
+                        <span className="td-muted">{t('bimeProductsPage.selectedCount', { count: selectedVariantIds.size })}</span>
+                        <button
+                          className="btn btn-outline"
+                          type="button"
+                          onClick={() => { setRepriceValue(''); setRepriceModalOpen(true) }}
+                        >
+                          {t('bimeProductsPage.repriceSelectedAction')}
+                        </button>
+                      </>
+                    )}
+                    {permissions.canManageBime && (
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => { setVariantSku(''); setVariantPrice(''); setVariantPriceCurrency(''); setVariantRows([]); setVariantModalOpen(true) }}
+                        type="button"
+                      >
+                        {t('bimeProductsPage.createVariantAction')}
+                      </button>
+                    )}
+                  </div>
+                }
               />
               </>
             )}
@@ -390,17 +531,92 @@ export default function BimeProductsPage({ token, permissions }: Props) {
             <label>{t('bimeProductsPage.sku')}</label>
             <input value={variantSku} onChange={e => setVariantSku(e.target.value)} placeholder="WIDGET-001-RED-XL" />
           </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.price')}</label>
+            <input type="number" step="0.01" min="0" value={variantPrice} onChange={e => setVariantPrice(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.priceCurrency')}</label>
+            <input
+              value={variantPriceCurrency}
+              onChange={e => setVariantPriceCurrency(e.target.value.toUpperCase())}
+              placeholder="USD"
+              maxLength={3}
+              disabled={!variantPrice.trim()}
+            />
+          </div>
         </div>
         <div className="field" style={{ marginBottom: '14px' }}>
           <label style={{ marginBottom: '8px' }}>{t('bimeProductsPage.options')}</label>
           <AssignmentsInput value={variantRows} onChange={setVariantRows} metadataDefs={metadataDefsList} />
         </div>
         <div className="actions">
-          <button className="btn btn-primary" disabled={createVariant.state.status === 'loading'} onClick={submitVariant}>
+          <button
+            className="btn btn-primary"
+            disabled={createVariant.state.status === 'loading' || (!!variantPrice.trim() && !variantPriceCurrency.trim())}
+            onClick={submitVariant}
+          >
             {createVariant.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.create')}
           </button>
         </div>
         {createVariant.state.status === 'error' && <Feedback state={createVariant.state} />}
+      </Modal>
+
+      <Modal open={editingVariant !== null} onClose={() => setEditingVariant(null)} title={t('bimeProductsPage.editVariantTitle')}>
+        <div className="fields">
+          <div className="field">
+            <label>{t('bimeProductsPage.sku')}</label>
+            <input value={editVariantSku} onChange={e => setEditVariantSku(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.price')}</label>
+            <input type="number" step="0.01" min="0" value={editVariantPrice} onChange={e => setEditVariantPrice(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.priceCurrency')}</label>
+            <input
+              value={editVariantPriceCurrency}
+              onChange={e => setEditVariantPriceCurrency(e.target.value.toUpperCase())}
+              placeholder="USD"
+              maxLength={3}
+              disabled={!editVariantPrice.trim()}
+            />
+          </div>
+        </div>
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={updateVariant.state.status === 'loading' || (!!editVariantPrice.trim() && !editVariantPriceCurrency.trim())}
+            onClick={submitEditVariant}
+          >
+            {updateVariant.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.save')}
+          </button>
+        </div>
+        {updateVariant.state.status === 'error' && <Feedback state={updateVariant.state} />}
+      </Modal>
+
+      <Modal
+        open={repriceModalOpen}
+        onClose={() => setRepriceModalOpen(false)}
+        title={t('bimeProductsPage.repriceSelectedTitle', { count: selectedVariantIds.size })}
+      >
+        <p className="panel-hint">{t('bimeProductsPage.repriceSelectedHint')}</p>
+        <div className="fields">
+          <div className="field">
+            <label>{t('bimeProductsPage.newPrice')}</label>
+            <input type="number" step="0.01" min="0" value={repriceValue} onChange={e => setRepriceValue(e.target.value)} />
+          </div>
+        </div>
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={batchReprice.state.status === 'loading' || !repriceValue.trim() || Number(repriceValue) < 0}
+            onClick={submitBatchReprice}
+          >
+            {batchReprice.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.save')}
+          </button>
+        </div>
+        {batchReprice.state.status === 'error' && <Feedback state={batchReprice.state} />}
       </Modal>
     </div>
   )

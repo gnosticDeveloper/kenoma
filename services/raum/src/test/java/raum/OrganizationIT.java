@@ -50,6 +50,25 @@ class OrganizationIT extends BaseIT {
     }
 
     @Test
+    void registerOrg_duplicateName_returns409NotUnhandled500() {
+        OrgRequestDTO dto = new OrgRequestDTO("Duplicate Org", "first@example.com", "First Admin");
+        client.post().uri("/orgs")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk();
+
+        OrgRequestDTO duplicate = new OrgRequestDTO("Duplicate Org", "second@example.com", "Second Admin");
+        client.post().uri("/orgs")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(duplicate)
+                .exchange()
+                .expectStatus().isEqualTo(409);
+    }
+
+    @Test
     void getOrgById_returnsSeededPlatformOrg() {
         OrgResponseDTO response = client.get().uri("/orgs/{id}", orgId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")

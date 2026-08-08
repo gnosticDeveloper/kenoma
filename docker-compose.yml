@@ -175,6 +175,10 @@ services:
       OPERATOR_USERNAME: ${OPERATOR_USERNAME:-platform_operator}
       OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-Ch4ng3me!Ops#}
       KENOMA_INIT_MODE: ${KENOMA_INIT_MODE:-seeded}
+      DR_BACKUP_S3_ENDPOINT: ${DR_BACKUP_S3_ENDPOINT:-}
+      DR_BACKUP_S3_BUCKET: ${DR_BACKUP_S3_BUCKET:-}
+      DR_BACKUP_S3_ACCESS_KEY: ${DR_BACKUP_S3_ACCESS_KEY:-}
+      DR_BACKUP_S3_SECRET_KEY: ${DR_BACKUP_S3_SECRET_KEY:-}
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/kenoma-pre-init.sh:/kenoma-pre-init.sh
@@ -215,7 +219,16 @@ services:
       BIME_BASE_URL: http://bime:8082
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      MAILGUN_API_KEY: ${MAILGUN_API_KEY}
+      MAILGUN_DOMAIN: ${MAILGUN_DOMAIN}
+      MAILGUN_FROM: ${MAILGUN_FROM:-}
+      MAILGUN_INVOICE_FROM: ${MAILGUN_INVOICE_FROM:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      FX_PROVIDER_API_KEY: ${FX_PROVIDER_API_KEY:-}
+      FX_PROVIDER_BASE_URL: ${FX_PROVIDER_BASE_URL:-https://v6.exchangerate-api.com/v6}
+      FX_REFRESH_CRON: ${FX_REFRESH_CRON:-0 0 5 * * *}
+      DR_BACKUP_CRON: ${DR_BACKUP_CRON}
       JAVA_TOOL_OPTIONS: ${RAUM_JDWP_OPTS:-}
     volumes:
       - ./.env-out:/env-out
@@ -288,6 +301,11 @@ services:
       OPENBAO_HOST: http://openbao:8200
       RAUM_BASE_URL: http://raum:8080
       VASSAGO_BASE_URL: http://vassago:8081
+      MAILGUN_API_KEY: ${MAILGUN_API_KEY}
+      MAILGUN_DOMAIN: ${MAILGUN_DOMAIN}
+      MAILGUN_FROM: ${MAILGUN_FROM:-}
+      MAILGUN_STOCK_ALERT_FROM: ${MAILGUN_STOCK_ALERT_FROM:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       JAVA_TOOL_OPTIONS: ${BIME_JDWP_OPTS:-}
     volumes:

@@ -11,6 +11,10 @@ import type {
   ProductResponse,
   ProductVariantRequest,
   ProductVariantResponse,
+  VariantBatchPriceRequest,
+  StockAlertResponse,
+  StockAlertThresholdRequest,
+  StockAlertThresholdResponse,
   StockBalanceResponse,
   StockMovementRequest,
   StockMovementResponse,
@@ -63,14 +67,16 @@ export const bime = {
   variants: {
     create: (productId: string, dto: ProductVariantRequest, token: string) =>
       req<ProductVariantResponse>(`/products/${productId}/variants`, { method: 'POST', ...payload(dto) }, token),
-    list: (productId: string, token: string) =>
-      req<ProductVariantResponse[]>(`/products/${productId}/variants`, { method: 'GET' }, token),
-    get: (productId: string, variantId: string, token: string) =>
-      req<ProductVariantResponse>(`/products/${productId}/variants/${variantId}`, { method: 'GET' }, token),
+    list: (productId: string, token: string, currency?: string) =>
+      req<ProductVariantResponse[]>(`/products/${productId}/variants${query({ currency })}`, { method: 'GET' }, token),
+    get: (productId: string, variantId: string, token: string, currency?: string) =>
+      req<ProductVariantResponse>(`/products/${productId}/variants/${variantId}${query({ currency })}`, { method: 'GET' }, token),
     patch: (productId: string, variantId: string, dto: ProductVariantRequest, token: string) =>
       req<ProductVariantResponse>(`/products/${productId}/variants/${variantId}`, { method: 'PATCH', ...payload(dto) }, token),
     deactivate: (productId: string, variantId: string, token: string) =>
       req<void>(`/products/${productId}/variants/${variantId}`, { method: 'DELETE' }, token),
+    batchUpdatePrices: (dto: VariantBatchPriceRequest, token: string) =>
+      req<string[]>('/variants/pricing/batch', { method: 'PATCH', ...payload(dto) }, token),
   },
   stock: {
     recordMovement: (dto: StockMovementRequest, token: string) =>
@@ -81,5 +87,13 @@ export const bime = {
       req<StockMovementResponse[]>(`/stock/movements${query(filters)}`, { method: 'GET' }, token),
     listBalances: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
       req<StockBalanceResponse[]>(`/stock/balances${query(filters)}`, { method: 'GET' }, token),
+    setAlertThreshold: (dto: StockAlertThresholdRequest, token: string) =>
+      req<StockAlertThresholdResponse>('/stock/alerts/thresholds', { method: 'PUT', ...payload(dto) }, token),
+    listAlertThresholds: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
+      req<StockAlertThresholdResponse[]>(`/stock/alerts/thresholds${query(filters)}`, { method: 'GET' }, token),
+    deleteAlertThreshold: (variantId: string, locationId: string, token: string) =>
+      req<void>(`/stock/alerts/thresholds${query({ variantId, locationId })}`, { method: 'DELETE' }, token),
+    listActiveAlerts: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
+      req<StockAlertResponse[]>(`/stock/alerts/active${query(filters)}`, { method: 'GET' }, token),
   },
 }

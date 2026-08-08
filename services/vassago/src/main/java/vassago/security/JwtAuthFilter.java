@@ -34,6 +34,8 @@ public class JwtAuthFilter implements WebFilter {
         return jwtService.validateToken(token)
                 .flatMap(claims -> {
                     String jti = claims.getId();
+                    UUID userId = UUID.fromString(claims.getSubject());
+                    Instant issuedAt = claims.getIssuedAt().toInstant();
                     return redisTokenService.isBlacklisted(jti)
                             .onErrorReturn(false)
                             .flatMap(blacklisted -> {
@@ -41,15 +43,22 @@ public class JwtAuthFilter implements WebFilter {
                                     exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                                     return exchange.getResponse().setComplete();
                                 }
-                                UUID userId = UUID.fromString(claims.getSubject());
-                                UUID orgId = UUID.fromString(claims.get("orgId", String.class));
-                                Instant expiry = claims.getExpiration().toInstant();
-                                Map<String, List<String>> roles = RolesUtils.deserialize(
-                                        claims.get("roles", String.class));
-                                VassagoAuthentication auth = new VassagoAuthentication(
-                                        orgId, userId, roles, serviceId, jti, expiry);
-                                return chain.filter(exchange)
-                                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
+                                return redisTokenService.isRevokedForUser(userId, issuedAt)
+                                        .onErrorReturn(false)
+                                        .flatMap(revoked -> {
+                                            if (revoked) {
+                                                exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+                                                return exchange.getResponse().setComplete();
+                                            }
+                                            UUID orgId = UUID.fromString(claims.get("orgId", String.class));
+                                            Instant expiry = claims.getExpiration().toInstant();
+                                            Map<String, List<String>> roles = RolesUtils.deserialize(
+                                                    claims.get("roles", String.class));
+                                            VassagoAuthentication auth = new VassagoAuthentication(
+                                                    orgId, userId, roles, serviceId, jti, expiry);
+                                            return chain.filter(exchange)
+                                                    .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
+                                        });
                             });
                 })
                 .onErrorResume(e -> {

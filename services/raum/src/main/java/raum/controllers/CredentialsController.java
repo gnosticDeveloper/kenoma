@@ -12,10 +12,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import common.exception.ForbiddenException;
 import common.exception.UnauthorizedException;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import raum.openbao.OpenBaoService;
+import raum.security.RaumPermission;
 import raum.services.CredentialsService;
 import reactor.core.publisher.Mono;
 
@@ -37,11 +39,15 @@ class CredentialsController {
                     "The response includes the connection details (host, port, dbName, dbEngine) alongside the ephemeral username and password. " +
                     "leaseId and leaseDuration (seconds) are the OpenBao lease. Credentials expire when the lease does. " +
                     "Authentication: either a valid JWT (Authorization: Bearer) or an X-Vault-Token header is accepted. " +
-                    "The X-Vault-Token path is for OpenBao AppRole-authenticated callers (e.g. Vassago during login) that do not hold a user JWT."
+                    "The X-Vault-Token path is for OpenBao AppRole-authenticated callers (e.g. Vassago during login) that do not hold a user JWT " +
+                    "and may request credentials for any org, since a single service instance serves every tenant. " +
+                    "The JWT path requires CREDENTIAL_MANAGE — this is a platform-admin operation, not a per-org self-service one, so a " +
+                    "JWT is never allowed to request another org's credentials merely by being authenticated."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Ephemeral credentials issued"),
             @ApiResponse(responseCode = "401", description = "No valid JWT or Vault token provided", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "JWT is authenticated but lacks CREDENTIAL_MANAGE", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "No registered credentials found for this org/service pair", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @SecurityRequirements({
@@ -55,7 +61,10 @@ class CredentialsController {
         return ReactiveSecurityContextHolder.getContext()
                 .map(ctx -> ctx.getAuthentication())
                 .filter(auth -> auth != null && auth.isAuthenticated())
-                .flatMap(auth -> credentialsService.getEphemeralCredentialsByOrgIdAndServiceId(requestDTO))
+                .flatMap(auth -> auth.getAuthorities().stream()
+                        .anyMatch(a -> a.getAuthority().equals(RaumPermission.CREDENTIAL_MANAGE.name()))
+                        ? credentialsService.getEphemeralCredentialsByOrgIdAndServiceId(requestDTO)
+                        : Mono.error(new ForbiddenException("CREDENTIAL_MANAGE required")))
                 .switchIfEmpty(Mono.defer(() -> {
                     if (vaultToken != null) {
                         return openBaoService.validateToken(vaultToken)
@@ -67,19 +76,11 @@ class CredentialsController {
                 }));
     }
 
-    @Operation(summary = "Health check", description = "Returns true if Raum's own database is reachable. Internal use only.")
-    @ApiResponse(responseCode = "200", description = "Database reachable")
-    @SecurityRequirement(name = "bearerAuth")
-    @GetMapping("/test-db")
-    public Mono<Boolean> testDb() {
-        return credentialsService.testDB();
-    }
-
     @Operation(
             summary = "Register database credentials",
             description = "Stores static database credentials for an org/service pair and registers the database connection with OpenBao's dynamic secrets engine. " +
                     "After registration, callers should use POST /credentials/ephemeral instead of these static credentials. " +
-                    "Cannot be used to register credentials for Raum itself. Requires RAUM_MANAGE."
+                    "Cannot be used to register credentials for Raum itself. Requires CREDENTIAL_MANAGE."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Credentials registered — returns orgId and serviceId only; static credentials are not echoed back"),

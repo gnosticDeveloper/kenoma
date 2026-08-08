@@ -1,4 +1,16 @@
-limit_req_zone $binary_remote_addr zone=vassago_auth:10m rate=20r/m;
+# CORS preflight (OPTIONS) requests are exempted from this limiter by mapping them to an
+# empty key — nginx treats an empty limit_req key as "don't rate-limit this request". Without
+# this, a rate-limited request gets a bare 503 with no CORS headers (nginx short-circuits
+# before proxying to vassago, which is what actually sets Access-Control-Allow-Origin), so the
+# browser reports it as a CORS policy violation instead of a 503 — and worse, every real login
+# attempt burns two requests from the same budget (its own preflight plus the POST), so bursty
+# but legitimate traffic (e.g. a page load's /auth/refresh followed by a login submit) can trip
+# this and see a misleading, unrecoverable-looking "blocked by CORS policy" error.
+map $request_method $vassago_auth_limit_key {
+    OPTIONS "";
+    default $binary_remote_addr;
+}
+limit_req_zone $vassago_auth_limit_key zone=vassago_auth:10m rate=20r/m;
 
 server {
     listen 443 ssl;
@@ -59,6 +71,15 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    # Batch variant pricing (VariantPricingController) lives at a top-level /variants/pricing
+    # path, not nested under /products like variant CRUD — without this block it 404s/405s at
+    # the gateway even though the service itself handles it correctly.
+    location /variants {
+        proxy_pass http://bime:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     location /orgs {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
@@ -78,6 +99,12 @@ server {
     }
 
     location /services {
+        proxy_pass http://raum:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /pricing {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

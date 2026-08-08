@@ -69,6 +69,7 @@ button, input, select {
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
+.sidebar.collapsed .sidebar-title { display: none; }
 
 .sidebar-collapse-btn {
   margin-left: auto;
@@ -97,7 +98,7 @@ button, input, select {
   color: #776c62;
   white-space: nowrap;
 }
-.sidebar.collapsed .sidebar-group-label { padding: 10px 0; text-align: center; }
+.sidebar.collapsed .sidebar-group-label { display: none; }
 
 .sidebar-item {
   display: flex;
@@ -294,6 +295,22 @@ button, input, select {
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.4px;
+}
+
+.field-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.field-checkbox input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .field input,
@@ -642,6 +659,8 @@ button, input, select {
 .modal-close { background: none; border: none; color: var(--color-text-muted); cursor: pointer; display: flex; }
 .modal-close:hover { color: var(--color-text); }
 .modal-body { padding: 20px; }
+.modal-divider { border: none; border-top: 1px solid var(--color-border); margin: 20px 0 16px; }
+.modal-body h3 { font-size: 13px; font-weight: 700; margin: 0 0 12px; color: var(--color-text); }
 
 /* ── Row actions menu ── */
 .row-actions-menu { position: relative; display: inline-flex; }
@@ -656,9 +675,6 @@ button, input, select {
 }
 .row-actions-trigger:hover { color: var(--color-text); background: var(--color-accent-soft); }
 .row-actions-dropdown {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
   background: var(--color-panel-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -666,6 +682,10 @@ button, input, select {
   z-index: 40;
   min-width: 140px;
   overflow: hidden;
+}
+.row-actions-dropdown-portal {
+  position: fixed;
+  transform: translateX(-100%);
 }
 .row-actions-item {
   display: block;

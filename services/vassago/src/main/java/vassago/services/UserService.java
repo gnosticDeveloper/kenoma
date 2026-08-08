@@ -1,12 +1,17 @@
 package vassago.services;
 
+import common.mail.MailgunService;
+import common.security.VerificationTokenService;
 import common.utils.RolesUtils;
 import common.utils.StringUtils;
 import lombok.RequiredArgsConstructor;
 import common.exception.BadRequestException;
+import common.exception.ConflictException;
 import common.exception.ForbiddenException;
 import common.exception.NotFoundException;
 import common.exception.UnauthorizedException;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -17,13 +22,10 @@ import vassago.dto.PasswordChangeRequestDTO;
 import vassago.dto.UserRequestDTO;
 import vassago.dto.UserResponseDTO;
 import vassago.dto.VerifyTokenRequestDTO;
+import vassago.security.RedisTokenService;
 import vassago.security.VassagoAuthentication;
 import vassago.security.VassagoRole;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -31,13 +33,20 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private final VassagoDbService vassagoDbService;
     private final PasswordEncoder encoder;
     private final UUID serviceId;
     private final MailgunService mailgunService;
+    private final VerificationTokenService verificationTokenService;
+    private final RedisTokenService redisTokenService;
+
+    @Value("${vassago.jwt.ttl-seconds:300}")
+    private long jwtTtlSeconds;
 
     public Mono<UserResponseDTO> createUser(UserRequestDTO dto) {
+        if (isBlank(dto.getEmail()) || isBlank(dto.getName()) || isBlank(dto.getLastName()) || isBlank(dto.getUsername())) {
+            return Mono.error(new BadRequestException("email, name, lastName, and username are required"));
+        }
         return getCaller()
                 .flatMap(caller -> {
                     Map<String, List<String>> callerRoles = caller.getRoles();
@@ -61,9 +70,9 @@ public class UserService {
                         }
                     }
 
-                    String placeholderPassword = encoder.encode(generateToken());
-                    String verificationToken = generateToken();
-                    String tokenHash = hashToken(verificationToken);
+                    String placeholderPassword = encoder.encode(verificationTokenService.generateToken());
+                    String verificationToken = verificationTokenService.generateToken();
+                    String tokenHash = verificationTokenService.hashToken(verificationToken);
                     Instant expiresAt = Instant.now().plus(24, ChronoUnit.HOURS);
                     String locale = dto.getLocale() == null || dto.getLocale().isBlank() ? "en" : dto.getLocale();
 
@@ -97,12 +106,17 @@ public class UserService {
                                                         dto.getEmail(), caller.getOrgId(), verificationToken, locale))
                                                 .thenReturn(toCreateResponseDTO(row));
                                     })
+                                    // username and email are both UNIQUE at the DB level (each org has
+                                    // its own database); without this, a violation surfaces as a raw
+                                    // unhandled 500 instead of a clean 409.
+                                    .onErrorMap(DataIntegrityViolationException.class, e ->
+                                            new ConflictException("A user with this username or email already exists"))
                             );
                 });
     }
 
     public Mono<Void> verifyToken(VerifyTokenRequestDTO dto) {
-        String tokenHash = hashToken(dto.getToken());
+        String tokenHash = verificationTokenService.hashToken(dto.getToken());
         return vassagoDbService.getClient(dto.getOrgId())
                 .flatMap(client -> client.sql("""
                         SELECT id, user_id FROM pending_verifications
@@ -169,6 +183,9 @@ public class UserService {
     }
 
     public Mono<UserResponseDTO> updateUser(UUID id, UserRequestDTO dto) {
+        if (isBlank(dto.getEmail()) || isBlank(dto.getName()) || isBlank(dto.getLastName()) || isBlank(dto.getUsername())) {
+            return Mono.error(new BadRequestException("email, name, lastName, and username are required"));
+        }
         return getCaller()
                 .flatMap(caller -> {
                     boolean isAdmin = caller.getRoles()
@@ -181,6 +198,20 @@ public class UserService {
                             VassagoRole.valueOf(role);
                         } catch (IllegalArgumentException e) {
                             return Mono.error(new BadRequestException("Unknown Vassago role: " + role));
+                        }
+                    }
+
+                    // Same invariant as createUser: a caller can only grant roles they already hold
+                    // themselves. Without this, a non-admin editing their own account (allowed below)
+                    // could self-elevate to VASSAGO_ADMIN by simply naming it in the request.
+                    Map<String, List<String>> callerRoles = caller.getRoles();
+                    for (Map.Entry<String, List<String>> entry : dto.getRoles().entrySet()) {
+                        String service = entry.getKey();
+                        List<String> requested = entry.getValue();
+                        List<String> callerServiceRoles = callerRoles.getOrDefault(service, List.of());
+                        if (!new HashSet<>(callerServiceRoles).containsAll(requested)) {
+                            return Mono.error(new ForbiddenException(
+                                    "Cannot assign roles not held by the calling user for service: " + service));
                         }
                     }
 
@@ -238,8 +269,8 @@ public class UserService {
                                     UUID userId = (UUID) row.get("id");
                                     String email = (String) row.get("email");
                                     String locale = (String) row.get("locale");
-                                    String verificationToken = generateToken();
-                                    String tokenHash = hashToken(verificationToken);
+                                    String verificationToken = verificationTokenService.generateToken();
+                                    String tokenHash = verificationTokenService.hashToken(verificationToken);
                                     Instant expiresAt = Instant.now().plus(1, ChronoUnit.HOURS);
                                     return client.sql("""
                                             INSERT INTO pending_verifications (user_id, token_hash, expires_at, type)
@@ -270,7 +301,10 @@ public class UserService {
                                 .rowsUpdated()
                                 .flatMap(rows -> rows == 0
                                         ? Mono.error(new NotFoundException("User not found"))
-                                        : Mono.empty())
+                                        // Any access token already issued to this user is a bearer secret
+                                        // that's otherwise valid until its own (short) expiry regardless of
+                                        // stopped_at — revoke it immediately rather than waiting it out.
+                                        : redisTokenService.revokeUserTokens(id, jwtTtlSeconds))
                         )
                 ).then();
     }
@@ -280,22 +314,8 @@ public class UserService {
                 .mapNotNull(ctx -> (VassagoAuthentication) ctx.getAuthentication());
     }
 
-    private static String generateToken() {
-        byte[] bytes = new byte[32];
-        SECURE_RANDOM.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
-    private static String hashToken(String token) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(64);
-            for (byte b : hash) hex.append(String.format("%02x", b));
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     private UserResponseDTO toResponseDTO(Map<String, Object> row) {

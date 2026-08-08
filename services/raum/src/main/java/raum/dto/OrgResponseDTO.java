@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Builder
@@ -17,4 +18,16 @@ public class OrgResponseDTO {
     UUID id;
     String name;
     String contactEmail;
+    String taxId;
+    String fiscalName;
+    String fiscalAddress;
+    String billingEmail;
+    boolean billingEmailVerified;
+    String billingCycle;
+    Instant nextInvoiceDueAt;
+    String currency;
+    String currencyRefreshMode;
+    String currencyRefreshCadence;
+    Integer currencyRefreshIntervalDays;
+    String productPricingCurrency;
 }

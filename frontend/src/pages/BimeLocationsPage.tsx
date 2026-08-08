@@ -16,7 +16,7 @@ interface Props {
   permissions: Permissions
 }
 
-const EMPTY_FORM: LocationRequest = { name: '', code: '' }
+const EMPTY_FORM: LocationRequest = { name: '', code: '', notificationEmail: '' }
 
 export default function BimeLocationsPage({ token, permissions }: Props) {
   const { t } = useTranslation()
@@ -49,7 +49,7 @@ export default function BimeLocationsPage({ token, permissions }: Props) {
 
   function openEdit(loc: LocationResponse) {
     setEditing(loc)
-    setForm({ name: loc.name, code: loc.code, isActive: loc.isActive })
+    setForm({ name: loc.name, code: loc.code, isActive: loc.isActive, notificationEmail: loc.notificationEmail ?? '' })
     setModalOpen(true)
   }
 
@@ -68,6 +68,7 @@ export default function BimeLocationsPage({ token, permissions }: Props) {
   const columns: Column<LocationResponse>[] = [
     { key: 'name', header: t('bimeLocationsPage.name'), render: l => l.name, sortValue: l => l.name },
     { key: 'code', header: t('bimeLocationsPage.code'), render: l => <span className="td-muted">{l.code}</span> },
+    { key: 'notificationEmail', header: t('bimeLocationsPage.notificationEmail'), render: l => <span className="td-muted">{l.notificationEmail ?? '—'}</span> },
     {
       key: 'active',
       header: t('bimeLocationsPage.active'),
@@ -105,7 +106,7 @@ export default function BimeLocationsPage({ token, permissions }: Props) {
           rows={locations}
           rowKey={l => l.id}
           searchable
-          searchText={l => `${l.name} ${l.code}`}
+          searchText={l => `${l.name} ${l.code} ${l.notificationEmail ?? ''}`}
           onRowClick={permissions.canManageBime ? openEdit : undefined}
           emptyLabel={t('bimeLocationsPage.emptyState')}
           headerAction={permissions.canManageBime
@@ -123,6 +124,15 @@ export default function BimeLocationsPage({ token, permissions }: Props) {
           <div className="field">
             <label>{t('bimeLocationsPage.code')}</label>
             <input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="WH-01" />
+          </div>
+          <div className="field">
+            <label>{t('bimeLocationsPage.notificationEmail')}</label>
+            <input
+              type="email"
+              value={form.notificationEmail ?? ''}
+              onChange={e => setForm(f => ({ ...f, notificationEmail: e.target.value }))}
+              placeholder="alerts@yourstore.com"
+            />
           </div>
         </div>
         <div className="actions">

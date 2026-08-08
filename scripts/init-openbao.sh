@@ -176,6 +176,38 @@ else
   RAUM_PROVISIONER_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/raum-provisioner/secret-id)
 fi
 
+# ── Bime provisioner (Bime creates its own working policy/role at boot) ───────
+
+echo "Writing Bime provisioner policy..."
+bao policy write bime-provisioner-policy - << POLICY
+path "sys/policies/acl/bime-policy" {
+  capabilities = ["create", "read", "update"]
+}
+path "auth/approle/role/bime" {
+  capabilities = ["create", "read", "update"]
+}
+path "auth/approle/role/bime/role-id" {
+  capabilities = ["read"]
+}
+path "auth/approle/role/bime/secret-id" {
+  capabilities = ["update"]
+}
+POLICY
+
+echo "Creating Bime provisioner AppRole..."
+bao write auth/approle/role/bime-provisioner \
+  token_policies="bime-provisioner-policy" \
+  token_ttl=5m \
+  token_max_ttl=15m \
+  secret_id_ttl=0
+
+BIME_PROVISIONER_ROLE_ID=$(bao read -field=role_id auth/approle/role/bime-provisioner/role-id)
+if [ -n "${BIME_PROVISIONER_SECRET_ID:-}" ]; then
+  echo "Reusing existing Bime provisioner secret ID."
+else
+  BIME_PROVISIONER_SECRET_ID=$(bao write -field=secret_id -f auth/approle/role/bime-provisioner/secret-id)
+fi
+
 # ── Write AppRole credentials ─────────────────────────────────────────────────
 
 mkdir -p /approle-out
@@ -186,6 +218,8 @@ RAUM_APPROLE_ROLE_ID=${RAUM_ROLE_ID}
 RAUM_APPROLE_SECRET_ID=${RAUM_SECRET_ID}
 RAUM_PROVISIONER_ROLE_ID=${RAUM_PROVISIONER_ROLE_ID}
 RAUM_PROVISIONER_SECRET_ID=${RAUM_PROVISIONER_SECRET_ID}
+BIME_PROVISIONER_ROLE_ID=${BIME_PROVISIONER_ROLE_ID}
+BIME_PROVISIONER_SECRET_ID=${BIME_PROVISIONER_SECRET_ID}
 ENVEOF
 echo "AppRole credentials written to /approle-out/approle.env"
 echo "OpenBao initialized."

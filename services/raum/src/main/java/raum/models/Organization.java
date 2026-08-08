@@ -31,6 +31,42 @@ public class Organization {
     @Column("contact_email")
     String contactEmail;
 
+    @Column("tax_id")
+    String taxId;
+
+    @Column("fiscal_name")
+    String fiscalName;
+
+    @Column("fiscal_address")
+    String fiscalAddress;
+
+    @Column("billing_email")
+    String billingEmail;
+
+    @Column("billing_email_verified")
+    boolean billingEmailVerified;
+
+    @Column("billing_cycle")
+    String billingCycle;
+
+    @Column("next_invoice_due_at")
+    Instant nextInvoiceDueAt;
+
+    @Column("currency")
+    String currency;
+
+    @Column("currency_refresh_mode")
+    String currencyRefreshMode;
+
+    @Column("currency_refresh_cadence")
+    String currencyRefreshCadence;
+
+    @Column("currency_refresh_interval_days")
+    Integer currencyRefreshIntervalDays;
+
+    @Column("product_pricing_currency")
+    String productPricingCurrency;
+
     @Column("modification_lock")
     boolean modificationLock;
 

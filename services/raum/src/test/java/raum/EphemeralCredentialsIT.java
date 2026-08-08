@@ -29,6 +29,7 @@ import raum.dto.OrgResponseDTO;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -195,7 +196,12 @@ class EphemeralCredentialsIT {
                     "spring.data.redis.host=localhost",
                     "spring.data.redis.port=" + redis.getMappedPort(6379),
                     "vassago.jwt.public-key-refresh-cron=-",
-                    "raum.onboarding.retry-cron=-"
+                    "raum.onboarding.retry-cron=-",
+                    "raum.billing.deadline-cron=-",
+                    "mailgun.api-key=test-key",
+                    "mailgun.domain=test.example.com",
+                    "mailgun.from=noreply@test.example.com",
+                    "app.base-url=http://localhost:3000"
             );
         }
     }
@@ -355,6 +361,60 @@ class EphemeralCredentialsIT {
     }
 
     @Test
+    void ephemeralCredentials_withAdminJwt_succeeds() {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        CredentialsDTO ephemeral = client.post()
+                .uri("/credentials/ephemeral")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(BasicCredentialDTO.builder()
+                        .orgId(orgId)
+                        .serviceId(serviceId)
+                        .build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block();
+
+        assertThat(ephemeral).isNotNull();
+        assertThat(ephemeral.getUserName()).isNotBlank();
+    }
+
+    @Test
+    void ephemeralCredentials_rejectsJwtWithoutCredentialManage() {
+        // A JWT that's authenticated but holds no CREDENTIAL_MANAGE-granting role (e.g. a plain
+        // onboarding-scoped operator) must not be able to pull any org's ephemeral DB credentials
+        // just by being logged in — this was the actual vulnerability: only isAuthenticated() was
+        // checked, so any valid JWT from any org/role could fetch any other org's credentials.
+        Claims claims = mock(Claims.class);
+        String rolesJson = "{\"" + raumServiceId + "\":[\"RAUM_ONBOARDING\"]}";
+        when(claims.getSubject()).thenReturn("test-onboarding-only");
+        when(claims.get(eq("orgId"), eq(String.class))).thenReturn(orgId.toString());
+        when(claims.get(eq("roles"), eq(String.class))).thenReturn(rolesJson);
+        when(jwtValidator.validateToken(anyString())).thenReturn(reactor.core.publisher.Mono.just(claims));
+
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.post()
+                .uri("/credentials/ephemeral")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(BasicCredentialDTO.builder()
+                        .orgId(orgId)
+                        .serviceId(serviceId)
+                        .build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.Forbidden.class);
+    }
+
+    @Test
     void saveCredentials_registersInOpenBaoAndDb() {
         mockAdminJwt();
         WebClient client = WebClient.builder()
@@ -426,19 +486,91 @@ class EphemeralCredentialsIT {
     }
 
     @Test
-    void testDb_returnsTrue() {
+    void activeOrgIds_returnsIdsForValidVaultToken() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        List<UUID> ids = client.get()
+                .uri("/orgs/active-ids")
+                .header("X-Vault-Token", vassagoToken)
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block();
+
+        assertThat(ids).isNotNull();
+        assertThat(ids).contains(orgId);
+    }
+
+    // Adversarial: any valid AppRole token authenticates — not just Vassago's — since this
+    // endpoint (like /credentials/ephemeral) trusts any live vault token, not a specific AppRole.
+    @Test
+    void activeOrgIds_acceptsAnyValidAppRoleToken_notJustVassago() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        List<UUID> ids = client.get()
+                .uri("/orgs/active-ids")
+                .header("X-Vault-Token", raumToken)
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block();
+
+        assertThat(ids).isNotNull();
+        assertThat(ids).contains(orgId);
+    }
+
+    @Test
+    void activeOrgIds_rejectsMissingVaultToken() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/active-ids")
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
+    }
+
+    @Test
+    void activeOrgIds_rejectsInvalidVaultToken() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/active-ids")
+                .header("X-Vault-Token", "not-a-real-token")
+                .retrieve()
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
+    }
+
+    // Adversarial: a caller's own user JWT (not a machine vault token) must not work either —
+    // this endpoint is machine-to-machine only, unlike /credentials/ephemeral which accepts both.
+    @Test
+    void activeOrgIds_rejectsUserJwt_vaultTokenOnly() {
         mockAdminJwt();
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(port))
                 .build();
 
-        Boolean result = client.get()
-                .uri("/credentials/test-db")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/active-ids")
+                .header(HttpHeaders.AUTHORIZATION.toString(), "Bearer test-token")
                 .retrieve()
-                .bodyToMono(Boolean.class)
-                .block();
-
-        assertThat(result).isTrue();
+                .bodyToFlux(UUID.class)
+                .collectList()
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
     }
+
 }

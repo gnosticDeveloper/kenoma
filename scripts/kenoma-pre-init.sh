@@ -9,6 +9,18 @@ if [ ! -f /init-out/unseal-keys.env ]; then
 fi
 . /init-out/unseal-keys.env
 
+if [ -n "${DR_BACKUP_S3_ENDPOINT:-}" ]; then
+  echo "Storing DR backup S3 credentials in OpenBao KV..."
+  wget -q -O - \
+    --header="Content-Type: application/json" \
+    --header="X-Vault-Token: ${ROOT_TOKEN}" \
+    --post-data="{\"data\":{\"endpoint\":\"${DR_BACKUP_S3_ENDPOINT}\",\"bucket\":\"${DR_BACKUP_S3_BUCKET}\",\"access_key\":\"${DR_BACKUP_S3_ACCESS_KEY}\",\"secret_key\":\"${DR_BACKUP_S3_SECRET_KEY}\"}}" \
+    "${OPENBAO_BASE_URL}/v1/secret/data/dr-backup/s3"
+  echo "DR backup S3 credentials stored."
+else
+  echo "DR_BACKUP_S3_ENDPOINT not set; skipping DR backup credential seeding."
+fi
+
 echo "Reading bootstrap IDs from Raum database..."
 
 RAUM_SERVICE_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
@@ -153,6 +165,14 @@ wget -q -O - \
   "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-role"
 echo "Database role created."
 
+echo "Storing Bime credentials in OpenBao KV..."
+wget -q -O - \
+  --header="Content-Type: application/json" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
+  --post-data="{\"data\":{\"username\":\"${BIME_DB_USER}\",\"password\":\"${BIME_DB_PASSWORD}\"}}" \
+  "${OPENBAO_BASE_URL}/v1/secret/data/credentials/${BIME_CREDENTIAL_ID}"
+echo "Bime credentials stored."
+
 echo "Registering Bime database connection in OpenBao..."
 cat > /tmp/bime-db-config-payload.json << DBCONFIG
 {
@@ -207,6 +227,8 @@ RAUM_PROVISIONER_SECRET_ID=${RAUM_PROVISIONER_SECRET_ID}
 RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt
 BIME_SERVICE_ID=${BIME_SERVICE_ID}
 BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
+BIME_PROVISIONER_ROLE_ID=${BIME_PROVISIONER_ROLE_ID}
+BIME_PROVISIONER_SECRET_ID=${BIME_PROVISIONER_SECRET_ID}
 ENVEOF
 echo "Wrote env file to ${ENV_OUT}."
 
@@ -221,6 +243,8 @@ VASSAGO_PROVISIONER_SECRET_ID=${VASSAGO_PROVISIONER_SECRET_ID}
 VASSAGO_JWT_TRANSIT_KEY_NAME=vassago-jwt
 BIME_SERVICE_ID=${BIME_SERVICE_ID}
 BIME_JWT_TRANSIT_KEY_NAME=vassago-jwt
+BIME_PROVISIONER_ROLE_ID=${BIME_PROVISIONER_ROLE_ID}
+BIME_PROVISIONER_SECRET_ID=${BIME_PROVISIONER_SECRET_ID}
 
 # Infrastructure — localhost addresses for running services outside Docker
 OPENBAO_BASE_URL=http://localhost:8200

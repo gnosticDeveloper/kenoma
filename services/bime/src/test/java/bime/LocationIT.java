@@ -50,6 +50,16 @@ class LocationIT extends BaseIT {
     }
 
     @Test
+    void createLocation_withoutCode_returns400NotServerError() {
+        client.post().uri("/locations")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(locationRequest("Unnamed Code Location", null))
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
     void getLocationById_returnsLocation() {
         LocationResponseDTO created = createLocation("Shelf A", "SH-A");
 
