@@ -12,7 +12,10 @@ import BimeProductsPage from './pages/BimeProductsPage'
 import BimeStockPage from './pages/BimeStockPage'
 import RecoverPage from './pages/RecoverPage'
 import VerifyPage from './pages/VerifyPage'
+import EmailConfirmPage from './pages/EmailConfirmPage'
 import { vassago } from './api/vassago'
+import { raum } from './api/raum'
+import { bime } from './api/bime'
 import { useApiCall } from './hooks/useApiCall'
 import { parseJwtClaims, derivePermissions, jwtExp } from './auth'
 import type { Permissions } from './auth'
@@ -257,8 +260,20 @@ function AppShell() {
 }
 
 export default function App() {
-  const isVerifyRoute = window.location.pathname === '/verify' && new URLSearchParams(window.location.search).has('token')
-  if (isVerifyRoute) return <VerifyPage />
+  const verifyParams = new URLSearchParams(window.location.search)
+  const isVerifyRoute = window.location.pathname === '/verify' && verifyParams.has('token')
+  if (isVerifyRoute) {
+    switch (verifyParams.get('type')) {
+      case 'billing':
+        return <EmailConfirmPage i18nPrefix="billingEmailVerifyPage" confirm={(orgId, token) => raum.orgs.confirmBillingEmail(orgId, { token })} />
+      case 'contact':
+        return <EmailConfirmPage i18nPrefix="contactEmailVerifyPage" confirm={(orgId, token) => raum.orgs.confirmContactEmail(orgId, { token })} />
+      case 'location':
+        return <EmailConfirmPage i18nPrefix="locationEmailVerifyPage" confirm={(orgId, token) => bime.locations.confirmNotificationEmail({ orgId, token })} />
+      default:
+        return <VerifyPage />
+    }
+  }
 
   return (
     <ToastProvider>

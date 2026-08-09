@@ -3,6 +3,7 @@ import type {
   BasePricingResponse,
   BasicCredential,
   BillingEmailRequest,
+  BillingEmailVerifyRequest,
   BillingHistoryResponse,
   BillingInfoRequest,
   Credentials,
@@ -37,6 +38,10 @@ export const raum = {
       req<OrgResponse>(`/orgs/${id}/billing-info`, { method: 'PUT', ...payload(dto) }, token),
     requestBillingEmailVerification: (id: string, dto: BillingEmailRequest, token: string) =>
       req<void>(`/orgs/${id}/billing-email`, { method: 'POST', ...payload(dto) }, token),
+    confirmBillingEmail: (id: string, dto: BillingEmailVerifyRequest) =>
+      req<void>(`/orgs/${id}/billing-email/confirm`, { method: 'POST', ...payload(dto) }),
+    confirmContactEmail: (id: string, dto: BillingEmailVerifyRequest) =>
+      req<void>(`/orgs/${id}/contact-email/confirm`, { method: 'POST', ...payload(dto) }),
   },
   billingHistory: {
     list: (orgId: string, token: string) =>

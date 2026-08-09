@@ -14,6 +14,7 @@ export interface OrgResponse {
   id: string
   name: string
   contactEmail: string
+  contactEmailVerified?: boolean
   taxId?: string | null
   fiscalName?: string | null
   fiscalAddress?: string | null
@@ -52,6 +53,10 @@ export interface BillingInfoRequest {
 export interface BillingEmailRequest {
   billingEmail: string
   locale?: string
+}
+
+export interface BillingEmailVerifyRequest {
+  token: string
 }
 
 export type PaymentStatus = 'PENDING' | 'PAID'
@@ -197,8 +202,14 @@ export interface LocationResponse {
   code: string
   isActive: boolean
   notificationEmail: string | null
+  notificationEmailVerified?: boolean | null
   createdAt: string
   modifiedAt: string
+}
+
+export interface NotificationEmailVerifyRequest {
+  orgId: string
+  token: string
 }
 
 export interface StockAlertThresholdRequest {

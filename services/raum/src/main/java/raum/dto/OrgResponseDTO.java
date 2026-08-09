@@ -18,6 +18,7 @@ public class OrgResponseDTO {
     UUID id;
     String name;
     String contactEmail;
+    boolean contactEmailVerified;
     String taxId;
     String fiscalName;
     String fiscalAddress;

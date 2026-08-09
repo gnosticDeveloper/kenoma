@@ -22,6 +22,7 @@ public class LocationResponseDTO {
     private String code;
     private Boolean isActive;
     private String notificationEmail;
+    private Boolean notificationEmailVerified;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
 }

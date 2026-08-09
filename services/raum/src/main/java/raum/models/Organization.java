@@ -31,6 +31,9 @@ public class Organization {
     @Column("contact_email")
     String contactEmail;
 
+    @Column("contact_email_verified")
+    boolean contactEmailVerified;
+
     @Column("tax_id")
     String taxId;
 

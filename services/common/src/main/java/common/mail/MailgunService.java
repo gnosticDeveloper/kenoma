@@ -46,8 +46,8 @@ public class MailgunService {
     }
 
     public Mono<Void> sendLinkEmail(String toEmail, UUID orgId, String token, String locale,
-                                     String subjectKey, String bodyKey) {
-        String link = "%s/verify?orgId=%s&token=%s".formatted(appBaseUrl, orgId, token);
+                                     String subjectKey, String bodyKey, String linkType) {
+        String link = "%s/verify?orgId=%s&token=%s&type=%s".formatted(appBaseUrl, orgId, token, linkType);
         ResourceBundle messages = messagesFor(locale);
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
@@ -66,15 +66,23 @@ public class MailgunService {
     }
 
     public Mono<Void> sendPasswordResetEmail(String toEmail, UUID orgId, String token, String locale) {
-        return sendLinkEmail(toEmail, orgId, token, locale, "reset.subject", "reset.body");
+        return sendLinkEmail(toEmail, orgId, token, locale, "reset.subject", "reset.body", "user");
     }
 
     public Mono<Void> sendVerificationEmail(String toEmail, UUID orgId, String token, String locale) {
-        return sendLinkEmail(toEmail, orgId, token, locale, "verify.subject", "verify.body");
+        return sendLinkEmail(toEmail, orgId, token, locale, "verify.subject", "verify.body", "user");
     }
 
     public Mono<Void> sendBillingEmailVerification(String toEmail, UUID orgId, String token, String locale) {
-        return sendLinkEmail(toEmail, orgId, token, locale, "billing_verify.subject", "billing_verify.body");
+        return sendLinkEmail(toEmail, orgId, token, locale, "billing_verify.subject", "billing_verify.body", "billing");
+    }
+
+    public Mono<Void> sendContactEmailVerification(String toEmail, UUID orgId, String token, String locale) {
+        return sendLinkEmail(toEmail, orgId, token, locale, "contact_verify.subject", "contact_verify.body", "contact");
+    }
+
+    public Mono<Void> sendLocationNotificationEmailVerification(String toEmail, UUID orgId, String token, String locale) {
+        return sendLinkEmail(toEmail, orgId, token, locale, "location_verify.subject", "location_verify.body", "location");
     }
 
     public Mono<Void> sendStockAlertEmail(String toEmail, String productLabel, String locationName,

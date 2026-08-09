@@ -2,6 +2,7 @@ import type {
   LocationRequest,
   LocationResponse,
   MetadataOptionPatch,
+  NotificationEmailVerifyRequest,
   MetadataOptionRequest,
   MetadataOptionResponse,
   ProductMetadataAssignmentItem,
@@ -33,6 +34,8 @@ export const bime = {
       req<LocationResponse>(`/locations/${id}`, { method: 'PUT', ...payload(dto) }, token),
     deactivate: (id: string, token: string) =>
       req<void>(`/locations/${id}`, { method: 'DELETE' }, token),
+    confirmNotificationEmail: (dto: NotificationEmailVerifyRequest) =>
+      req<void>('/locations/notification-email/confirm', { method: 'POST', ...payload(dto) }),
   },
   metadata: {
     create: (dto: ProductMetadataRequest, token: string) =>

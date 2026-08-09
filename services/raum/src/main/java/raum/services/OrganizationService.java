@@ -5,6 +5,7 @@ import common.exception.ConflictException;
 import common.exception.NotFoundException;
 import common.mail.MailgunService;
 import common.security.VerificationTokenService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import raum.dto.BillingEmailRequestDTO;
@@ -26,10 +27,12 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
+@Slf4j
 @Service
 public class OrganizationService {
 
     private static final String BILLING_EMAIL_FIELD = "BILLING_EMAIL";
+    private static final String CONTACT_EMAIL_FIELD = "CONTACT_EMAIL";
 
     final OrganizationRepository repository;
     private final PendingOrgVerificationRepository pendingOrgVerificationRepository;
@@ -57,6 +60,7 @@ public class OrganizationService {
         Organization org = Organization.builder()
                 .contactName(dto.getContactName())
                 .contactEmail(dto.getContactEmail())
+                .contactEmailVerified(false)
                 .name(dto.getName())
                 .build();
 
@@ -65,6 +69,7 @@ public class OrganizationService {
         // translate the resulting constraint violation into a clean 409 instead of letting a raw
         // DB error surface as an unhandled 500.
         return repository.save(org)
+                .flatMap(saved -> sendContactEmailVerification(saved).thenReturn(saved))
                 .map(this::toResponseDTO)
                 .onErrorMap(DataIntegrityViolationException.class, e ->
                         new ConflictException("An organization named '" + dto.getName() + "' already exists"));
@@ -87,15 +92,35 @@ public class OrganizationService {
 
     public Mono<OrgResponseDTO> updateOrg(UUID id, OrgRequestDTO dto) {
         return repository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
                 .flatMap(org -> {
+                    boolean emailChanged = dto.getContactEmail() != null && !dto.getContactEmail().equals(org.getContactEmail());
                     org.setName(dto.getName());
                     org.setContactName(dto.getContactName());
                     org.setContactEmail(dto.getContactEmail());
                     org.setModifiedAt(Instant.now());
-                    return repository.save(org);
+                    if (emailChanged) {
+                        org.setContactEmailVerified(false);
+                    }
+                    Mono<Organization> saved = repository.save(org);
+                    if (!emailChanged) {
+                        return saved;
+                    }
+                    return saved.flatMap(s -> sendContactEmailVerification(s).thenReturn(s));
                 })
-                .map(this::toResponseDTO)
-                .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")));
+                .map(this::toResponseDTO);
+    }
+
+    // Best-effort: registering/updating an org should succeed even if the verification email
+    // fails to send (e.g. Mailgun hiccup) - unlike billing-email verification, this isn't an
+    // explicit user action the whole request exists to perform.
+    private Mono<Void> sendContactEmailVerification(Organization org) {
+        return createPendingVerification(org.getId(), CONTACT_EMAIL_FIELD, org.getContactEmail())
+                .flatMap(token -> mailgunService.sendContactEmailVerification(org.getContactEmail(), org.getId(), token, null))
+                .onErrorResume(e -> {
+                    log.warn("Failed to send contact email verification for org {}", org.getId(), e);
+                    return Mono.empty();
+                });
     }
 
     public Mono<Void> deleteOrg(UUID id) {
@@ -181,20 +206,9 @@ public class OrganizationService {
                     org.setBillingEmailVerified(false);
                     org.setModifiedAt(Instant.now());
 
-                    String token = verificationTokenService.generateToken();
-                    String tokenHash = verificationTokenService.hashToken(token);
-
-                    PendingOrgVerification verification = PendingOrgVerification.builder()
-                            .orgId(orgId)
-                            .fieldName(BILLING_EMAIL_FIELD)
-                            .email(dto.getBillingEmail())
-                            .tokenHash(tokenHash)
-                            .expiresAt(Instant.now().plus(24, ChronoUnit.HOURS))
-                            .build();
-
                     return repository.save(org)
-                            .then(pendingOrgVerificationRepository.save(verification))
-                            .then(mailgunService.sendBillingEmailVerification(
+                            .then(createPendingVerification(orgId, BILLING_EMAIL_FIELD, dto.getBillingEmail()))
+                            .flatMap(token -> mailgunService.sendBillingEmailVerification(
                                     dto.getBillingEmail(), orgId, token, dto.getLocale()));
                 });
     }
@@ -204,21 +218,52 @@ public class OrganizationService {
         if (blank != null) {
             return blank;
         }
-        String tokenHash = verificationTokenService.hashToken(dto.getToken());
+        return confirmEmailVerification(orgId, dto.getToken(), BILLING_EMAIL_FIELD);
+    }
+
+    public Mono<Void> confirmContactEmail(UUID orgId, BillingEmailVerifyRequestDTO dto) {
+        Mono<Void> blank = requireNonBlank(dto.getToken(), "token");
+        if (blank != null) {
+            return blank;
+        }
+        return confirmEmailVerification(orgId, dto.getToken(), CONTACT_EMAIL_FIELD);
+    }
+
+    private Mono<String> createPendingVerification(UUID orgId, String fieldName, String email) {
+        String token = verificationTokenService.generateToken();
+        String tokenHash = verificationTokenService.hashToken(token);
+        PendingOrgVerification verification = PendingOrgVerification.builder()
+                .orgId(orgId)
+                .fieldName(fieldName)
+                .email(email)
+                .tokenHash(tokenHash)
+                .expiresAt(Instant.now().plus(24, ChronoUnit.HOURS))
+                .build();
+        return pendingOrgVerificationRepository.save(verification).thenReturn(token);
+    }
+
+    private Mono<Void> confirmEmailVerification(UUID orgId, String token, String fieldName) {
+        String tokenHash = verificationTokenService.hashToken(token);
         return pendingOrgVerificationRepository
                 .findByTokenHashAndUsedFalseAndExpiresAtAfter(tokenHash, Instant.now())
                 .switchIfEmpty(Mono.error(new NotFoundException("Invalid or expired verification token")))
                 .flatMap(verification -> {
-                    if (!verification.getOrgId().equals(orgId)) {
+                    if (!verification.getOrgId().equals(orgId) || !verification.getFieldName().equals(fieldName)) {
                         return Mono.error(new NotFoundException("Invalid or expired verification token"));
                     }
                     return repository.findById(orgId)
                             .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
                             .flatMap(org -> {
-                                if (!verification.getEmail().equals(org.getBillingEmail())) {
+                                String currentEmail = fieldName.equals(BILLING_EMAIL_FIELD)
+                                        ? org.getBillingEmail() : org.getContactEmail();
+                                if (!verification.getEmail().equals(currentEmail)) {
                                     return Mono.error(new NotFoundException("Invalid or expired verification token"));
                                 }
-                                org.setBillingEmailVerified(true);
+                                if (fieldName.equals(BILLING_EMAIL_FIELD)) {
+                                    org.setBillingEmailVerified(true);
+                                } else {
+                                    org.setContactEmailVerified(true);
+                                }
                                 org.setModifiedAt(Instant.now());
                                 verification.setUsed(true);
                                 return repository.save(org)
@@ -240,6 +285,7 @@ public class OrganizationService {
                 .id(organization.getId())
                 .name(organization.getName())
                 .contactEmail(organization.getContactEmail())
+                .contactEmailVerified(organization.isContactEmailVerified())
                 .taxId(organization.getTaxId())
                 .fiscalName(organization.getFiscalName())
                 .fiscalAddress(organization.getFiscalAddress())
