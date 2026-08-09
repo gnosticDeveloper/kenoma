@@ -195,6 +195,18 @@ public class OrganizationsController {
         return service.confirmBillingEmail(id, dto);
     }
 
+    @Operation(summary = "Confirm contact email", description = "Confirms the organisation's contact email verification token. No authentication required — the token itself is the credential.")
+    @SecurityRequirements({})
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Contact email confirmed"),
+            @ApiResponse(responseCode = "404", description = "Invalid or expired token", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping("/{id}/contact-email/confirm")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    Mono<Void> confirmContactEmail(@PathVariable("id") UUID id, @RequestBody BillingEmailVerifyRequestDTO dto) {
+        return service.confirmContactEmail(id, dto);
+    }
+
     @Operation(
             summary = "Request a tenant data export",
             description = "Queues an export of the organization's data (raum's org-scoped rows plus a full " +

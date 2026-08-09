@@ -4,6 +4,7 @@ import bime.dto.*;
 import bime.services.StockAlertCheckService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -220,6 +222,22 @@ class StockAlertSchedulerIT extends BaseIT {
                 .expectBody(LocationResponseDTO.class)
                 .returnResult().getResponseBody();
         assertThat(location).isNotNull();
+
+        // Stock alerts only email verified notification addresses - simulate the location owner
+        // clicking the confirmation link Mailgun would have sent, using the token the (mocked)
+        // send call was invoked with.
+        if (notificationEmail != null) {
+            ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
+            verify(mailgunService).sendLocationNotificationEmailVerification(
+                    org.mockito.ArgumentMatchers.eq(notificationEmail),
+                    org.mockito.ArgumentMatchers.eq(location.getOrgId()),
+                    tokenCaptor.capture(), isNull());
+            client.post().uri("/locations/notification-email/confirm")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(new NotificationEmailVerifyRequestDTO(location.getOrgId(), tokenCaptor.getValue()))
+                    .exchange()
+                    .expectStatus().isNoContent();
+        }
 
         ProductRequestDTO prodDto = new ProductRequestDTO();
         prodDto.setSku("ALERT-SKU-" + UUID.randomUUID());

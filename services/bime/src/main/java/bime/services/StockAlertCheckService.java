@@ -74,7 +74,7 @@ public class StockAlertCheckService {
                 )
                 SELECT tr.threshold, tr.quantity,
                        p.name AS product_name, p.sku AS product_sku, pv.sku AS variant_sku,
-                       l.name AS location_name, l.notification_email
+                       l.name AS location_name, l.notification_email, l.notification_email_verified
                 FROM triggered tr
                 JOIN product_variants pv ON pv.id = tr.variant_id
                 JOIN products p ON p.id = pv.product_id
@@ -95,6 +95,11 @@ public class StockAlertCheckService {
         String notificationEmail = (String) row.get("notification_email");
         if (notificationEmail == null) {
             log.warn("Stock alert triggered for org {} but location {} has no notification_email set",
+                    orgId, row.get("location_name"));
+            return Mono.empty();
+        }
+        if (!Boolean.TRUE.equals(row.get("notification_email_verified"))) {
+            log.warn("Stock alert triggered for org {} but location {}'s notification_email is not verified",
                     orgId, row.get("location_name"));
             return Mono.empty();
         }

@@ -2,6 +2,7 @@ package bime.controllers;
 
 import bime.dto.LocationRequestDTO;
 import bime.dto.LocationResponseDTO;
+import bime.dto.NotificationEmailVerifyRequestDTO;
 import bime.services.LocationService;
 import common.exception.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -10,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -94,5 +96,18 @@ public class LocationController {
     @PreAuthorize("hasAuthority('BIME_MANAGE')")
     public Mono<Void> deactivateLocation(@PathVariable UUID id) {
         return locationService.deactivateLocation(id);
+    }
+
+    @Operation(summary = "Confirm a location's notification email", description = "Confirms a notification email verification token. No authentication required — the token itself is the credential.")
+    @SecurityRequirements({})
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Notification email confirmed"),
+            @ApiResponse(responseCode = "400", description = "Missing token", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Invalid or expired token", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping("/notification-email/confirm")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> confirmNotificationEmail(@RequestBody NotificationEmailVerifyRequestDTO dto) {
+        return locationService.confirmNotificationEmail(dto.getOrgId(), dto.getToken());
     }
 }

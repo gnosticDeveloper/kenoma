@@ -44,7 +44,7 @@ class StockAlertCheckServiceTest {
 
     @Test
     void checkOrg_sendsEmailWithVariantSkuLabelWhenPresent() {
-        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", "alerts@example.com", 10, 3);
+        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", "alerts@example.com", true, 10, 3);
         stubClient(0L, List.of(row));
         when(mailgunService.sendStockAlertEmail(anyString(), anyString(), anyString(), anyInt(), anyInt(), any()))
                 .thenReturn(Mono.empty());
@@ -57,7 +57,7 @@ class StockAlertCheckServiceTest {
 
     @Test
     void checkOrg_fallsBackToProductSku_whenVariantHasNoOwnSku() {
-        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", null, "Main WH", "alerts@example.com", 10, 3);
+        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", null, "Main WH", "alerts@example.com", true, 10, 3);
         stubClient(0L, List.of(row));
         when(mailgunService.sendStockAlertEmail(anyString(), anyString(), anyString(), anyInt(), anyInt(), any()))
                 .thenReturn(Mono.empty());
@@ -72,7 +72,19 @@ class StockAlertCheckServiceTest {
     // and must not attempt to email a null/blank address.
     @Test
     void checkOrg_skipsEmail_whenLocationHasNoNotificationEmail() {
-        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", null, 10, 3);
+        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", null, true, 10, 3);
+        stubClient(0L, List.of(row));
+
+        StepVerifier.create(service.checkOrg(ORG_ID, mockHandle())).verifyComplete();
+
+        verify(mailgunService, never()).sendStockAlertEmail(any(), any(), any(), anyInt(), anyInt(), any());
+    }
+
+    // Adversarial: an unverified notification_email must not receive stock alert emails, even if
+    // it's otherwise present - the location owner never confirmed they control that address.
+    @Test
+    void checkOrg_skipsEmail_whenNotificationEmailNotVerified() {
+        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", "unverified@example.com", false, 10, 3);
         stubClient(0L, List.of(row));
 
         StepVerifier.create(service.checkOrg(ORG_ID, mockHandle())).verifyComplete();
@@ -84,8 +96,8 @@ class StockAlertCheckServiceTest {
     // being attempted — a single Mailgun outage/rejection shouldn't blank out the whole tick.
     @Test
     void checkOrg_isolatesEmailFailureToOneRow() {
-        Map<String, Object> failingRow = triggeredRow("Failing", "F-SKU", null, "WH-1", "fails@example.com", 10, 1);
-        Map<String, Object> healthyRow = triggeredRow("Healthy", "H-SKU", null, "WH-2", "ok@example.com", 10, 1);
+        Map<String, Object> failingRow = triggeredRow("Failing", "F-SKU", null, "WH-1", "fails@example.com", true, 10, 1);
+        Map<String, Object> healthyRow = triggeredRow("Healthy", "H-SKU", null, "WH-2", "ok@example.com", true, 10, 1);
         stubClient(0L, List.of(failingRow, healthyRow));
         when(mailgunService.sendStockAlertEmail(eq("fails@example.com"), anyString(), anyString(), anyInt(), anyInt(), any()))
                 .thenReturn(Mono.error(new RuntimeException("mailgun down")));
@@ -107,7 +119,7 @@ class StockAlertCheckServiceTest {
     }
 
     private Map<String, Object> triggeredRow(String productName, String productSku, String variantSku,
-                                              String locationName, String notificationEmail,
+                                              String locationName, String notificationEmail, boolean notificationEmailVerified,
                                               int threshold, int quantity) {
         Map<String, Object> row = new HashMap<>();
         row.put("product_name", productName);
@@ -115,6 +127,7 @@ class StockAlertCheckServiceTest {
         row.put("variant_sku", variantSku);
         row.put("location_name", locationName);
         row.put("notification_email", notificationEmail);
+        row.put("notification_email_verified", notificationEmailVerified);
         row.put("threshold", threshold);
         row.put("quantity", quantity);
         return row;

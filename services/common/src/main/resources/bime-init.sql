@@ -9,6 +9,18 @@ CREATE TABLE IF NOT EXISTS locations (
     UNIQUE (org_id, code)
 );
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS notification_email varchar(255);
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS notification_email_verified bool NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS pending_location_verifications (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    location_id uuid NOT NULL REFERENCES locations(id),
+    email       varchar(255) NOT NULL,
+    token_hash  varchar(64) NOT NULL,
+    expires_at  timestamptz NOT NULL,
+    used        boolean NOT NULL DEFAULT false,
+    created_at  timestamptz DEFAULT current_timestamp
+);
+CREATE INDEX IF NOT EXISTS idx_pending_location_verifications_location_id ON pending_location_verifications(location_id);
 
 CREATE TABLE IF NOT EXISTS products (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),

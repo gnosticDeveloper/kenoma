@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS organizations (
                                              stopped_at         timestamp DEFAULT null
 );
 
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS contact_email_verified bool NOT NULL DEFAULT false;
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tax_id                 varchar(64);
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS fiscal_name            varchar(255);
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS fiscal_address         varchar(500);

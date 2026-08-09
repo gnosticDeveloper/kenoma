@@ -430,5 +430,26 @@
     "submitting": "Setting password…",
     "success": "Your password has been updated.",
     "backToLogin": "Continue to log in"
+  },
+  "billingEmailVerifyPage": {
+    "title": "Confirm billing email",
+    "invalidLink": "This link is missing information and can't be used. Request a new one from the organization's billing settings.",
+    "confirming": "Confirming…",
+    "success": "Billing email confirmed.",
+    "backToLogin": "Continue to log in"
+  },
+  "contactEmailVerifyPage": {
+    "title": "Confirm contact email",
+    "invalidLink": "This link is missing information and can't be used. Request a new one from the organization's settings.",
+    "confirming": "Confirming…",
+    "success": "Contact email confirmed.",
+    "backToLogin": "Continue to log in"
+  },
+  "locationEmailVerifyPage": {
+    "title": "Confirm notification email",
+    "invalidLink": "This link is missing information and can't be used. Request a new one from the location's settings.",
+    "confirming": "Confirming…",
+    "success": "Notification email confirmed.",
+    "backToLogin": "Continue to log in"
   }
 }

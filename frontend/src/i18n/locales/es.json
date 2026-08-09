@@ -430,5 +430,26 @@
     "submitting": "Estableciendo contraseña…",
     "success": "Tu contraseña ha sido actualizada.",
     "backToLogin": "Continuar para iniciar sesión"
+  },
+  "billingEmailVerifyPage": {
+    "title": "Confirmar correo de facturación",
+    "invalidLink": "A este enlace le falta información y no se puede usar. Solicita uno nuevo desde la configuración de facturación de la organización.",
+    "confirming": "Confirmando…",
+    "success": "Correo de facturación confirmado.",
+    "backToLogin": "Continuar para iniciar sesión"
+  },
+  "contactEmailVerifyPage": {
+    "title": "Confirmar correo de contacto",
+    "invalidLink": "A este enlace le falta información y no se puede usar. Solicita uno nuevo desde la configuración de la organización.",
+    "confirming": "Confirmando…",
+    "success": "Correo de contacto confirmado.",
+    "backToLogin": "Continuar para iniciar sesión"
+  },
+  "locationEmailVerifyPage": {
+    "title": "Confirmar correo de notificaciones",
+    "invalidLink": "A este enlace le falta información y no se puede usar. Solicita uno nuevo desde la configuración de la ubicación.",
+    "confirming": "Confirmando…",
+    "success": "Correo de notificaciones confirmado.",
+    "backToLogin": "Continuar para iniciar sesión"
   }
 }

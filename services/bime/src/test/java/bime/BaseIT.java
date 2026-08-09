@@ -88,6 +88,7 @@ public abstract class BaseIT {
     @BeforeEach
     void setUpMocks() {
         when(connectionPoolService.getHandle(any())).thenReturn(Mono.just(testHandle));
+        when(connectionPoolService.getHandleViaVaultToken(any(), any())).thenReturn(Mono.just(testHandle));
         testHandle.client()
                 .sql("TRUNCATE locations, products, product_metadata CASCADE")
                 .fetch().rowsUpdated().block();
