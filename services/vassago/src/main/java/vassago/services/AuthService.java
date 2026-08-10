@@ -63,9 +63,10 @@ public class AuthService {
                 .flatMap(client -> client.sql("""
                         SELECT id, username, password, roles
                         FROM users
-                        WHERE username = :username AND stopped_at IS NULL AND is_ready
+                        WHERE username = :username AND org_id = :orgId AND stopped_at IS NULL AND is_ready
                         """)
                         .bind("username", dto.getUsername())
+                        .bind("orgId", dto.getOrgId())
                         .fetch()
                         .one()
                         .switchIfEmpty(Mono.error(new UnauthorizedException("Invalid credentials")))
@@ -113,9 +114,10 @@ public class AuthService {
                     return vassagoDbService.getClient(data.orgId())
                             .flatMap(client -> client.sql("""
                                     SELECT id, roles FROM users
-                                    WHERE username = :username AND stopped_at IS NULL AND is_ready
+                                    WHERE username = :username AND org_id = :orgId AND stopped_at IS NULL AND is_ready
                                     """)
                                     .bind("username", data.username())
+                                    .bind("orgId", data.orgId())
                                     .fetch()
                                     .one()
                                     .switchIfEmpty(Mono.error(new UnauthorizedException("Invalid or expired session")))
@@ -176,9 +178,10 @@ public class AuthService {
                 .onErrorResume(NotFoundException.class, ex -> Mono.empty())
                 .flatMap(client -> client.sql("""
                         SELECT id, email, locale FROM users
-                        WHERE username = :username AND stopped_at IS NULL
+                        WHERE username = :username AND org_id = :orgId AND stopped_at IS NULL
                         """)
                         .bind("username", dto.getUsername())
+                        .bind("orgId", dto.getOrgId())
                         .fetch()
                         .one()
                         .flatMap(row -> {

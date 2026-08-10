@@ -188,12 +188,12 @@ class UserManagementIT extends BaseIT {
         String username = "offboard_target";
         operationalDb.execInContainer("psql", "-U", "admin", "-d", "vassago",
                 "-c", """
-                        INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
-                        VALUES ('Offboard', 'Target', 'offboard_target@test.local', '%s',
+                        INSERT INTO users (org_id, name, last_name, email, username, password, roles, is_ready)
+                        VALUES ('%s', 'Offboard', 'Target', 'offboard_target@test.local', '%s',
                                 '$2a$10$xI03I5H6IoRGzfpHm4IUGOlQooxsVSVkJM3JMI4QFrJyXvR.6/gw.',
                                 '{"%s":["VASSAGO_USER"]}', true)
-                        ON CONFLICT (username) DO NOTHING;
-                        """.formatted(username, vassagoServiceId));
+                        ON CONFLICT (org_id, username) DO NOTHING;
+                        """.formatted(orgId, username, vassagoServiceId));
 
         vassago.dto.LoginRequestDTO login = new vassago.dto.LoginRequestDTO();
         login.setOrgId(orgId);

@@ -78,10 +78,11 @@ public class UserService {
 
                     return vassagoDbService.getClient(caller.getOrgId())
                             .flatMap(client -> client.sql("""
-                                    INSERT INTO users (name, last_name, email, username, password, roles, locale)
-                                    VALUES (:name, :lastName, :email, :username, :password, :roles, :locale)
+                                    INSERT INTO users (org_id, name, last_name, email, username, password, roles, locale)
+                                    VALUES (:orgId, :name, :lastName, :email, :username, :password, :roles, :locale)
                                     RETURNING id, name, last_name, email, username, roles
                                     """)
+                                    .bind("orgId", caller.getOrgId())
                                     .bind("name", dto.getName())
                                     .bind("lastName", dto.getLastName())
                                     .bind("email", dto.getEmail())
@@ -106,9 +107,9 @@ public class UserService {
                                                         dto.getEmail(), caller.getOrgId(), verificationToken, locale))
                                                 .thenReturn(toCreateResponseDTO(row));
                                     })
-                                    // username and email are both UNIQUE at the DB level (each org has
-                                    // its own database); without this, a violation surfaces as a raw
-                                    // unhandled 500 instead of a clean 409.
+                                    // username and email are both UNIQUE at the DB level, scoped per org
+                                    // (org_id, username) / (org_id, email); without this, a violation
+                                    // surfaces as a raw unhandled 500 instead of a clean 409.
                                     .onErrorMap(DataIntegrityViolationException.class, e ->
                                             new ConflictException("A user with this username or email already exists"))
                             );
@@ -157,9 +158,10 @@ public class UserService {
                 .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
                         .flatMap(client -> client.sql("""
                                 SELECT id, name, last_name, email, username, roles
-                                FROM users WHERE id = :id AND stopped_at IS NULL AND is_ready
+                                FROM users WHERE id = :id AND org_id = :orgId AND stopped_at IS NULL AND is_ready
                                 """)
                                 .bind("id", id)
+                                .bind("orgId", caller.getOrgId())
                                 .fetch()
                                 .one()
                                 .map(this::toResponseDTO)
@@ -173,8 +175,9 @@ public class UserService {
                 .flatMapMany(caller -> vassagoDbService.getClient(caller.getOrgId())
                         .flatMapMany(client -> client.sql("""
                                 SELECT id, name, last_name, email, username, roles
-                                FROM users WHERE stopped_at IS NULL
+                                FROM users WHERE org_id = :orgId AND stopped_at IS NULL
                                 """)
+                                .bind("orgId", caller.getOrgId())
                                 .fetch()
                                 .all()
                                 .map(this::toResponseDTO)
@@ -220,9 +223,10 @@ public class UserService {
                     return vassagoDbService.getClient(caller.getOrgId())
                             .flatMap(client -> client.sql("""
                                     SELECT id FROM users
-                                    WHERE id = :id AND stopped_at IS NULL
+                                    WHERE id = :id AND org_id = :orgId AND stopped_at IS NULL
                                     """)
                                     .bind("id", id)
+                                    .bind("orgId", caller.getOrgId())
                                     .fetch()
                                     .one()
                                     .switchIfEmpty(Mono.error(new NotFoundException("User not found")))
@@ -235,7 +239,7 @@ public class UserService {
                                                 UPDATE users SET name = :name, last_name = :lastName,
                                                 email = :email, username = :username,
                                                 roles = :roles, modified_at = :modifiedAt
-                                                WHERE id = :id AND stopped_at IS NULL
+                                                WHERE id = :id AND org_id = :orgId AND stopped_at IS NULL
                                                 RETURNING id, name, last_name, email, username, roles
                                                 """)
                                                 .bind("name", dto.getName())
@@ -245,6 +249,7 @@ public class UserService {
                                                 .bind("roles", RolesUtils.serialize(requestedRoles))
                                                 .bind("modifiedAt", Instant.now())
                                                 .bind("id", id)
+                                                .bind("orgId", caller.getOrgId())
                                                 .fetch()
                                                 .one()
                                                 .map(this::toResponseDTO);
@@ -258,9 +263,10 @@ public class UserService {
                 .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
                         .flatMap(client -> client.sql("""
                                 SELECT id, password, email, locale FROM users
-                                WHERE id = :userId AND stopped_at IS NULL
+                                WHERE id = :userId AND org_id = :orgId AND stopped_at IS NULL
                                 """)
                                 .bind("userId", caller.getId())
+                                .bind("orgId", caller.getOrgId())
                                 .fetch()
                                 .one()
                                 .switchIfEmpty(Mono.error(new NotFoundException("User not found")))
@@ -295,10 +301,11 @@ public class UserService {
                 .flatMap(caller -> vassagoDbService.getClient(caller.getOrgId())
                         .flatMap(client -> client.sql("""
                                 UPDATE users SET stopped_at = :stoppedAt
-                                WHERE id = :id AND stopped_at IS NULL
+                                WHERE id = :id AND org_id = :orgId AND stopped_at IS NULL
                                 """)
                                 .bind("stoppedAt", Instant.now())
                                 .bind("id", id)
+                                .bind("orgId", caller.getOrgId())
                                 .fetch()
                                 .rowsUpdated()
                                 .flatMap(rows -> rows == 0

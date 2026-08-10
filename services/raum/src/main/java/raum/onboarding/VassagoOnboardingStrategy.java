@@ -90,10 +90,11 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
                 .flatMap(schemaClient -> SchemaProvisioner.applySchema(schemaClient, SCHEMA_RESOURCE)
                         .then(SchemaProvisioner.grantDml(schemaClient, vassagoCredentials.getUserName())))
                 .then(Mono.defer(() -> client.sql("""
-                        INSERT INTO users (name, last_name, email, username, password, roles, is_ready, created_at, modified_at)
-                        VALUES (:name, :lastName, :email, :username, :password, :roles, true, :now, :now)
+                        INSERT INTO users (org_id, name, last_name, email, username, password, roles, is_ready, created_at, modified_at)
+                        VALUES (:orgId, :name, :lastName, :email, :username, :password, :roles, true, :now, :now)
                         RETURNING id
                         """)
+                        .bind("orgId", orgId)
                         .bind("name", "_Onboarding")
                         .bind("lastName", "Temp")
                         .bind("email", tempEmail)
