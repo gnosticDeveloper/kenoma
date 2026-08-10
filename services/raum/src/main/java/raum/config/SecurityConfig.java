@@ -63,6 +63,7 @@ public class SecurityConfig {
                         .pathMatchers("/services/**").hasAuthority("SERVICE_MANAGE")
                         .pathMatchers("/credentials/**").hasAuthority("CREDENTIAL_MANAGE")
                         .pathMatchers("/pricing/**").hasAuthority("PRICING_MANAGE")
+                        .pathMatchers("/roles/**").authenticated()
                         .anyExchange().denyAll()
                 )
                 .exceptionHandling(e -> e

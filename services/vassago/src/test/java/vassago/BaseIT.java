@@ -234,17 +234,17 @@ public abstract class BaseIT {
 
         operationalDb.execInContainer("psql", "-U", "admin", "-d", "vassago",
                 "-c", """
-                        INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
-                        VALUES ('Bootstrap', 'Admin', 'admin@bootstrap.local', 'bootstrap_admin',
+                        INSERT INTO users (org_id, name, last_name, email, username, password, roles, is_ready)
+                        VALUES ('%s', 'Bootstrap', 'Admin', 'admin@bootstrap.local', 'bootstrap_admin',
                                 '$2a$10$xI03I5H6IoRGzfpHm4IUGOlQooxsVSVkJM3JMI4QFrJyXvR.6/gw.',
                                 '%s', true)
-                        ON CONFLICT (username) DO NOTHING;
-                        INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
-                        VALUES ('Change', 'Password', 'changepw@test.local', 'changepw_user',
+                        ON CONFLICT (org_id, username) DO NOTHING;
+                        INSERT INTO users (org_id, name, last_name, email, username, password, roles, is_ready)
+                        VALUES ('%s', 'Change', 'Password', 'changepw@test.local', 'changepw_user',
                                 '$2a$10$xI03I5H6IoRGzfpHm4IUGOlQooxsVSVkJM3JMI4QFrJyXvR.6/gw.',
                                 '%s', true)
-                        ON CONFLICT (username) DO NOTHING;
-                        """.formatted(adminRoles, userRoles));
+                        ON CONFLICT (org_id, username) DO NOTHING;
+                        """.formatted(orgId, adminRoles, orgId, userRoles));
     }
 
     protected String obtainToken(WebClient client) {

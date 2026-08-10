@@ -1,9 +1,10 @@
 CREATE TABLE IF NOT EXISTS users (
                                      id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                                     org_id             uuid NOT NULL,
                                      name               varchar(255) NOT NULL,
                                      last_name          varchar(255) NOT NULL,
-                                     email              varchar(255) NOT NULL UNIQUE,
-                                     username           varchar(255) NOT NULL UNIQUE,
+                                     email              varchar(255) NOT NULL,
+                                     username           varchar(255) NOT NULL,
                                      password           varchar(255) NOT NULL,
                                      roles              text NOT NULL DEFAULT '{}',
                                      modification_lock  bool DEFAULT false,
@@ -12,7 +13,9 @@ CREATE TABLE IF NOT EXISTS users (
                                      modified_at        timestamp DEFAULT current_timestamp,
                                      stopped_at         timestamp DEFAULT null,
                                      is_ready           bool DEFAULT false,
-                                     locale             varchar(5) NOT NULL DEFAULT 'en'
+                                     locale             varchar(5) NOT NULL DEFAULT 'en',
+                                     UNIQUE (org_id, email),
+                                     UNIQUE (org_id, username)
 );
 
 CREATE TABLE IF NOT EXISTS pending_verifications (

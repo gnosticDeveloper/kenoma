@@ -109,6 +109,27 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
+
+    # Each service exposes its own role names at its internal /roles path; exact-match
+    # here so the external /roles/{service} URL can be routed to the right upstream
+    # without colliding with another service's own top-level path namespace.
+    location = /roles/vassago {
+        proxy_pass http://vassago:8081/roles;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location = /roles/bime {
+        proxy_pass http://bime:8082/roles;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location = /roles/raum {
+        proxy_pass http://raum:8080/roles;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
 }
 
 server {

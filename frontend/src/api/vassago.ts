@@ -12,6 +12,8 @@ export const vassago = {
     req<{ publicKey: string }>('/auth/public-key', { method: 'GET' }),
   recover: (dto: { orgId: string; username: string }) =>
     req<void>('/auth/recover', { method: 'POST', body: JSON.stringify(dto) }),
+  roles: (token: string) =>
+    req<string[]>('/roles/vassago', { method: 'GET' }, token),
 
   users: {
     list: (token: string) =>

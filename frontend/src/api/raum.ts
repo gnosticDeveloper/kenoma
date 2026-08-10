@@ -82,6 +82,9 @@ export const raum = {
         req<ExchangeRateResponse>('/pricing/exchange-rates', { method: 'POST', ...payload(dto) }, token),
     },
   },
+  roles: (token: string) =>
+    req<string[]>('/roles/raum', { method: 'GET' }, token),
+
   services: {
     create: (dto: ServiceRequest, token: string) =>
       req<ServiceResponse>('/services', { method: 'POST', ...payload(dto) }, token),

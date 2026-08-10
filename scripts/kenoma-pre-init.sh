@@ -113,10 +113,10 @@ print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '
   PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
     -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
     -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
-    -c "INSERT INTO users (name, last_name, email, username, password, roles, is_ready)
-        VALUES ('${OPERATOR_NAME}', '${OPERATOR_LAST_NAME}', '${OPERATOR_EMAIL}',
+    -c "INSERT INTO users (org_id, name, last_name, email, username, password, roles, is_ready)
+        VALUES ('${PLATFORM_ORG_ID}', '${OPERATOR_NAME}', '${OPERATOR_LAST_NAME}', '${OPERATOR_EMAIL}',
                 '${OPERATOR_USERNAME}', '${BCRYPT_HASH}', '${OPERATOR_ROLES}', true)
-        ON CONFLICT (username) DO UPDATE SET roles = EXCLUDED.roles;"
+        ON CONFLICT (org_id, username) DO UPDATE SET roles = EXCLUDED.roles;"
   echo "Operator user seeded/reconciled."
 fi
 
