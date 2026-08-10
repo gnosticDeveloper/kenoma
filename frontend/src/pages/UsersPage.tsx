@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { vassago } from '../api/vassago'
 import { raum } from '../api/raum'
+import { bime } from '../api/bime'
 import { useApiCall } from '../hooks/useApiCall'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/Modal'
@@ -29,9 +30,6 @@ function newRoleRowKey(): string {
   return crypto.randomUUID()
 }
 
-const KNOWN_ROLES = ['VASSAGO_ADMIN', 'VASSAGO_USER', 'RAUM_ADMIN', 'RAUM_ONBOARDING']
-const ROLE_ITEMS = KNOWN_ROLES.map(r => ({ id: r, label: r }))
-
 function buildRolesMap(rows: RoleRow[]): Record<string, string[]> {
   const map: Record<string, string[]> = {}
   for (const { serviceId, role } of rows) {
@@ -48,28 +46,33 @@ function parseRolesMap(roles: Record<string, string[]>): RoleRow[] {
   )
 }
 
-function RolesInput({ value, onChange, services }: { value: RoleRow[]; onChange: (rows: RoleRow[]) => void; services: ServiceResponse[] }) {
+function RolesInput({ value, onChange, services, rolesByService }: { value: RoleRow[]; onChange: (rows: RoleRow[]) => void; services: ServiceResponse[]; rolesByService: Record<string, string[]> }) {
   const { t } = useTranslation()
   const serviceItems = services.map(s => ({ id: s.id, label: s.name }))
   return (
     <div className="roles-input">
-      {value.map(row => (
-        <div key={row.key} className="role-row">
-          <Combobox
-            items={serviceItems}
-            value={row.serviceId || null}
-            onChange={id => onChange(value.map(r => r.key === row.key ? { ...r, serviceId: id ?? '' } : r))}
-            placeholder={t('usersPage.servicePlaceholder')}
-          />
-          <Combobox
-            items={ROLE_ITEMS}
-            value={row.role || null}
-            onChange={id => onChange(value.map(r => r.key === row.key ? { ...r, role: id ?? '' } : r))}
-            placeholder={t('usersPage.rolePlaceholder')}
-          />
-          <button className="btn btn-outline btn-sm" onClick={() => onChange(value.filter(r => r.key !== row.key))} type="button">−</button>
-        </div>
-      ))}
+      {value.map(row => {
+        const selectedService = services.find(s => s.id === row.serviceId)
+        const rolesForService = selectedService ? rolesByService[selectedService.name.toLowerCase()] ?? [] : []
+        const roleItems = rolesForService.map(r => ({ id: r, label: r }))
+        return (
+          <div key={row.key} className="role-row">
+            <Combobox
+              items={serviceItems}
+              value={row.serviceId || null}
+              onChange={id => onChange(value.map(r => r.key === row.key ? { ...r, serviceId: id ?? '', role: '' } : r))}
+              placeholder={t('usersPage.servicePlaceholder')}
+            />
+            <Combobox
+              items={roleItems}
+              value={row.role || null}
+              onChange={id => onChange(value.map(r => r.key === row.key ? { ...r, role: id ?? '' } : r))}
+              placeholder={t('usersPage.rolePlaceholder')}
+            />
+            <button className="btn btn-outline btn-sm" onClick={() => onChange(value.filter(r => r.key !== row.key))} type="button">−</button>
+          </div>
+        )
+      })}
       <button className="btn btn-outline btn-sm" onClick={() => onChange([...value, { key: newRoleRowKey(), serviceId: '', role: '' }])} type="button">
         {t('usersPage.addRole')}
       </button>
@@ -85,6 +88,14 @@ export default function UsersPage({ token, permissions }: Props) {
 
   const [services, setServices] = useState<ServiceResponse[]>([])
   useEffect(() => { raum.services.list(token).then(setServices).catch(() => {}) }, [token])
+
+  const [rolesByService, setRolesByService] = useState<Record<string, string[]>>({})
+  useEffect(() => {
+    Promise.all([vassago.roles(token), raum.roles(token), bime.roles(token)])
+      .then(([vassagoRoles, raumRoles, bimeRoles]) =>
+        setRolesByService({ vassago: vassagoRoles, raum: raumRoles, bime: bimeRoles }))
+      .catch(() => {})
+  }, [token])
 
   const list = useApiCall<UserResponse[]>()
   function reload() { list.call(() => vassago.users.list(token)) }
@@ -266,7 +277,7 @@ export default function UsersPage({ token, permissions }: Props) {
         </div>
         <div className="field" style={{ marginBottom: '14px' }}>
           <label style={{ marginBottom: '8px' }}>{t('usersPage.roles')}</label>
-          <RolesInput value={roles} onChange={setRoles} services={services} />
+          <RolesInput value={roles} onChange={setRoles} services={services} rolesByService={rolesByService} />
         </div>
         <div className="actions">
           <button

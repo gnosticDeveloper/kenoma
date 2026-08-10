@@ -45,6 +45,7 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.POST, "/locations/notification-email/confirm").permitAll()
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/webjars/**").permitAll()
+                        .pathMatchers("/roles/**").authenticated()
                         .anyExchange().hasAnyAuthority("BIME_VIEW", "BIME_MANAGE", "BIME_VIEW_CATALOG")
                 )
                 .exceptionHandling(e -> e
