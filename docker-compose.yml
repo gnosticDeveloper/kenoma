@@ -413,7 +413,7 @@ services:
     # Fronted by nginx at https://grafana.${BASE_DOMAIN} (see gateway/nginx.conf.template),
     # same as raum/vassago/bime not publishing their own app ports directly — no host port
     # mapping here on purpose.
-    image: grafana/grafana:11.4.0
+    image: grafana/grafana:13.1.3
     container_name: grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set GRAFANA_ADMIN_USER in .env}
