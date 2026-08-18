@@ -1,6 +1,7 @@
 package raum.controllers;
 
 import common.exception.ErrorResponse;
+import common.exception.ForbiddenException;
 import common.exception.NotFoundException;
 import common.exception.UnauthorizedException;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,6 +14,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import raum.dto.BillingEmailRequestDTO;
 import raum.dto.BillingEmailVerifyRequestDTO;
@@ -22,6 +24,8 @@ import raum.dto.ExportJobResponseDTO;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
 import raum.openbao.OpenBaoService;
+import raum.security.RaumAuthentication;
+import raum.security.RaumPermission;
 import raum.services.ExportJobService;
 import raum.services.OrganizationService;
 import reactor.core.publisher.Flux;
@@ -213,29 +217,47 @@ public class OrganizationsController {
                     "dump of its dedicated Vassago/Bime databases) to object storage, for offboarding. Runs " +
                     "asynchronously — poll the returned job via GET /orgs/{id}/export/{jobId}. Idempotent: " +
                     "if a PENDING or RUNNING export job already exists for this org, that job is returned " +
-                    "instead of queuing a duplicate. Requires ORG_MANAGE."
+                    "instead of queuing a duplicate. Requires ORG_MANAGE, or ORG_EXPORT_SELF for the caller's own org."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "Export job queued"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions, or ORG_EXPORT_SELF holder requesting another org's export", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/{id}/export")
     @ResponseStatus(HttpStatus.ACCEPTED)
     Mono<ExportJobResponseDTO> requestExport(@PathVariable("id") UUID id) {
-        return exportJobService.requestExport(id);
+        return requireOwnOrgUnlessOrgManage(id).then(exportJobService.requestExport(id));
     }
 
-    @Operation(summary = "Get a tenant export job's status", description = "Requires ORG_MANAGE.")
+    @Operation(summary = "Get a tenant export job's status", description = "Requires ORG_MANAGE, or ORG_EXPORT_SELF for the caller's own org.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Export job found"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions, or ORG_EXPORT_SELF holder requesting another org's job", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "Export job not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @GetMapping("/{id}/export/{jobId}")
     Mono<ExportJobResponseDTO> getExportJob(@PathVariable("id") UUID id, @PathVariable("jobId") UUID jobId) {
-        return exportJobService.getJob(id, jobId);
+        return requireOwnOrgUnlessOrgManage(id).then(exportJobService.getJob(id, jobId));
+    }
+
+    /**
+     * ORG_MANAGE holders (the platform operator) may export any org. ORG_EXPORT_SELF holders
+     * (an org's own users) may only export their own org — without this check, that permission
+     * would let any org read another tenant's exported data just by naming its org id in the path.
+     */
+    private Mono<Void> requireOwnOrgUnlessOrgManage(UUID requestedOrgId) {
+        return ReactiveSecurityContextHolder.getContext()
+                .map(ctx -> (RaumAuthentication) ctx.getAuthentication())
+                .flatMap(auth -> {
+                    boolean isOrgManage = auth.getAuthorities().stream()
+                            .anyMatch(a -> a.getAuthority().equals(RaumPermission.ORG_MANAGE.name()));
+                    if (isOrgManage || auth.getOrgId().equals(requestedOrgId)) {
+                        return Mono.empty();
+                    }
+                    return Mono.error(new ForbiddenException("Cannot export another organization's data"));
+                });
     }
 }

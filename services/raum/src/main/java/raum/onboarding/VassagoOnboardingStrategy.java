@@ -38,6 +38,9 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
     @Value("${bime.service-id}")
     private UUID bimeServiceId;
 
+    @Value("${raum.service-id}")
+    private UUID raumServiceId;
+
     public VassagoOnboardingStrategy(VassagoClient vassagoClient, PasswordEncoder passwordEncoder,
                                      CredentialsRepository credentialsRepository, OpenBaoService openBaoService) {
         this.vassagoClient = vassagoClient;
@@ -55,7 +58,8 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
     public Mono<Void> execute(UUID orgId, CredentialsDTO credentials, OnboardingRequestDTO request, OnboardingContext context) {
         Map<String, List<String>> userRoles = Map.of(
                 vassagoServiceId.toString(), List.of("VASSAGO_ADMIN"),
-                bimeServiceId.toString(), List.of("BIME_ADMIN")
+                bimeServiceId.toString(), List.of("BIME_ADMIN"),
+                raumServiceId.toString(), List.of("RAUM_OWNER")
         );
         return createTempSession(orgId, credentials)
                 .flatMap(session -> {
@@ -81,7 +85,8 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
         String passwordHash = passwordEncoder.encode(tempPassword);
         String roles = RolesUtils.serialize(Map.of(
                 vassagoServiceId.toString(), List.of("VASSAGO_ADMIN"),
-                bimeServiceId.toString(), List.of("BIME_ADMIN")
+                bimeServiceId.toString(), List.of("BIME_ADMIN"),
+                raumServiceId.toString(), List.of("RAUM_OWNER")
         ));
 
         DatabaseClient client = SchemaProvisioner.buildClient(vassagoCredentials);

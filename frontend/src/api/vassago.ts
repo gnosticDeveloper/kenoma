@@ -1,4 +1,4 @@
-import type { LoginRequest, UserRequest, UserResponse } from '../types'
+import type { LoginRequest, RoleResponse, UserRequest, UserResponse } from '../types'
 import { req } from './client'
 
 export const vassago = {
@@ -13,7 +13,7 @@ export const vassago = {
   recover: (dto: { orgId: string; username: string }) =>
     req<void>('/auth/recover', { method: 'POST', body: JSON.stringify(dto) }),
   roles: (token: string) =>
-    req<string[]>('/roles/vassago', { method: 'GET' }, token),
+    req<RoleResponse[]>('/roles/vassago', { method: 'GET' }, token),
 
   users: {
     list: (token: string) =>

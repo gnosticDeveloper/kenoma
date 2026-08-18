@@ -229,8 +229,8 @@ public abstract class BaseIT {
 
         String adminRoles = "{\"" + vassagoServiceId + "\":[\""
                 + VassagoRole.VASSAGO_ADMIN.name() + "\",\""
-                + VassagoRole.VASSAGO_USER.name() + "\"]}";
-        String userRoles = "{\"" + vassagoServiceId + "\":[\"" + VassagoRole.VASSAGO_USER.name() + "\"]}";
+                + VassagoRole.VASSAGO_MEMBER.name() + "\"]}";
+        String userRoles = "{\"" + vassagoServiceId + "\":[\"" + VassagoRole.VASSAGO_MEMBER.name() + "\"]}";
 
         operationalDb.execInContainer("psql", "-U", "admin", "-d", "vassago",
                 "-c", """

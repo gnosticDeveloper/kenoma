@@ -13,6 +13,7 @@ import type {
   ProductVariantRequest,
   ProductVariantResponse,
   VariantBatchPriceRequest,
+  RoleResponse,
   StockAlertResponse,
   StockAlertThresholdRequest,
   StockAlertThresholdResponse,
@@ -24,7 +25,7 @@ import { payload, query, req } from './client'
 
 export const bime = {
   roles: (token: string) =>
-    req<string[]>('/roles/bime', { method: 'GET' }, token),
+    req<RoleResponse[]>('/roles/bime', { method: 'GET' }, token),
 
   locations: {
     create: (dto: LocationRequest, token: string) =>

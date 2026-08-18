@@ -15,6 +15,7 @@ import type {
   OrgResponse,
   OnboardingRequest,
   PaymentStatusUpdateRequest,
+  RoleResponse,
   ServiceRequest,
   ServiceResponse,
 } from '../types'
@@ -83,7 +84,7 @@ export const raum = {
     },
   },
   roles: (token: string) =>
-    req<string[]>('/roles/raum', { method: 'GET' }, token),
+    req<RoleResponse[]>('/roles/raum', { method: 'GET' }, token),
 
   services: {
     create: (dto: ServiceRequest, token: string) =>

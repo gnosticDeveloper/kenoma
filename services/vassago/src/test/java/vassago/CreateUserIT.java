@@ -40,7 +40,7 @@ class CreateUserIT extends BaseIT {
         request.setLastName("Doe");
         request.setEmail("jane.doe@example.com");
         request.setUsername("janedoe");
-        request.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+        request.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_MEMBER")));
 
         UserResponseDTO response = client.post()
                 .uri("/user")
@@ -57,7 +57,7 @@ class CreateUserIT extends BaseIT {
         assertThat(response.getLastName()).isEqualTo("Doe");
         assertThat(response.getEmail()).isEqualTo("jane.doe@example.com");
         assertThat(response.getUsername()).isEqualTo("janedoe");
-        assertThat(response.getRoles()).isEqualTo(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+        assertThat(response.getRoles()).isEqualTo(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_MEMBER")));
     }
 
     @Test
@@ -75,14 +75,14 @@ class CreateUserIT extends BaseIT {
         first.setLastName("Smith");
         first.setEmail("alice@example.com");
         first.setUsername("alicesmith");
-        first.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+        first.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_MEMBER")));
 
         UserRequestDTO second = new UserRequestDTO();
         second.setName("Bob");
         second.setLastName("Jones");
         second.setEmail("bob@example.com");
         second.setUsername("bobjones");
-        second.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+        second.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_MEMBER")));
 
         UserResponseDTO r1 = client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -116,7 +116,7 @@ class CreateUserIT extends BaseIT {
         first.setLastName("One");
         first.setEmail("dup-one@example.com");
         first.setUsername("dupuser");
-        first.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+        first.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_MEMBER")));
         client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -128,7 +128,7 @@ class CreateUserIT extends BaseIT {
         duplicate.setLastName("Two");
         duplicate.setEmail("dup-two@example.com");
         duplicate.setUsername("dupuser");
-        duplicate.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+        duplicate.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_MEMBER")));
 
         assertThatThrownBy(() -> client.post().uri("/user")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -149,7 +149,7 @@ class CreateUserIT extends BaseIT {
                 "email", "no-username@example.com",
                 "name", "No",
                 "lastName", "Username",
-                "roles", Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER"))
+                "roles", Map.of(vassagoServiceId.toString(), List.of("VASSAGO_MEMBER"))
         );
 
         assertThatThrownBy(() -> client.post().uri("/user")

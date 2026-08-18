@@ -15,8 +15,18 @@ public enum VassagoRole {
                     VASSAGO_OFFBOARD_USER
             );
         }
+
+        @Override
+        public String getDisplayName() {
+            return "Account Administrator";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Can create, view, edit, and offboard any user in the organization.";
+        }
     },
-    VASSAGO_USER {
+    VASSAGO_MEMBER {
         @Override
         public Set<VassagoPermission> getPermissions() {
             return Set.of(
@@ -24,7 +34,21 @@ public enum VassagoRole {
                     VASSAGO_VIEW_USER
             );
         }
+
+        @Override
+        public String getDisplayName() {
+            return "Account Member";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Can view every user in the organization, and edit their own profile.";
+        }
     };
 
     public abstract Set<VassagoPermission> getPermissions();
+
+    public abstract String getDisplayName();
+
+    public abstract String getDescription();
 }

@@ -51,7 +51,7 @@ class UserManagementIT extends BaseIT {
         dto.setLastName("User");
         dto.setEmail("test_" + unique + "@example.com");
         dto.setUsername("test_" + unique);
-        dto.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_USER")));
+        dto.setRoles(Map.of(vassagoServiceId.toString(), List.of("VASSAGO_MEMBER")));
         return dto;
     }
 
@@ -191,7 +191,7 @@ class UserManagementIT extends BaseIT {
                         INSERT INTO users (org_id, name, last_name, email, username, password, roles, is_ready)
                         VALUES ('%s', 'Offboard', 'Target', 'offboard_target@test.local', '%s',
                                 '$2a$10$xI03I5H6IoRGzfpHm4IUGOlQooxsVSVkJM3JMI4QFrJyXvR.6/gw.',
-                                '{"%s":["VASSAGO_USER"]}', true)
+                                '{"%s":["VASSAGO_MEMBER"]}', true)
                         ON CONFLICT (org_id, username) DO NOTHING;
                         """.formatted(orgId, username, vassagoServiceId));
 

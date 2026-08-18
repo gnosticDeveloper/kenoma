@@ -196,4 +196,42 @@ class TenantExportIT extends BaseIT {
                 .exchange()
                 .expectStatus().isUnauthorized();
     }
+
+    @Test
+    void requestExport_ownerRole_succeedsForOwnOrg() {
+        mockOwnerJwt(orgId);
+
+        client.post().uri("/orgs/{id}/export", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isEqualTo(202);
+    }
+
+    @Test
+    void requestExport_ownerRole_forbiddenForAnotherOrg() {
+        mockOwnerJwt(orgId);
+
+        client.post().uri("/orgs/{id}/export", UUID.randomUUID())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isForbidden();
+    }
+
+    @Test
+    void getExportJob_ownerRole_forbiddenForAnotherOrg() {
+        ExportJobResponseDTO created = client.post().uri("/orgs/{id}/export", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isEqualTo(202)
+                .expectBody(ExportJobResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(created).isNotNull();
+
+        mockOwnerJwt(UUID.randomUUID());
+
+        client.get().uri("/orgs/{id}/export/{jobId}", orgId, created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isForbidden();
+    }
 }

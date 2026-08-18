@@ -59,6 +59,7 @@ public class SecurityConfig {
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/webjars/**").permitAll()
                         .pathMatchers("/onboarding/**").hasAuthority("INITIATE_ONBOARDING")
+                        .pathMatchers("/orgs/*/export", "/orgs/*/export/**").hasAnyAuthority("ORG_MANAGE", "ORG_EXPORT_SELF")
                         .pathMatchers("/orgs/**").hasAuthority("ORG_MANAGE")
                         .pathMatchers("/services/**").hasAuthority("SERVICE_MANAGE")
                         .pathMatchers("/credentials/**").hasAuthority("CREDENTIAL_MANAGE")

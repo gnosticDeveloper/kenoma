@@ -103,7 +103,7 @@ public abstract class BaseIT {
     }
 
     protected void mockUserJwt() {
-        mockJwtWithRole("BIME_USER", ORG_ID);
+        mockJwtWithRole("BIME_CATALOG_VIEWER", ORG_ID);
     }
 
     protected void mockAdminJwtForOrg(UUID orgId) {

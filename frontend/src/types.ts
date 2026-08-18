@@ -141,6 +141,12 @@ export interface ServiceResponse {
   description: string
 }
 
+export interface RoleResponse {
+  name: string
+  displayName: string
+  description: string
+}
+
 export interface BasicCredential {
   orgId: string
   serviceId: string
