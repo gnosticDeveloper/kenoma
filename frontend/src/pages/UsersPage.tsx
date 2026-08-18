@@ -13,7 +13,7 @@ import { Combobox } from '../components/Combobox'
 import { CopyButton } from '../components/CopyButton'
 import { Feedback } from '../components/Feedback'
 import type { Permissions } from '../auth'
-import type { ServiceResponse, UserRequest, UserResponse } from '../types'
+import type { RoleResponse, ServiceResponse, UserRequest, UserResponse } from '../types'
 
 interface Props {
   token: string
@@ -46,7 +46,7 @@ function parseRolesMap(roles: Record<string, string[]>): RoleRow[] {
   )
 }
 
-function RolesInput({ value, onChange, services, rolesByService }: { value: RoleRow[]; onChange: (rows: RoleRow[]) => void; services: ServiceResponse[]; rolesByService: Record<string, string[]> }) {
+function RolesInput({ value, onChange, services, rolesByService }: { value: RoleRow[]; onChange: (rows: RoleRow[]) => void; services: ServiceResponse[]; rolesByService: Record<string, RoleResponse[]> }) {
   const { t } = useTranslation()
   const serviceItems = services.map(s => ({ id: s.id, label: s.name }))
   return (
@@ -54,7 +54,7 @@ function RolesInput({ value, onChange, services, rolesByService }: { value: Role
       {value.map(row => {
         const selectedService = services.find(s => s.id === row.serviceId)
         const rolesForService = selectedService ? rolesByService[selectedService.name.toLowerCase()] ?? [] : []
-        const roleItems = rolesForService.map(r => ({ id: r, label: r }))
+        const roleItems = rolesForService.map(r => ({ id: r.name, label: r.displayName, sublabel: r.description }))
         return (
           <div key={row.key} className="role-row">
             <Combobox
@@ -89,13 +89,15 @@ export default function UsersPage({ token, permissions }: Props) {
   const [services, setServices] = useState<ServiceResponse[]>([])
   useEffect(() => { raum.services.list(token).then(setServices).catch(() => {}) }, [token])
 
-  const [rolesByService, setRolesByService] = useState<Record<string, string[]>>({})
+  const [rolesByService, setRolesByService] = useState<Record<string, RoleResponse[]>>({})
   useEffect(() => {
     Promise.all([vassago.roles(token), raum.roles(token), bime.roles(token)])
       .then(([vassagoRoles, raumRoles, bimeRoles]) =>
         setRolesByService({ vassago: vassagoRoles, raum: raumRoles, bime: bimeRoles }))
       .catch(() => {})
   }, [token])
+  const roleDisplayNameByName = Object.values(rolesByService).flat()
+    .reduce<Record<string, string>>((acc, r) => { acc[r.name] = r.displayName; return acc }, {})
 
   const list = useApiCall<UserResponse[]>()
   function reload() { list.call(() => vassago.users.list(token)) }
@@ -156,7 +158,7 @@ export default function UsersPage({ token, permissions }: Props) {
       header: t('usersPage.roles'),
       render: u => (
         <div className="role-chips">
-          {Object.values(u.roles ?? {}).flat().map((r, i) => <span key={i} className="role-badge">{r}</span>)}
+          {Object.values(u.roles ?? {}).flat().map((r, i) => <span key={i} className="role-badge">{roleDisplayNameByName[r] ?? r}</span>)}
         </div>
       ),
     },

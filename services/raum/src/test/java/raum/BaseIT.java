@@ -91,6 +91,16 @@ public abstract class BaseIT {
         when(jwtValidator.validateToken(anyString())).thenReturn(Mono.just(claims));
     }
 
+    @SuppressWarnings("unchecked")
+    protected void mockOwnerJwt(UUID callerOrgId) {
+        Claims claims = mock(Claims.class);
+        String rolesJson = "{\"" + raumServiceId + "\":[\"RAUM_OWNER\"]}";
+        when(claims.getSubject()).thenReturn("test-owner");
+        when(claims.get(eq("orgId"), eq(String.class))).thenReturn(callerOrgId.toString());
+        when(claims.get(eq("roles"), eq(String.class))).thenReturn(rolesJson);
+        when(jwtValidator.validateToken(anyString())).thenReturn(Mono.just(claims));
+    }
+
     static class Initializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
 
         private static final AtomicBoolean initialized = new AtomicBoolean(false);

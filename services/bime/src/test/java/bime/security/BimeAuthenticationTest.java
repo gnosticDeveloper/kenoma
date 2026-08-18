@@ -36,13 +36,6 @@ class BimeAuthenticationTest {
     }
 
     @Test
-    void bimeManager_hasAllThreePermissions() {
-        List<String> authorities = authorityNames(auth("BIME_MANAGER"));
-        assertThat(authorities).containsExactlyInAnyOrder(
-                "BIME_MANAGE", "BIME_VIEW", "BIME_VIEW_CATALOG");
-    }
-
-    @Test
     void bimeViewer_hasViewAndCatalog() {
         List<String> authorities = authorityNames(auth("BIME_VIEWER"));
         assertThat(authorities).containsExactlyInAnyOrder(
@@ -51,8 +44,8 @@ class BimeAuthenticationTest {
     }
 
     @Test
-    void bimeUser_hasCatalogOnly() {
-        List<String> authorities = authorityNames(auth("BIME_USER"));
+    void bimeCatalogViewer_hasCatalogOnly() {
+        List<String> authorities = authorityNames(auth("BIME_CATALOG_VIEWER"));
         assertThat(authorities).containsExactly("BIME_VIEW_CATALOG");
     }
 

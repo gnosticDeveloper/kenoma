@@ -10,11 +10,15 @@ public enum BimeRole {
         public Set<BimePermission> getPermissions() {
             return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG);
         }
-    },
-    BIME_MANAGER {
+
         @Override
-        public Set<BimePermission> getPermissions() {
-            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG);
+        public String getDisplayName() {
+            return "Inventory Administrator";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Full control over products, stock, and locations.";
         }
     },
     BIME_VIEWER {
@@ -22,13 +26,37 @@ public enum BimeRole {
         public Set<BimePermission> getPermissions() {
             return Set.of(BIME_VIEW, BIME_VIEW_CATALOG);
         }
+
+        @Override
+        public String getDisplayName() {
+            return "Inventory Viewer";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Can view products, stock, and locations without making changes.";
+        }
     },
-    BIME_USER {
+    BIME_CATALOG_VIEWER {
         @Override
         public Set<BimePermission> getPermissions() {
             return Set.of(BIME_VIEW_CATALOG);
         }
+
+        @Override
+        public String getDisplayName() {
+            return "Catalog Browser";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Can only browse the product catalog, without visibility into stock levels or locations.";
+        }
     };
 
     public abstract Set<BimePermission> getPermissions();
+
+    public abstract String getDisplayName();
+
+    public abstract String getDescription();
 }
