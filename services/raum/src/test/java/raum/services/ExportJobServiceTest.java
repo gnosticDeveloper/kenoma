@@ -1,5 +1,6 @@
 package raum.services;
 
+import common.exception.BadRequestException;
 import common.exception.NotFoundException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,7 +54,7 @@ class ExportJobServiceTest {
             return Mono.just(job);
         });
 
-        StepVerifier.create(service().requestExport(orgId))
+        StepVerifier.create(service().requestExport(orgId, null, null))
                 .assertNext(dto -> {
                     assertThat(dto.getId()).isEqualTo(jobId);
                     assertThat(dto.getOrgId()).isEqualTo(orgId);
@@ -80,8 +81,103 @@ class ExportJobServiceTest {
             return Mono.just(job);
         });
 
-        StepVerifier.create(service().requestExport(orgId))
+        StepVerifier.create(service().requestExport(orgId, null, null))
                 .assertNext(dto -> assertThat(dto.getStatus()).isEqualTo(ExportJobStatus.PENDING.name()))
+                .verifyComplete();
+    }
+
+    @Test
+    void requestExport_jsonFormat_savesJobWithFormat() {
+        when(organizationRepository.findById(orgId)).thenReturn(Mono.just(Organization.builder().id(orgId).build()));
+        when(exportJobRepository.findFirstByOrgIdAndStatusIn(eq(orgId), anyCollection())).thenReturn(Mono.empty());
+        when(exportJobRepository.save(any())).thenAnswer(inv -> {
+            ExportJob job = inv.getArgument(0);
+            job.setId(jobId);
+            return Mono.just(job);
+        });
+
+        StepVerifier.create(service().requestExport(orgId, "json", null))
+                .assertNext(dto -> assertThat(dto.getFormat()).isEqualTo("JSON"))
+                .verifyComplete();
+    }
+
+    @Test
+    void requestExport_unknownFormat_throwsBadRequestWithoutSavingJob() {
+        StepVerifier.create(service().requestExport(orgId, "yaml", null))
+                .verifyError(BadRequestException.class);
+        verify(exportJobRepository, never()).save(any());
+        verify(organizationRepository, never()).findById(any(UUID.class));
+    }
+
+    @Test
+    void requestExport_mergedLayout_savesJobWithLayout() {
+        when(organizationRepository.findById(orgId)).thenReturn(Mono.just(Organization.builder().id(orgId).build()));
+        when(exportJobRepository.findFirstByOrgIdAndStatusIn(eq(orgId), anyCollection())).thenReturn(Mono.empty());
+        when(exportJobRepository.save(any())).thenAnswer(inv -> {
+            ExportJob job = inv.getArgument(0);
+            job.setId(jobId);
+            return Mono.just(job);
+        });
+
+        StepVerifier.create(service().requestExport(orgId, "json", "merged"))
+                .assertNext(dto -> {
+                    assertThat(dto.getFormat()).isEqualTo("JSON");
+                    assertThat(dto.getLayout()).isEqualTo("MERGED");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void requestExport_nullLayout_defaultsToSeparate() {
+        when(organizationRepository.findById(orgId)).thenReturn(Mono.just(Organization.builder().id(orgId).build()));
+        when(exportJobRepository.findFirstByOrgIdAndStatusIn(eq(orgId), anyCollection())).thenReturn(Mono.empty());
+        when(exportJobRepository.save(any())).thenAnswer(inv -> {
+            ExportJob job = inv.getArgument(0);
+            job.setId(jobId);
+            return Mono.just(job);
+        });
+
+        StepVerifier.create(service().requestExport(orgId, "csv", null))
+                .assertNext(dto -> assertThat(dto.getLayout()).isEqualTo("SEPARATE"))
+                .verifyComplete();
+    }
+
+    @Test
+    void requestExport_unknownLayout_throwsBadRequestWithoutSavingJob() {
+        StepVerifier.create(service().requestExport(orgId, "json", "combined"))
+                .verifyError(BadRequestException.class);
+        verify(exportJobRepository, never()).save(any());
+        verify(organizationRepository, never()).findById(any(UUID.class));
+    }
+
+    @Test
+    void requestExport_mergedLayoutWithSqlFormat_throwsBadRequestWithoutSavingJob() {
+        StepVerifier.create(service().requestExport(orgId, "sql", "merged"))
+                .verifyErrorSatisfies(e -> assertThat(e).isInstanceOf(BadRequestException.class)
+                        .hasMessageContaining("SQL"));
+        verify(exportJobRepository, never()).save(any());
+        verify(organizationRepository, never()).findById(any(UUID.class));
+    }
+
+    @Test
+    void requestExport_mergedLayoutWithDefaultSqlFormat_throwsBadRequest() {
+        StepVerifier.create(service().requestExport(orgId, null, "merged"))
+                .verifyError(BadRequestException.class);
+        verify(exportJobRepository, never()).save(any());
+    }
+
+    @Test
+    void requestExport_nullFormat_defaultsToSql() {
+        when(organizationRepository.findById(orgId)).thenReturn(Mono.just(Organization.builder().id(orgId).build()));
+        when(exportJobRepository.findFirstByOrgIdAndStatusIn(eq(orgId), anyCollection())).thenReturn(Mono.empty());
+        when(exportJobRepository.save(any())).thenAnswer(inv -> {
+            ExportJob job = inv.getArgument(0);
+            job.setId(jobId);
+            return Mono.just(job);
+        });
+
+        StepVerifier.create(service().requestExport(orgId, null, null))
+                .assertNext(dto -> assertThat(dto.getFormat()).isEqualTo("SQL"))
                 .verifyComplete();
     }
 
@@ -89,7 +185,7 @@ class ExportJobServiceTest {
     void requestExport_orgNotFound_throwsNotFoundWithoutSavingJob() {
         when(organizationRepository.findById(orgId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(service().requestExport(orgId))
+        StepVerifier.create(service().requestExport(orgId, null, null))
                 .verifyError(NotFoundException.class);
         verify(exportJobRepository, never()).save(any());
     }
@@ -105,7 +201,7 @@ class ExportJobServiceTest {
                 eq(orgId), eq(List.of(ExportJobStatus.PENDING.name(), ExportJobStatus.RUNNING.name()))))
                 .thenReturn(Mono.just(existing));
 
-        StepVerifier.create(service().requestExport(orgId))
+        StepVerifier.create(service().requestExport(orgId, null, null))
                 .assertNext(dto -> {
                     assertThat(dto.getId()).isEqualTo(jobId);
                     assertThat(dto.getStatus()).isEqualTo(ExportJobStatus.RUNNING.name());
