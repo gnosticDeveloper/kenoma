@@ -19,3 +19,12 @@ path "database/creds/*" {
 path "transit/keys/vassago-jwt" {
   capabilities = ["read"]
 }
+path "transit/keys/dr-backup" {
+capabilities = ["create", "read", "sudo"]
+}
+path "transit/encrypt/dr-backup" {
+  capabilities = ["update"]
+}
+path "transit/decrypt/dr-backup" {
+  capabilities = ["update"]
+}

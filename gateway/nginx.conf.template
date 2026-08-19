@@ -92,6 +92,12 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    location /dr-backups {
+        proxy_pass http://raum:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     location /onboarding {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;

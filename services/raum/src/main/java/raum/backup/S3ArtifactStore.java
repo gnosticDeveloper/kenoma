@@ -17,12 +17,15 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 
 @Slf4j
-@Component
+@Component("s3ArtifactStore")
 public class S3ArtifactStore implements ArtifactStore {
 
     private final OpenBaoService openBaoService;
@@ -44,6 +47,24 @@ public class S3ArtifactStore implements ArtifactStore {
         return openBaoService.getBackupS3Credentials()
                 .publishOn(Schedulers.boundedElastic())
                 .map(creds -> presignGet(creds, key));
+    }
+
+    @Override
+    public Mono<Path> download(String key) {
+        return openBaoService.getBackupS3Credentials()
+                .publishOn(Schedulers.boundedElastic())
+                .map(creds -> getObject(creds, key));
+    }
+
+    private Path getObject(S3CredentialsDTO creds, String key) {
+        try (S3Client client = buildClient(creds)) {
+            Path file = Files.createTempFile("artifact-download-", ".bin");
+            Files.delete(file);
+            client.getObject(GetObjectRequest.builder().bucket(creds.bucket()).key(key).build(), file);
+            return file;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private String presignGet(S3CredentialsDTO creds, String key) {

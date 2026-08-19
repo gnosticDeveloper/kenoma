@@ -1,6 +1,7 @@
 package raum.backup;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -22,10 +23,10 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -85,9 +86,11 @@ public class TenantExportPoller {
      * excludes `credentials` (db host/port/name — operational plumbing describing where the org's
      * data physically lives, not the org's own data) and `pending_org_verifications` (verification
      * token bookkeeping) — both are platform-internal and sensitive, not something a tenant's
-     * export should ever contain.
+     * export should ever contain. DR's per-org backup ({@link OrgBackupScheduler}) needs those two
+     * tables too (a "rewind" backup must be able to restore everything, not just what's safe to hand
+     * a tenant) - see {@link #DR_RAUM_TABLES} below.
      */
-    private static final List<ExportTable> RAUM_TABLES = List.of(
+    static final List<ExportTable> RAUM_TABLES = List.of(
             new ExportTable("organizations",
                     "id, name, contact_name, contact_email, tax_id, fiscal_name, fiscal_address, " +
                             "billing_email, billing_email_verified, billing_cycle, next_invoice_due_at, currency, " +
@@ -100,9 +103,30 @@ public class TenantExportPoller {
                     "org_id = '%s'")
     );
 
+    /** raum tables that are platform-internal (excluded from tenant export, see {@link #RAUM_TABLES}
+     * javadoc) but must still be captured by a DR org-level backup, since that's meant to fully
+     * rewind an org's state - including where its data physically lives and its pending billing-email
+     * verifications. Appended to {@link #RAUM_TABLES}, not a replacement for it. */
+    public static final List<ExportTable> DR_RAUM_TABLES = concat(RAUM_TABLES, List.of(
+            new ExportTable("credentials",
+                    "id, org_id, service_id, db_engine, db_host, db_port, db_name, modification_lock, " +
+                            "locked_at, is_initialized, created_at, modified_at",
+                    "org_id = '%s'"),
+            new ExportTable("pending_org_verifications",
+                    "id, org_id, field_name, email, token_hash, expires_at, used, created_at",
+                    "org_id = '%s'")
+    ));
+
+    private static List<ExportTable> concat(List<ExportTable> first, List<ExportTable> second) {
+        List<ExportTable> combined = new ArrayList<>(first);
+        combined.addAll(second);
+        return List.copyOf(combined);
+    }
+
     /** vassago's tables - `users` carries org_id directly, `pending_verifications` only reaches it
-     * through `user_id`. */
-    private static final List<ExportTable> VASSAGO_TABLES = List.of(
+     * through `user_id`. Already complete (no platform-internal table is excluded here), so DR's
+     * per-org backup reuses this list as-is via {@link #tablesFor}. */
+    static final List<ExportTable> VASSAGO_TABLES = List.of(
             new ExportTable("users",
                     "id, name, last_name, email, username, password, roles, modification_lock, " +
                             "locked_at, created_at, modified_at, stopped_at, is_ready, locale, org_id",
@@ -115,8 +139,10 @@ public class TenantExportPoller {
     /** bime's tables. Most carry org_id directly; the rest reach it through a parent
      * (`locations`/`products`/`product_metadata`/`product_variants`/`product_metadata_option`/
      * `product_metadata_assignments`). Ordered so a SQL restore never violates a foreign key -
-     * every parent table appears before the children that reference it. */
-    private static final List<ExportTable> BIME_TABLES = List.of(
+     * every parent table appears before the children that reference it. Already complete (no
+     * platform-internal table is excluded here), so DR's per-org backup reuses this list as-is via
+     * {@link #tablesFor}. */
+    static final List<ExportTable> BIME_TABLES = List.of(
             new ExportTable("locations",
                     "id, org_id, name, code, is_active, created_at, modified_at, notification_email, notification_email_verified",
                     "org_id = '%s'"),
@@ -159,7 +185,7 @@ public class TenantExportPoller {
                     "org_id = '%s'")
     );
 
-    private static final Map<String, List<ExportTable>> SERVICE_TABLES = Map.of(
+    static final Map<String, List<ExportTable>> SERVICE_TABLES = Map.of(
             "vassago", VASSAGO_TABLES,
             "bime", BIME_TABLES
     );
@@ -167,8 +193,10 @@ public class TenantExportPoller {
     /** Fails loudly for a service with no entry above, instead of silently falling back to an
      * unfiltered full-DB dump - that fallback is exactly the cross-tenant leak this class used to
      * have (see class javadoc). Every service a tenant can have credentials for must define its
-     * org-scoped table list here before it can be exported safely. */
-    private static List<ExportTable> tablesFor(String serviceName) {
+     * org-scoped table list here before it can be exported safely. Also reused by DR's per-org
+     * backup for vassago/bime (both already-complete lists, see {@link #VASSAGO_TABLES}/
+     * {@link #BIME_TABLES}); raum uses {@link #DR_RAUM_TABLES} instead when backing up, not this. */
+    public static List<ExportTable> tablesFor(String serviceName) {
         List<ExportTable> tables = SERVICE_TABLES.get(serviceName);
         if (tables == null) {
             throw new IllegalStateException("No org-scoped export table list defined for service '" + serviceName +
@@ -182,6 +210,7 @@ public class TenantExportPoller {
     private final ServiceRepository serviceRepository;
     private final OpenBaoService openBaoService;
     private final ArtifactStore artifactStore;
+    private final SqlCopyDumpWriter sqlCopyDumpWriter;
 
     private final String raumDbHost;
     private final int raumDbPort;
@@ -193,7 +222,8 @@ public class TenantExportPoller {
                                CredentialsRepository credentialsRepository,
                                ServiceRepository serviceRepository,
                                OpenBaoService openBaoService,
-                               ArtifactStore artifactStore,
+                               @Qualifier("s3ArtifactStore") ArtifactStore artifactStore,
+                               SqlCopyDumpWriter sqlCopyDumpWriter,
                                @Value("${RAUM_DB_HOST:localhost}") String raumDbHost,
                                @Value("${RAUM_DB_PORT:5432}") int raumDbPort,
                                @Value("${RAUM_DB_NAME:raum}") String raumDbName,
@@ -204,6 +234,7 @@ public class TenantExportPoller {
         this.serviceRepository = serviceRepository;
         this.openBaoService = openBaoService;
         this.artifactStore = artifactStore;
+        this.sqlCopyDumpWriter = sqlCopyDumpWriter;
         this.raumDbHost = raumDbHost;
         this.raumDbPort = raumDbPort;
         this.raumDbName = raumDbName;
@@ -324,24 +355,10 @@ public class TenantExportPoller {
      * an export file, and it's always table-list-driven (never an unfiltered full-DB dump). */
     private Mono<Path> buildExportFile(PgConn conn, ExportFormat format, List<ExportTable> tables, UUID orgId, String tempFilePrefix) {
         return Mono.fromCallable(() -> switch (format) {
-            case SQL -> buildExportSql(conn, tables, orgId, tempFilePrefix);
+            case SQL -> sqlCopyDumpWriter.buildInsertOnlySql(conn, tables, orgId, tempFilePrefix);
             case JSON -> writeGzippedJson("{" + jsonObjectBody(conn, tables, orgId) + "}", tempFilePrefix);
             case CSV -> buildExportCsv(conn, tables, orgId, tempFilePrefix);
         }).subscribeOn(Schedulers.boundedElastic());
-    }
-
-    private Path buildExportSql(PgConn conn, List<ExportTable> tables, UUID orgId, String tempFilePrefix) throws IOException, InterruptedException {
-        Path plainFile = Files.createTempFile(tempFilePrefix, ".sql");
-        Path gzFile = Files.createTempFile(tempFilePrefix, ".sql.gz");
-        try {
-            for (ExportTable table : tables) {
-                appendTableCopy(plainFile, conn, table, orgId);
-            }
-            gzip(plainFile, gzFile);
-            return gzFile;
-        } finally {
-            Files.deleteIfExists(plainFile);
-        }
     }
 
     private Path buildExportCsv(PgConn conn, List<ExportTable> tables, UUID orgId, String tempFilePrefix) throws IOException, InterruptedException {
@@ -354,7 +371,7 @@ public class TenantExportPoller {
 
     private void writeCsvEntries(ZipOutputStream zos, PgConn conn, List<ExportTable> tables, UUID orgId, String entryPrefix) throws IOException, InterruptedException {
         for (ExportTable table : tables) {
-            writeTableCsvEntry(zos, conn, filteredSelect(table, orgId), entryPrefix + table.name());
+            writeTableCsvEntry(zos, conn, sqlCopyDumpWriter.filteredSelect(table, orgId), entryPrefix + table.name());
         }
     }
 
@@ -365,27 +382,13 @@ public class TenantExportPoller {
                 body.append(",");
             }
             ExportTable table = tables.get(i);
-            body.append(jsonKey(table.name())).append(":").append(tableJsonArray(conn, filteredSelect(table, orgId)));
+            body.append(jsonKey(table.name())).append(":").append(tableJsonArray(conn, sqlCopyDumpWriter.filteredSelect(table, orgId)));
         }
         return body.toString();
     }
 
-    private String filteredSelect(ExportTable table, UUID orgId) {
-        return String.format("SELECT %s FROM %s WHERE %s", table.columns(), table.name(),
-                String.format(table.whereClauseTemplate(), orgId));
-    }
-
     private PgConn raumConn() {
         return new PgConn(raumDbHost, raumDbPort, raumDbName, raumDbUser, raumDbPassword);
-    }
-
-    private void appendTableCopy(Path plainFile, PgConn conn, ExportTable table, UUID orgId) throws IOException, InterruptedException {
-        byte[] rows = runPsql(conn, "\\copy (" + filteredSelect(table, orgId) + ") TO STDOUT");
-
-        String header = "COPY " + table.name() + " (" + table.columns() + ") FROM stdin;\n";
-        Files.writeString(plainFile, header, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
-        Files.write(plainFile, rows, StandardOpenOption.APPEND);
-        Files.writeString(plainFile, "\\.\n\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -457,7 +460,7 @@ public class TenantExportPoller {
      * schema, they're one independent file per table (tables don't share a column shape, unlike the
      * SQL format's single concatenated COPY-block file). */
     private void writeTableCsvEntry(ZipOutputStream zos, PgConn conn, String selectExpr, String entryBaseName) throws IOException, InterruptedException {
-        byte[] csv = runPsql(conn, "\\copy (" + selectExpr + ") TO STDOUT WITH CSV HEADER");
+        byte[] csv = sqlCopyDumpWriter.runPsql(conn, "\\copy (" + selectExpr + ") TO STDOUT WITH CSV HEADER");
         zos.putNextEntry(new ZipEntry(entryBaseName + ".csv"));
         zos.write(csv);
         zos.closeEntry();
@@ -470,7 +473,7 @@ public class TenantExportPoller {
      * (e.g. any text column whose value itself contains a `"`, like a JSON-in-text column) - a plain
      * query has no such escaping, psql just prints the value's text representation as-is. */
     private String tableJsonArray(PgConn conn, String selectExpr) throws IOException, InterruptedException {
-        byte[] out = runPsql(conn, "SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) FROM (" + selectExpr + ") t");
+        byte[] out = sqlCopyDumpWriter.runPsql(conn, "SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) FROM (" + selectExpr + ") t");
         String text = new String(out, StandardCharsets.UTF_8).strip();
         return text.isEmpty() ? "[]" : text;
     }
@@ -490,31 +493,6 @@ public class TenantExportPoller {
         return "\"" + key.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
-    private byte[] runPsql(PgConn conn, String command) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder("psql", "-h", conn.host(), "-p", String.valueOf(conn.port()),
-                "-U", conn.user(), "-d", conn.db(), "-t", "-A", "-c", command);
-        pb.environment().put("PGPASSWORD", conn.password());
-
-        Process process = pb.start();
-        byte[] out = process.getInputStream().readAllBytes();
-        String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IllegalStateException("psql exited " + exitCode + ": " + stderr);
-        }
-        return out;
-    }
-
-    private void gzip(Path plainFile, Path gzFile) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder("sh", "-c", "gzip -c " + plainFile + " > " + gzFile);
-        Process process = pb.start();
-        String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IllegalStateException("gzip exited " + exitCode + ": " + stderr);
-        }
-    }
-
     private String objectKey(UUID orgId, String serviceName, ExportFormat format) {
         String extension = switch (format) {
             case SQL -> "sql.gz";
@@ -532,14 +510,8 @@ public class TenantExportPoller {
         }
     }
 
-    /** One exportable table: its column list, and a WHERE-clause template with a single `%s`
-     * placeholder for the org id - either a direct `org_id = '%s'` or a join/subquery reaching
-     * org_id through a parent table. */
-    private record ExportTable(String name, String columns, String whereClauseTemplate) {}
-
-    private record PgConn(String host, int port, String db, String user, String password) {}
-
-    private record ServicePgConn(String name, PgConn conn) {}
+    /** Package-private so {@link OrgBackupScheduler} can reuse it for its own per-service dump loop. */
+    record ServicePgConn(String name, PgConn conn) {}
 
     /** Wraps an export failure with which parts (raum/vassago/bime) already finished uploading
      * before it failed, so the job's stored error message doesn't leave that ambiguous - a retry
