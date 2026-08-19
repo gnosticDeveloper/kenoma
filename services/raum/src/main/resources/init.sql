@@ -123,6 +123,8 @@ CREATE TABLE IF NOT EXISTS export_jobs (
                                            id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
                                            org_id          uuid NOT NULL REFERENCES organizations(id),
                                            status          varchar(16) NOT NULL DEFAULT 'PENDING',
+                                           format          varchar(8) NOT NULL DEFAULT 'SQL',
+                                           layout          varchar(8) NOT NULL DEFAULT 'SEPARATE',
                                            requested_at    timestamptz DEFAULT current_timestamp,
                                            started_at      timestamptz,
                                            completed_at    timestamptz,

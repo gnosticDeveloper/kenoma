@@ -129,6 +129,84 @@ class TenantExportIT extends BaseIT {
                 .doesNotContainNull();
     }
 
+    private UUID insertOrg(String uniqueName) throws Exception {
+        String stdout = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum", "-t", "-A", "-c",
+                        "INSERT INTO organizations (name, contact_name, contact_email) VALUES " +
+                                "('%s', 'Admin', 'admin@example.com') RETURNING id;".formatted(uniqueName))
+                .getStdout();
+        return UUID.fromString(stdout.strip().lines().findFirst().orElseThrow());
+    }
+
+    @Test
+    void requestExport_jsonFormat_persistsFormatOnJob() throws Exception {
+        // A fresh org, not the shared class-level `orgId` - reusing it would risk colliding with the
+        // active-export idempotency guard exercised by other tests in this class, which would return
+        // an existing SQL job instead of creating a new JSON one.
+        UUID freshOrgId = insertOrg("Tenant Export IT JSON Format " + UUID.randomUUID());
+        ExportJobResponseDTO job = client.post().uri("/orgs/{id}/export?format=json", freshOrgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isEqualTo(202)
+                .expectBody(ExportJobResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(job).isNotNull();
+        assertThat(job.getFormat()).isEqualTo("JSON");
+    }
+
+    @Test
+    void requestExport_noFormat_defaultsToSql() throws Exception {
+        UUID freshOrgId = insertOrg("Tenant Export IT Default Format " + UUID.randomUUID());
+        ExportJobResponseDTO job = client.post().uri("/orgs/{id}/export", freshOrgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isEqualTo(202)
+                .expectBody(ExportJobResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(job).isNotNull();
+        assertThat(job.getFormat()).isEqualTo("SQL");
+    }
+
+    @Test
+    void requestExport_unknownFormat_returns400() {
+        client.post().uri("/orgs/{id}/export?format=yaml", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void requestExport_mergedLayout_persistsLayoutOnJob() throws Exception {
+        UUID freshOrgId = insertOrg("Tenant Export IT Merged Layout " + UUID.randomUUID());
+        ExportJobResponseDTO job = client.post().uri("/orgs/{id}/export?format=json&layout=merged", freshOrgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isEqualTo(202)
+                .expectBody(ExportJobResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(job).isNotNull();
+        assertThat(job.getFormat()).isEqualTo("JSON");
+        assertThat(job.getLayout()).isEqualTo("MERGED");
+    }
+
+    @Test
+    void requestExport_unknownLayout_returns400() {
+        client.post().uri("/orgs/{id}/export?format=json&layout=combined", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void requestExport_mergedLayoutWithSqlFormat_returns400() {
+        client.post().uri("/orgs/{id}/export?layout=merged", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
     @Test
     void requestExport_returns404_forUnknownOrg() {
         client.post().uri("/orgs/{id}/export", UUID.randomUUID())

@@ -28,6 +28,12 @@ public class ExportJob {
     @Column("status")
     String status;
 
+    @Column("format")
+    String format;
+
+    @Column("layout")
+    String layout;
+
     @Column("requested_at")
     Instant requestedAt;
 

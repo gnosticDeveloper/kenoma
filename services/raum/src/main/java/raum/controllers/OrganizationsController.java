@@ -217,18 +217,28 @@ public class OrganizationsController {
                     "dump of its dedicated Vassago/Bime databases) to object storage, for offboarding. Runs " +
                     "asynchronously — poll the returned job via GET /orgs/{id}/export/{jobId}. Idempotent: " +
                     "if a PENDING or RUNNING export job already exists for this org, that job is returned " +
-                    "instead of queuing a duplicate. Requires ORG_MANAGE, or ORG_EXPORT_SELF for the caller's own org."
+                    "instead of queuing a duplicate — its original format/layout are kept, the query params " +
+                    "are ignored in that case. `layout` only applies to JSON/CSV: SEPARATE (default) keeps " +
+                    "one file per service, MERGED combines every service's data into a single file " +
+                    "(namespaced by service to avoid table-name collisions) — SQL always stays one restorable " +
+                    "dump per service regardless of `layout`, and rejects layout=MERGED with 400. Requires " +
+                    "ORG_MANAGE, or ORG_EXPORT_SELF for the caller's own org."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "Export job queued"),
+            @ApiResponse(responseCode = "400", description = "Unknown format/layout, or layout=MERGED with format=SQL", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions, or ORG_EXPORT_SELF holder requesting another org's export", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/{id}/export")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    Mono<ExportJobResponseDTO> requestExport(@PathVariable("id") UUID id) {
-        return requireOwnOrgUnlessOrgManage(id).then(exportJobService.requestExport(id));
+    Mono<ExportJobResponseDTO> requestExport(@PathVariable("id") UUID id,
+                                              @Parameter(description = "SQL (default), JSON or CSV")
+                                              @RequestParam(name = "format", required = false) String format,
+                                              @Parameter(description = "SEPARATE (default) or MERGED - JSON/CSV only")
+                                              @RequestParam(name = "layout", required = false) String layout) {
+        return requireOwnOrgUnlessOrgManage(id).then(exportJobService.requestExport(id, format, layout));
     }
 
     @Operation(summary = "Get a tenant export job's status", description = "Requires ORG_MANAGE, or ORG_EXPORT_SELF for the caller's own org.")

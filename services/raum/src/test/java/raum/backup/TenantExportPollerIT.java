@@ -1,11 +1,15 @@
 package raum.backup;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import raum.BaseIT;
+import raum.models.ExportFormat;
 import raum.models.ExportJob;
+import raum.models.ExportLayout;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -13,8 +17,12 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -57,9 +65,16 @@ class TenantExportPollerIT extends BaseIT {
     }
 
     private UUID insertOrg(String uniqueName) throws Exception {
+        return insertOrg(uniqueName, "Admin");
+    }
+
+    private UUID insertOrg(String uniqueName, String contactName) throws Exception {
+        // Postgres SQL-escaping (doubled single quotes) for the literal, not JSON escaping - this is
+        // building a SQL statement, independent of the JSON-corruption bug under test.
         String stdout = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum", "-t", "-A", "-c",
                         "INSERT INTO organizations (name, contact_name, contact_email) VALUES " +
-                                "('%s', 'Admin', 'admin@example.com') RETURNING id;".formatted(uniqueName))
+                                "('%s', '%s', 'admin@example.com') RETURNING id;"
+                                        .formatted(uniqueName, contactName.replace("'", "''")))
                 .getStdout();
         return UUID.fromString(stdout.strip().lines().findFirst().orElseThrow());
     }
@@ -157,6 +172,101 @@ class TenantExportPollerIT extends BaseIT {
         // raum's file still made it out despite the later failure.
         verify(artifactStore, times(1)).upload(anyString(), any(Path.class));
         assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/raum/");
+    }
+
+    @Test
+    void runExport_jsonFormat_producesJsonObjectKeyedByTable() throws Exception {
+        stubUploadCapturingFile();
+        UUID orgAId = insertOrg("Tenant Export IT Org A " + UUID.randomUUID());
+
+        ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).format(ExportFormat.JSON.name()).build();
+        StepVerifier.create(poller.runExport(job)).verifyComplete();
+
+        assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/raum/").endsWith(".json.gz");
+        String content = gunzip(capturedBytes);
+        assertThat(content).startsWith("{\"organizations\":[").contains("\"billing_history\":[").endsWith("}");
+        assertThat(content).contains(orgAId.toString());
+    }
+
+    @Test
+    void runExport_csvFormat_producesZipWithOneCsvPerTable() throws Exception {
+        stubUploadCapturingFile();
+        UUID orgAId = insertOrg("Tenant Export IT Org A " + UUID.randomUUID());
+
+        ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).format(ExportFormat.CSV.name()).build();
+        StepVerifier.create(poller.runExport(job)).verifyComplete();
+
+        assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/raum/").endsWith(".csv.zip");
+        List<String> entryNames = new ArrayList<>();
+        String organizationsCsv = null;
+        try (ZipInputStream zis = new ZipInputStream(new java.io.ByteArrayInputStream(capturedBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                entryNames.add(entry.getName());
+                if (entry.getName().equals("organizations.csv")) {
+                    organizationsCsv = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            }
+        }
+        assertThat(entryNames).containsExactlyInAnyOrder("organizations.csv", "billing_history.csv");
+        assertThat(organizationsCsv).contains("id,name,").contains(orgAId.toString());
+    }
+
+    @Test
+    void runExport_jsonFormat_embeddedQuotesAndBackslashesInTextColumns_produceValidJson() throws Exception {
+        // Regression test for a real bug: tableJsonArray() used to run `\copy (...) TO STDOUT`, which
+        // is COPY's TEXT format and backslash-escapes its output. Any text column whose value itself
+        // contains a `"` (row_to_json escapes that to `\"`) got that backslash escaped *again* by
+        // COPY, corrupting the JSON (`\"` became `\\"` in the file). Caught live via a real export
+        // whose vassago `roles` column stores JSON-as-text (full of `"` characters) - reproduced here
+        // with a raum column instead, since this IT suite only has real raum data to work with.
+        stubUploadCapturingFile();
+        String contactNameWithQuotesAndBackslash = "Admin \"The Boss\" \\ Ops";
+        UUID orgAId = insertOrg("Tenant Export IT Quote Regression " + UUID.randomUUID(), contactNameWithQuotesAndBackslash);
+
+        ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).format(ExportFormat.JSON.name()).build();
+        StepVerifier.create(poller.runExport(job)).verifyComplete();
+
+        String content = gunzip(capturedBytes);
+        JsonNode root = new ObjectMapper().readTree(content);
+        String actualContactName = root.get("organizations").get(0).get("contact_name").asText();
+        assertThat(actualContactName).isEqualTo(contactNameWithQuotesAndBackslash);
+    }
+
+    @Test
+    void runExport_jsonMergedLayout_producesOneFileNamespacedByService() throws Exception {
+        stubUploadCapturingFile();
+        UUID orgAId = insertOrg("Tenant Export IT Org A " + UUID.randomUUID());
+
+        ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId)
+                .format(ExportFormat.JSON.name()).layout(ExportLayout.MERGED.name()).build();
+        StepVerifier.create(poller.runExport(job)).verifyComplete();
+
+        // No credentials rows for this org, so only raum contributes - but the key/shape must still
+        // reflect the merged (single-file, service-namespaced) layout rather than SEPARATE's per-service key.
+        assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/export/").endsWith(".json.gz");
+        String content = gunzip(capturedBytes);
+        assertThat(content).startsWith("{\"raum\":{\"organizations\":[").contains(orgAId.toString());
+    }
+
+    @Test
+    void runExport_csvMergedLayout_producesOneZipWithServicePrefixedEntries() throws Exception {
+        stubUploadCapturingFile();
+        UUID orgAId = insertOrg("Tenant Export IT Org A " + UUID.randomUUID());
+
+        ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId)
+                .format(ExportFormat.CSV.name()).layout(ExportLayout.MERGED.name()).build();
+        StepVerifier.create(poller.runExport(job)).verifyComplete();
+
+        assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/export/").endsWith(".csv.zip");
+        List<String> entryNames = new ArrayList<>();
+        try (ZipInputStream zis = new ZipInputStream(new java.io.ByteArrayInputStream(capturedBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                entryNames.add(entry.getName());
+            }
+        }
+        assertThat(entryNames).containsExactlyInAnyOrder("raum_organizations.csv", "raum_billing_history.csv");
     }
 
     @Test
