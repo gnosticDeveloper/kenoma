@@ -342,6 +342,9 @@ button, input, select {
 
 /* ── Buttons ── */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 16px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -349,7 +352,21 @@ button, input, select {
   font-weight: 600;
   cursor: pointer;
   letter-spacing: 0.2px;
+  text-decoration: none;
 }
+
+/* ── Download file list (tenant export links etc) ── */
+.download-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.download-file-list .btn {
+  justify-content: flex-start;
+  width: 100%;
+}
+.download-file-list .btn svg { flex-shrink: 0; }
 
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 

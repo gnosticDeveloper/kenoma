@@ -312,4 +312,46 @@ class TenantExportIT extends BaseIT {
                 .exchange()
                 .expectStatus().isForbidden();
     }
+
+    @Test
+    void getExportDownloadLinks_ownerRole_forbiddenForAnotherOrg() {
+        ExportJobResponseDTO created = client.post().uri("/orgs/{id}/export", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isEqualTo(202)
+                .expectBody(ExportJobResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(created).isNotNull();
+
+        mockOwnerJwt(UUID.randomUUID());
+
+        client.get().uri("/orgs/{id}/export/{jobId}/download", orgId, created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isForbidden();
+    }
+
+    @Test
+    void getExportDownloadLinks_returns400_whenJobNotDone() {
+        ExportJobResponseDTO created = client.post().uri("/orgs/{id}/export", orgId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isEqualTo(202)
+                .expectBody(ExportJobResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(created).isNotNull();
+
+        client.get().uri("/orgs/{id}/export/{jobId}/download", orgId, created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void getExportDownloadLinks_returns404_forUnknownJob() {
+        client.get().uri("/orgs/{id}/export/{jobId}/download", orgId, UUID.randomUUID())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
 }

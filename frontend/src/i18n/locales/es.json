@@ -48,6 +48,7 @@
     "vassago": "Vassago",
     "bime": "Bime",
     "orgs": "Organizaciones",
+    "exports": "Exportaciones",
     "services": "Servicios",
     "credentials": "Credenciales",
     "onboarding": "Incorporación",
@@ -149,7 +150,46 @@
     "markUnpaid": "Marcar como pendiente",
     "markPaidReferencePrompt": "Referencia de pago (opcional, ej. ID de transferencia):",
     "paidOnTooltip": "Pagado el {{date}} — {{reference}}",
-    "noReference": "sin referencia"
+    "noReference": "sin referencia",
+    "exportData": "Exportar datos",
+    "exportTitle": "Exportar datos — {{name}}",
+    "exportIntro": "Encola una exportación de datos de esta organización para su baja. SQL es un volcado de base de datos restaurable; JSON/CSV son legibles por humanos.",
+    "exportFormat": "Formato",
+    "exportLayout": "Disposición",
+    "exportLayoutHint": "Solo aplica a JSON/CSV — SQL siempre produce un archivo restaurable por servicio.",
+    "layoutValue": {
+      "SEPARATE": "Un archivo por servicio",
+      "MERGED": "Un archivo combinado"
+    },
+    "startExport": "Iniciar exportación",
+    "exportStatus": "Estado",
+    "exportStatusValue": {
+      "PENDING": "En cola",
+      "RUNNING": "En curso",
+      "DONE": "Completado",
+      "FAILED": "Fallido"
+    },
+    "exportRequestedAt": "Solicitado {{date}}",
+    "exportDownloadFiles": "Descargar archivos",
+    "exportDownloadLinksExpire": "Los enlaces expiran en 15 minutos.",
+    "exportStartAnother": "Iniciar otra exportación",
+    "exportActiveExists": "Ya hay una exportación en curso para esta organización — mostrando su estado."
+  },
+  "exportsPage": {
+    "title": "Exportaciones",
+    "subtitle": "Trabajos de exportación de datos encolados en todas las organizaciones.",
+    "org": "Organización",
+    "format": "Formato",
+    "layout": "Disposición",
+    "status": "Estado",
+    "requestedAt": "Solicitado",
+    "completedAt": "Completado",
+    "emptyState": "Aún no hay trabajos de exportación.",
+    "refresh": "Actualizar",
+    "download": "Descargar",
+    "viewError": "Ver error",
+    "unknownOrg": "Organización desconocida",
+    "noFilesRecorded": "No se registraron archivos para este trabajo - probablemente se completó antes de agregar el seguimiento de archivos y no se puede descargar. Inicia una nueva exportación."
   },
   "servicesPage": {
     "title": "Servicios",

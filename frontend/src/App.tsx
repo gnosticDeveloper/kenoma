@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import OrgsPage from './pages/OrgsPage'
+import ExportsPage from './pages/ExportsPage'
 import PricingPage from './pages/PricingPage'
 import ServicesPage from './pages/ServicesPage'
 import CredentialsPage from './pages/CredentialsPage'
@@ -26,10 +27,10 @@ import { Sidebar, type NavGroup } from './components/Sidebar'
 import { Feedback } from './components/Feedback'
 import {
   OrgsIcon, PricingIcon, ServicesIcon, CredentialsIcon, OnboardingIcon, UsersIcon,
-  LocationsIcon, MetadataIcon, ProductsIcon, StockIcon,
+  LocationsIcon, MetadataIcon, ProductsIcon, StockIcon, ExportsIcon,
 } from './components/icons'
 
-type Page = 'orgs' | 'pricing' | 'services' | 'credentials' | 'onboarding' | 'users'
+type Page = 'orgs' | 'pricing' | 'services' | 'credentials' | 'onboarding' | 'users' | 'exports'
   | 'bime-locations' | 'bime-metadata' | 'bime-products' | 'bime-stock'
 
 const NAV: { labelKey: string; items: { id: Page; labelKey: string; perm: keyof Permissions; icon: NavGroup['items'][number]['icon'] }[] }[] = [
@@ -37,6 +38,7 @@ const NAV: { labelKey: string; items: { id: Page; labelKey: string; perm: keyof 
     labelKey: 'nav.raum',
     items: [
       { id: 'orgs',        labelKey: 'nav.orgs',        perm: 'canManage',  icon: OrgsIcon },
+      { id: 'exports',     labelKey: 'nav.exports',     perm: 'canManage',  icon: ExportsIcon },
       { id: 'pricing',     labelKey: 'nav.pricing',     perm: 'canManage',  icon: PricingIcon },
       { id: 'services',    labelKey: 'nav.services',    perm: 'canManage',  icon: ServicesIcon },
       { id: 'credentials', labelKey: 'nav.credentials', perm: 'canManage',  icon: CredentialsIcon },
@@ -245,6 +247,7 @@ function AppShell() {
       <Sidebar groups={visibleGroups} activeId={activePage} onSelect={handleNavigate} onLogout={handleLogout} />
       <main className="content">
         {activePage === 'orgs'           && <OrgsPage token={token} />}
+        {activePage === 'exports'        && <ExportsPage token={token} />}
         {activePage === 'pricing'        && <PricingPage token={token} />}
         {activePage === 'services'       && <ServicesPage token={token} />}
         {activePage === 'credentials'    && <CredentialsPage token={token} />}

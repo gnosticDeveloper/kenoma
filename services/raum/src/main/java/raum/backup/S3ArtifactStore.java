@@ -9,11 +9,17 @@ import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import java.net.URI;
 import java.nio.file.Path;
+import java.time.Duration;
 
 @Slf4j
 @Component
@@ -31,6 +37,33 @@ public class S3ArtifactStore implements ArtifactStore {
                 .publishOn(Schedulers.boundedElastic())
                 .doOnNext(creds -> putObject(creds, key, file))
                 .then();
+    }
+
+    @Override
+    public Mono<String> presign(String key) {
+        return openBaoService.getBackupS3Credentials()
+                .publishOn(Schedulers.boundedElastic())
+                .map(creds -> presignGet(creds, key));
+    }
+
+    private String presignGet(S3CredentialsDTO creds, String key) {
+        try (S3Presigner presigner = buildPresigner(creds)) {
+            PresignedGetObjectRequest presigned = presigner.presignGetObject(GetObjectPresignRequest.builder()
+                    .signatureDuration(Duration.ofMinutes(15))
+                    .getObjectRequest(GetObjectRequest.builder().bucket(creds.bucket()).key(key).build())
+                    .build());
+            return presigned.url().toString();
+        }
+    }
+
+    private S3Presigner buildPresigner(S3CredentialsDTO creds) {
+        return S3Presigner.builder()
+                .endpointOverride(URI.create(withScheme(creds.endpoint())))
+                .region(Region.of("auto"))
+                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(creds.accessKey(), creds.secretKey())))
+                .build();
     }
 
     private void putObject(S3CredentialsDTO creds, String key, Path file) {

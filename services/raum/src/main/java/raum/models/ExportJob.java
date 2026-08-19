@@ -45,4 +45,9 @@ public class ExportJob {
 
     @Column("error_message")
     String errorMessage;
+
+    /** Comma-separated object keys uploaded to the bucket for this job - one per service under
+     * SEPARATE layout, one under MERGED. Null/empty until the job reaches DONE. */
+    @Column("object_keys")
+    String objectKeys;
 }

@@ -27,6 +27,16 @@ export function OrgsIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+export function ExportsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M10 2v9" />
+      <path d="M6.5 7.5 10 11l3.5-3.5" />
+      <path d="M3 13v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+    </Icon>
+  )
+}
+
 export function PricingIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

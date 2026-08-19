@@ -81,6 +81,32 @@ export interface PaymentStatusUpdateRequest {
   reference?: string
 }
 
+export type ExportFormat = 'SQL' | 'JSON' | 'CSV'
+export type ExportLayout = 'SEPARATE' | 'MERGED'
+export type ExportJobStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED'
+
+export interface ExportJobResponse {
+  id: string
+  orgId: string
+  status: ExportJobStatus
+  format: ExportFormat
+  layout: ExportLayout
+  requestedAt: string
+  startedAt: string | null
+  completedAt: string | null
+  errorMessage: string | null
+}
+
+export interface ExportFilePart {
+  key: string
+  url: string
+}
+
+export interface ExportDownloadResponse {
+  jobId: string
+  files: ExportFilePart[]
+}
+
 export interface BasePricingRequest {
   price: number
   currency: string

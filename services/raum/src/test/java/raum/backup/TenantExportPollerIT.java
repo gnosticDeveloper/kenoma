@@ -93,7 +93,7 @@ class TenantExportPollerIT extends BaseIT {
         UUID orgAId = insertOrg("Tenant Export IT Org A " + UUID.randomUUID());
 
         ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).build();
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         // No credentials rows for this org -> only the raum upload should have happened.
         verify(artifactStore, times(1)).upload(anyString(), any(Path.class));
@@ -108,7 +108,7 @@ class TenantExportPollerIT extends BaseIT {
         UUID orgBId = insertOrg("Tenant Export IT Org B " + UUID.randomUUID());
 
         ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).build();
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/raum/");
         String content = gunzip(capturedBytes);
@@ -123,7 +123,7 @@ class TenantExportPollerIT extends BaseIT {
         UUID orgAId = insertOrg("Tenant Export IT Org A " + UUID.randomUUID());
 
         ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).build();
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         // credentials (db host/port/name - operational plumbing) and pending_org_verifications
         // (verification tokens) are platform-internal and must never appear in a tenant export.
@@ -180,7 +180,7 @@ class TenantExportPollerIT extends BaseIT {
         UUID orgAId = insertOrg("Tenant Export IT Org A " + UUID.randomUUID());
 
         ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).format(ExportFormat.JSON.name()).build();
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/raum/").endsWith(".json.gz");
         String content = gunzip(capturedBytes);
@@ -194,7 +194,7 @@ class TenantExportPollerIT extends BaseIT {
         UUID orgAId = insertOrg("Tenant Export IT Org A " + UUID.randomUUID());
 
         ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).format(ExportFormat.CSV.name()).build();
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/raum/").endsWith(".csv.zip");
         List<String> entryNames = new ArrayList<>();
@@ -225,7 +225,7 @@ class TenantExportPollerIT extends BaseIT {
         UUID orgAId = insertOrg("Tenant Export IT Quote Regression " + UUID.randomUUID(), contactNameWithQuotesAndBackslash);
 
         ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId).format(ExportFormat.JSON.name()).build();
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         String content = gunzip(capturedBytes);
         JsonNode root = new ObjectMapper().readTree(content);
@@ -240,7 +240,7 @@ class TenantExportPollerIT extends BaseIT {
 
         ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId)
                 .format(ExportFormat.JSON.name()).layout(ExportLayout.MERGED.name()).build();
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         // No credentials rows for this org, so only raum contributes - but the key/shape must still
         // reflect the merged (single-file, service-namespaced) layout rather than SEPARATE's per-service key.
@@ -256,7 +256,7 @@ class TenantExportPollerIT extends BaseIT {
 
         ExportJob job = ExportJob.builder().id(UUID.randomUUID()).orgId(orgAId)
                 .format(ExportFormat.CSV.name()).layout(ExportLayout.MERGED.name()).build();
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         assertThat(capturedKey).startsWith("tenant-exports/" + orgAId + "/export/").endsWith(".csv.zip");
         List<String> entryNames = new ArrayList<>();
@@ -278,7 +278,7 @@ class TenantExportPollerIT extends BaseIT {
         // No org row at all (org was never created, or FK-orphaned job) - the extract queries just
         // return zero rows per table rather than erroring; the export still "succeeds" with empty
         // COPY blocks. Documents current behavior rather than asserting it's necessarily desirable.
-        StepVerifier.create(poller.runExport(job)).verifyComplete();
+        StepVerifier.create(poller.runExport(job)).expectNextCount(1).verifyComplete();
 
         String content = gunzip(capturedBytes);
         assertThat(content).contains("COPY organizations (");
