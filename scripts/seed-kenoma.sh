@@ -2,7 +2,7 @@ set -e
 
 echo "Seeding dev user..."
 
-SEED_ROLES="{\"${VASSAGO_SERVICE_ID}\":[\"VASSAGO_ADMIN\",\"VASSAGO_USER\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\",\"BIME_MANAGER\",\"BIME_USER\"]}"
+SEED_ROLES="{\"${VASSAGO_SERVICE_ID}\":[\"VASSAGO_ADMIN\",\"VASSAGO_MEMBER\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\",\"BIME_CATALOG_VIEWER\"]}"
 
 BCRYPT_HASH=$(python3 -c "
 import bcrypt

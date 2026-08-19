@@ -26,7 +26,7 @@ button, input, select {
   width: 216px;
   flex-shrink: 0;
   background: var(--color-sidebar);
-  color: #eee7e2;
+  color: #e5e4ea;
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -55,16 +55,18 @@ button, input, select {
   border-radius: var(--radius-sm);
   background: var(--color-accent);
   color: var(--color-accent-ink);
+  border: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  font-size: 13px;
   flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.12s ease;
 }
+.sidebar-mark:hover { background: var(--color-accent-hover); }
 
 .sidebar-title {
-  font-size: 15px;
+  font-size: 19px;
   font-weight: 700;
   letter-spacing: 0.2px;
   white-space: nowrap;
@@ -75,12 +77,13 @@ button, input, select {
   margin-left: auto;
   background: none;
   border: none;
-  color: #948a80;
+  color: #8f8b9c;
   cursor: pointer;
   padding: 4px;
   display: flex;
 }
 .sidebar-collapse-btn:hover { color: #fff; }
+.sidebar.collapsed .sidebar-collapse-btn { display: none; }
 
 .sidebar-nav {
   flex: 1;
@@ -95,7 +98,7 @@ button, input, select {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: #776c62;
+  color: #726e80;
   white-space: nowrap;
 }
 .sidebar.collapsed .sidebar-group-label { display: none; }
@@ -109,14 +112,14 @@ button, input, select {
   padding: 8px 16px;
   background: none;
   border: none;
-  color: #b8ada2;
+  color: #b3aec0;
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
 }
 .sidebar.collapsed .sidebar-item { justify-content: center; padding: 10px 0; }
 
-.sidebar-item:hover { color: #fff; background: #201812; }
+.sidebar-item:hover { color: #fff; background: #2c2a38; }
 .sidebar-item.active { color: #fff; background: var(--color-accent-soft); font-weight: 500; }
 .sidebar-item.active svg { color: var(--color-accent); }
 
@@ -126,7 +129,7 @@ button, input, select {
 .sidebar-empty {
   padding: 16px;
   font-size: 12px;
-  color: #776c62;
+  color: #726e80;
   font-style: italic;
 }
 
@@ -147,12 +150,12 @@ button, input, select {
   background: none;
   border: none;
   border-radius: var(--radius-sm);
-  color: #b8ada2;
+  color: #b3aec0;
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
 }
-.sidebar-tool-btn:hover { color: #fff; background: #201812; }
+.sidebar-tool-btn:hover { color: #fff; background: #2c2a38; }
 .sidebar.collapsed .sidebar-tool-btn { justify-content: center; }
 .sidebar.collapsed .sidebar-tool-label { display: none; }
 
@@ -353,7 +356,7 @@ button, input, select {
 .btn-primary { background: var(--color-accent); color: var(--color-accent-ink); }
 .btn-primary:hover:not(:disabled) { background: var(--color-accent-hover); }
 
-.btn-danger { background: var(--color-danger); color: #2a0d0d; }
+.btn-danger { background: var(--color-danger); color: #2a1210; }
 .btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
 
 .btn-outline {
@@ -571,6 +574,11 @@ button, input, select {
 .role-entry { display: flex; align-items: center; gap: 8px; }
 .role-svc-name { font-size: 11px; color: var(--color-text-muted); flex-shrink: 0; min-width: 70px; }
 
+/* ── Roles / assignment row input (service+role picker, metadata+options picker) ── */
+.roles-input { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.role-row { display: flex; align-items: center; gap: 8px; }
+.role-row .combobox { flex: 1; min-width: 0; }
+
 /* ── Combobox ── */
 .combobox { position: relative; }
 .combobox-control {
@@ -587,7 +595,18 @@ button, input, select {
 .combobox-control.disabled { opacity: 0.5; cursor: not-allowed; }
 .combobox-control:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-focus-ring); }
 .combobox-search-icon { color: var(--color-text-muted); flex-shrink: 0; width: 14px; height: 14px; }
-.combobox-input { border: none; outline: none; background: transparent; font-size: 13px; flex: 1; min-width: 0; color: var(--color-text); }
+.combobox-control .combobox-input,
+.combobox-control .combobox-input:focus {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+  padding: 0;
+  box-shadow: none;
+}
 .combobox-value { font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .combobox-value.placeholder { color: var(--color-text-muted); }
 .combobox-clear { background: none; border: none; color: var(--color-text-muted); cursor: pointer; display: flex; padding: 2px; }
@@ -631,7 +650,7 @@ button, input, select {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(10, 7, 5, 0.55);
+  background: rgba(15, 14, 20, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -752,7 +771,7 @@ button, input, select {
   padding: 10px 14px 14px;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: #d8cfc6;
+  color: #d3d1db;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;

@@ -54,7 +54,11 @@ function RolesInput({ value, onChange, services, rolesByService }: { value: Role
       {value.map(row => {
         const selectedService = services.find(s => s.id === row.serviceId)
         const rolesForService = selectedService ? rolesByService[selectedService.name.toLowerCase()] ?? [] : []
-        const roleItems = rolesForService.map(r => ({ id: r.name, label: r.displayName, sublabel: r.description }))
+        const roleItems = rolesForService.map(r => ({
+          id: r.name,
+          label: t(`roles.${r.name}.displayName`, { defaultValue: r.displayName }),
+          sublabel: t(`roles.${r.name}.description`, { defaultValue: r.description }),
+        }))
         return (
           <div key={row.key} className="role-row">
             <Combobox
@@ -97,7 +101,10 @@ export default function UsersPage({ token, permissions }: Props) {
       .catch(() => {})
   }, [token])
   const roleDisplayNameByName = Object.values(rolesByService).flat()
-    .reduce<Record<string, string>>((acc, r) => { acc[r.name] = r.displayName; return acc }, {})
+    .reduce<Record<string, string>>((acc, r) => {
+      acc[r.name] = t(`roles.${r.name}.displayName`, { defaultValue: r.displayName })
+      return acc
+    }, {})
 
   const list = useApiCall<UserResponse[]>()
   function reload() { list.call(() => vassago.users.list(token)) }

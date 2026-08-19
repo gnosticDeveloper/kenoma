@@ -110,6 +110,15 @@ export function StockIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+export function LogoMarkIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props} strokeWidth="1.8">
+      <circle cx="7" cy="10" r="6" />
+      <circle cx="13" cy="10" r="6" />
+    </Icon>
+  )
+}
+
 export function CollapseIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>
@@ -122,32 +131,6 @@ export function ExpandIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>
       <path d="M7.5 4 13 10l-5.5 6" />
-    </Icon>
-  )
-}
-
-export function ThemeAutoIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <Icon {...props}>
-      <circle cx="10" cy="10" r="6.5" />
-      <path d="M10 3.5v13" />
-    </Icon>
-  )
-}
-
-export function ThemeDarkIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <Icon {...props}>
-      <path d="M15.5 12.7A6.2 6.2 0 0 1 7.3 4.5a6.2 6.2 0 1 0 8.2 8.2Z" />
-    </Icon>
-  )
-}
-
-export function ThemeLightIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <Icon {...props}>
-      <circle cx="10" cy="10" r="3.4" />
-      <path d="M10 2.8v2M10 15.2v2M17.2 10h-2M4.8 10h-2M15 5l-1.4 1.4M6.4 13.6 5 15M15 15l-1.4-1.4M6.4 6.4 5 5" />
     </Icon>
   )
 }
