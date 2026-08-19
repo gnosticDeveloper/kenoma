@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -44,7 +45,8 @@ public class OrganizationsController {
     final ExportJobService exportJobService;
     final ArtifactStore artifactStore;
 
-    public OrganizationsController(OrganizationService service, OpenBaoService openBaoService, ExportJobService exportJobService, ArtifactStore artifactStore) {
+    public OrganizationsController(OrganizationService service, OpenBaoService openBaoService, ExportJobService exportJobService,
+                                    @Qualifier("s3ArtifactStore") ArtifactStore artifactStore) {
         this.service = service;
         this.openBaoService = openBaoService;
         this.exportJobService = exportJobService;

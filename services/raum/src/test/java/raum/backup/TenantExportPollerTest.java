@@ -47,13 +47,15 @@ class TenantExportPollerTest {
     private OpenBaoService openBaoService;
     @Mock
     private ArtifactStore artifactStore;
+    @Mock
+    private SqlCopyDumpWriter sqlCopyDumpWriter;
 
     private final UUID orgId = UUID.randomUUID();
     private final UUID jobId = UUID.randomUUID();
 
     private TenantExportPoller spyPoller() {
         TenantExportPoller poller = new TenantExportPoller(
-                exportJobRepository, credentialsRepository, serviceRepository, openBaoService, artifactStore,
+                exportJobRepository, credentialsRepository, serviceRepository, openBaoService, artifactStore, sqlCopyDumpWriter,
                 "localhost", 5432, "raum", "postgres", "postgres");
         return spy(poller);
     }

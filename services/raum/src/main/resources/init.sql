@@ -134,6 +134,36 @@ CREATE TABLE IF NOT EXISTS export_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_export_jobs_org_id ON export_jobs(org_id);
+
+-- Catalog of DR backups (instance-level pg_dumps and per-org/per-service rewind dumps) actually
+-- uploaded to the bucket - restore looks these up rather than re-deriving target coordinates or
+-- listing S3 directly.
+CREATE TABLE IF NOT EXISTS dr_backups (
+                                          id                              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                                          scope                           varchar(16) NOT NULL, -- INSTANCE | ORG
+                                          instance_host                   varchar(255),
+                                          instance_port                   integer,
+                                          instance_db                     varchar(255),
+                                          representative_credentials_id   uuid,
+                                          org_id                          uuid REFERENCES organizations(id),
+                                          service_name                    varchar(64),
+                                          object_key                      text NOT NULL,
+                                          created_at                      timestamptz DEFAULT current_timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_dr_backups_instance ON dr_backups(instance_host, instance_port, instance_db, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dr_backups_org ON dr_backups(org_id, service_name, created_at DESC);
+
+-- DrRestoreService's org-scoped restore runs inside one transaction that DELETEs then re-inserts
+-- `organizations` (among other DR_RAUM_TABLES) - export_jobs and dr_backups are platform-internal
+-- bookkeeping tables that FK to organizations but are deliberately NOT part of the org-scoped
+-- restore set, so their rows for that org still exist when `organizations` gets deleted. A
+-- non-deferrable FK would reject that DELETE immediately even though the same transaction
+-- re-inserts the row a few statements later; making these deferrable and having the restore script
+-- issue `SET CONSTRAINTS ALL DEFERRED` lets Postgres check them at COMMIT instead, once the
+-- re-insert has already happened.
+ALTER TABLE export_jobs ALTER CONSTRAINT export_jobs_org_id_fkey DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE dr_backups ALTER CONSTRAINT dr_backups_org_id_fkey DEFERRABLE INITIALLY DEFERRED;
 -- Enforces "at most one active export per org" at the database level, closing the race where two
 -- concurrent requests both see no active job (application-level check-then-insert) and both
 -- insert one.

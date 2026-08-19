@@ -9,6 +9,7 @@ import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 import common.dto.CredentialsDTO;
 import reactor.core.publisher.Mono;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -318,6 +319,92 @@ public class OpenBaoService {
                     dto.setLeaseId(leaseId);
                     return dto;
                 });
+    }
+
+    private static final String TRANSIT_KEY = "dr-backup";
+
+    /**
+     * Idempotent check-then-create for the {@code dr-backup} transit key, mirroring
+     * {@link #registerBackupRole}'s style: query Vault for actual current state first rather than
+     * caching "already provisioned" in app memory, so this stays correct across restarts, multiple
+     * raum instances, and anyone changing things out-of-band in Vault directly.
+     *
+     * <p>Deliberately does not attempt to mount the {@code transit/} secrets engine itself -
+     * mounting a new engine is a {@code sudo}-protected Vault operation and this class's token is a
+     * narrowly-scoped service policy, not an admin one. {@code transit/} is already mounted platform-
+     * wide by {@code scripts/init-openbao.sh} (it's also where {@code transit/keys/vassago-jwt}
+     * lives) - this only ever needs to create one more key under it.
+     */
+    public Mono<Void> ensureTransitKey() {
+        return webClient.get()
+                .uri("/v1/transit/keys/{key}", TRANSIT_KEY)
+                .exchangeToMono(response -> {
+                    if (response.statusCode().is2xxSuccessful()) {
+                        return response.releaseBody().then();
+                    }
+                    if (response.statusCode().value() == 404) {
+                        return createTransitKey();
+                    }
+                    return response.bodyToMono(String.class).flatMap(body -> {
+                        log.error("ensureTransitKey lookup FAILED [{}]: {}", response.statusCode(), body);
+                        return Mono.error(new RuntimeException("ensureTransitKey lookup failed: " + body));
+                    });
+                });
+    }
+
+    private Mono<Void> createTransitKey() {
+        return webClient.post()
+                .uri("/v1/transit/keys/{key}", TRANSIT_KEY)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("createTransitKey FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("createTransitKey failed: " + body));
+                        })
+                )
+                .bodyToMono(Void.class);
+    }
+
+    /** Encrypts DR backup content via Vault's transit engine (encryption-as-a-service) - the raw key
+     * never touches raum's process. Returns Vault's own {@code vault:v1:...} ciphertext envelope. */
+    public Mono<String> encrypt(byte[] plaintext) {
+        String encoded = Base64.getEncoder().encodeToString(plaintext);
+        return ensureTransitKey().then(webClient.post()
+                .uri("/v1/transit/encrypt/{key}", TRANSIT_KEY)
+                .bodyValue(Map.of("plaintext", encoded))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("encrypt FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("encrypt failed: " + body));
+                        })
+                )
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .map(response -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) response.get("data");
+                    return (String) data.get("ciphertext");
+                }));
+    }
+
+    /** Reverses {@link #encrypt(byte[])}. */
+    public Mono<byte[]> decrypt(String ciphertext) {
+        return ensureTransitKey().then(webClient.post()
+                .uri("/v1/transit/decrypt/{key}", TRANSIT_KEY)
+                .bodyValue(Map.of("ciphertext", ciphertext))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("decrypt FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("decrypt failed: " + body));
+                        })
+                )
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .map(response -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) response.get("data");
+                    return Base64.getDecoder().decode((String) data.get("plaintext"));
+                }));
     }
 
     public Mono<S3CredentialsDTO> getBackupS3Credentials() {
