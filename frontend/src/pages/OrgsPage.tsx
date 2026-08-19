@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { raum } from '../api/raum'
+import { formatMoney } from '../lib/money'
 import { useApiCall } from '../hooks/useApiCall'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/Modal'
@@ -44,9 +45,9 @@ function billingInfoFromOrg(org: OrgResponse): BillingInfoRequest {
   }
 }
 
-function formatAmount(row: BillingHistoryResponse): string {
+function formatAmount(row: BillingHistoryResponse, locale: string): string {
   if (row.amount == null || row.currency == null) return '—'
-  return `${row.currency} ${row.amount}`
+  return formatMoney(row.amount, row.currency, locale)
 }
 
 async function triggerDownload(blob: Blob, fileName: string) {
@@ -59,7 +60,7 @@ async function triggerDownload(blob: Blob, fileName: string) {
 }
 
 export default function OrgsPage({ token }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const toast = useToast()
 
   const list = useApiCall<OrgResponse[]>()
@@ -233,7 +234,7 @@ export default function OrgsPage({ token }: Props) {
   const historyColumns: Column<BillingHistoryResponse>[] = [
     { key: 'dueAt', header: t('orgsPage.dueAt'), render: h => new Date(h.dueAt).toLocaleDateString() },
     { key: 'billingCycle', header: t('orgsPage.billingCycle'), render: h => t(`orgsPage.cycle.${h.billingCycle}`) },
-    { key: 'amount', header: t('orgsPage.amount'), render: formatAmount },
+    { key: 'amount', header: t('orgsPage.amount'), render: h => formatAmount(h, i18n.language) },
     {
       key: 'paymentStatus',
       header: t('orgsPage.paymentStatus'),

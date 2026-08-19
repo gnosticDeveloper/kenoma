@@ -1,11 +1,7 @@
 import type { ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useTheme } from '../hooks/useTheme'
 import { useSidebarCollapsed } from '../hooks/useSidebarCollapsed'
-import {
-  CollapseIcon, ExpandIcon, LanguageIcon, LogoutIcon,
-  ThemeAutoIcon, ThemeDarkIcon, ThemeLightIcon,
-} from './icons'
+import { CollapseIcon, ExpandIcon, LanguageIcon, LogoMarkIcon, LogoutIcon } from './icons'
 
 export interface NavItem {
   id: string
@@ -25,13 +21,9 @@ interface Props {
   onLogout: () => void
 }
 
-const THEME_ICONS = { auto: ThemeAutoIcon, dark: ThemeDarkIcon, light: ThemeLightIcon }
-
 export function Sidebar({ groups, activeId, onSelect, onLogout }: Props) {
   const { t, i18n } = useTranslation()
-  const { mode, cycle } = useTheme()
   const { collapsed, toggle } = useSidebarCollapsed()
-  const ThemeIcon = THEME_ICONS[mode]
 
   function toggleLanguage() {
     i18n.changeLanguage(i18n.language === 'es' ? 'en' : 'es')
@@ -40,7 +32,9 @@ export function Sidebar({ groups, activeId, onSelect, onLogout }: Props) {
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       <div className="sidebar-logo">
-        <div className="sidebar-mark">K</div>
+        <button className="sidebar-mark" onClick={toggle} aria-label={t('common.aria.toggleSidebar')} title={t('common.aria.toggleSidebar')} type="button">
+          <LogoMarkIcon width={16} height={16} />
+        </button>
         <span className="sidebar-title">Kenoma</span>
         <button className="sidebar-collapse-btn" onClick={toggle} aria-label={t('common.aria.toggleSidebar')} type="button">
           {collapsed ? <ExpandIcon /> : <CollapseIcon />}
@@ -69,10 +63,6 @@ export function Sidebar({ groups, activeId, onSelect, onLogout }: Props) {
         )}
       </nav>
       <div className="sidebar-footer">
-        <button className="sidebar-tool-btn" onClick={cycle} type="button" title={t(`common.theme.${mode}`)}>
-          <ThemeIcon width={16} height={16} />
-          <span className="sidebar-tool-label">{t(`common.theme.${mode}`)}</span>
-        </button>
         <button className="sidebar-tool-btn" onClick={toggleLanguage} type="button" title={i18n.language.toUpperCase()}>
           <LanguageIcon width={16} height={16} />
           <span className="sidebar-tool-label">{i18n.language === 'es' ? 'Español' : 'English'}</span>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { raum } from '../api/raum'
+import { formatMoney } from '../lib/money'
 import { useApiCall } from '../hooks/useApiCall'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/Modal'
@@ -33,7 +34,7 @@ function formatDate(iso: string): string {
 }
 
 export default function PricingPage({ token }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const toast = useToast()
   const [activeTab, setActiveTab] = useState('base')
 
@@ -131,13 +132,13 @@ export default function PricingPage({ token }: Props) {
   }
 
   const baseColumns: Column<BasePricingResponse>[] = [
-    { key: 'price', header: t('pricingPage.price'), render: r => `${r.currency} ${r.price}` },
+    { key: 'price', header: t('pricingPage.price'), render: r => formatMoney(r.price, r.currency, i18n.language) },
     { key: 'effectiveFrom', header: t('pricingPage.effectiveFrom'), render: r => formatDate(r.effectiveFrom), sortValue: r => r.effectiveFrom },
   ]
 
   const moduleColumns: Column<ModulePricingResponse>[] = [
     { key: 'service', header: t('pricingPage.service'), render: r => r.serviceName ?? serviceName(r.serviceId) },
-    { key: 'price', header: t('pricingPage.price'), render: r => `${r.currency} ${r.price}` },
+    { key: 'price', header: t('pricingPage.price'), render: r => formatMoney(r.price, r.currency, i18n.language) },
     {
       key: 'includedInBase',
       header: t('pricingPage.includedInBase'),
@@ -151,7 +152,7 @@ export default function PricingPage({ token }: Props) {
   ]
 
   const rateColumns: Column<ExchangeRateResponse>[] = [
-    { key: 'pair', header: t('pricingPage.rate'), render: r => `${r.fromCurrency} → ${r.toCurrency}: ${r.rate}` },
+    { key: 'pair', header: t('pricingPage.rate'), render: r => `${r.fromCurrency} → ${r.toCurrency}: ${new Intl.NumberFormat(i18n.language).format(r.rate)}` },
     { key: 'effectiveFrom', header: t('pricingPage.effectiveFrom'), render: r => formatDate(r.effectiveFrom), sortValue: r => r.effectiveFrom },
   ]
 

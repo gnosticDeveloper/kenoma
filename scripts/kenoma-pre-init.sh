@@ -104,7 +104,7 @@ fi
 
 if [ "$SHOULD_SEED_OPERATOR" = true ]; then
   echo "Seeding operator user..."
-  OPERATOR_ROLES="{\"${VASSAGO_SERVICE_ID}\":[\"VASSAGO_ADMIN\",\"VASSAGO_USER\"],\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\",\"RAUM_ONBOARDING\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
+  OPERATOR_ROLES="{\"${VASSAGO_SERVICE_ID}\":[\"VASSAGO_ADMIN\",\"VASSAGO_MEMBER\"],\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\",\"RAUM_ONBOARDING\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
   BCRYPT_HASH=$(python3 -c "
 import bcrypt
 pwd = '${OPERATOR_PASSWORD}'.encode()
