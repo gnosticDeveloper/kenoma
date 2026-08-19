@@ -48,6 +48,7 @@
     "vassago": "Vassago",
     "bime": "Bime",
     "orgs": "Organizations",
+    "exports": "Exports",
     "services": "Services",
     "credentials": "Credentials",
     "onboarding": "Onboarding",
@@ -149,7 +150,46 @@
     "markUnpaid": "Mark as unpaid",
     "markPaidReferencePrompt": "Payment reference (optional, e.g. transfer ID):",
     "paidOnTooltip": "Paid {{date}} — {{reference}}",
-    "noReference": "no reference"
+    "noReference": "no reference",
+    "exportData": "Export data",
+    "exportTitle": "Export data — {{name}}",
+    "exportIntro": "Queue an offboarding export of this organization's data. SQL is a restorable database dump; JSON/CSV are human-readable.",
+    "exportFormat": "Format",
+    "exportLayout": "Layout",
+    "exportLayoutHint": "Only applies to JSON/CSV — SQL always produces one restorable file per service.",
+    "layoutValue": {
+      "SEPARATE": "One file per service",
+      "MERGED": "One combined file"
+    },
+    "startExport": "Start export",
+    "exportStatus": "Status",
+    "exportStatusValue": {
+      "PENDING": "Queued",
+      "RUNNING": "Running",
+      "DONE": "Done",
+      "FAILED": "Failed"
+    },
+    "exportRequestedAt": "Requested {{date}}",
+    "exportDownloadFiles": "Download files",
+    "exportDownloadLinksExpire": "Links expire in 15 minutes.",
+    "exportStartAnother": "Start another export",
+    "exportActiveExists": "An export is already in progress for this organization — showing its status."
+  },
+  "exportsPage": {
+    "title": "Exports",
+    "subtitle": "Tenant data export jobs queued across every organization.",
+    "org": "Organization",
+    "format": "Format",
+    "layout": "Layout",
+    "status": "Status",
+    "requestedAt": "Requested",
+    "completedAt": "Completed",
+    "emptyState": "No export jobs yet.",
+    "refresh": "Refresh",
+    "download": "Download",
+    "viewError": "View error",
+    "unknownOrg": "Unknown organization",
+    "noFilesRecorded": "No files were recorded for this job - it likely completed before file tracking was added and can't be downloaded. Start a new export instead."
   },
   "servicesPage": {
     "title": "Services",

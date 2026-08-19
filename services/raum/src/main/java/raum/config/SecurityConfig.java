@@ -61,6 +61,7 @@ public class SecurityConfig {
                         .pathMatchers("/onboarding/**").hasAuthority("INITIATE_ONBOARDING")
                         .pathMatchers("/orgs/*/export", "/orgs/*/export/**").hasAnyAuthority("ORG_MANAGE", "ORG_EXPORT_SELF")
                         .pathMatchers("/orgs/**").hasAuthority("ORG_MANAGE")
+                        .pathMatchers("/export-jobs").hasAuthority("ORG_MANAGE")
                         .pathMatchers("/services/**").hasAuthority("SERVICE_MANAGE")
                         .pathMatchers("/credentials/**").hasAuthority("CREDENTIAL_MANAGE")
                         .pathMatchers("/pricing/**").hasAuthority("PRICING_MANAGE")

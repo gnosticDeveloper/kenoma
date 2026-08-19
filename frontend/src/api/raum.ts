@@ -9,6 +9,10 @@ import type {
   Credentials,
   ExchangeRateRequest,
   ExchangeRateResponse,
+  ExportDownloadResponse,
+  ExportFormat,
+  ExportJobResponse,
+  ExportLayout,
   ModulePricingRequest,
   ModulePricingResponse,
   OrgRequest,
@@ -43,6 +47,16 @@ export const raum = {
       req<void>(`/orgs/${id}/billing-email/confirm`, { method: 'POST', ...payload(dto) }),
     confirmContactEmail: (id: string, dto: BillingEmailVerifyRequest) =>
       req<void>(`/orgs/${id}/contact-email/confirm`, { method: 'POST', ...payload(dto) }),
+    requestExport: (id: string, format: ExportFormat, layout: ExportLayout, token: string) =>
+      req<ExportJobResponse>(`/orgs/${id}/export?format=${format}&layout=${layout}`, { method: 'POST' }, token),
+    getExportJob: (id: string, jobId: string, token: string) =>
+      req<ExportJobResponse>(`/orgs/${id}/export/${jobId}`, { method: 'GET' }, token),
+    getExportDownloadLinks: (id: string, jobId: string, token: string) =>
+      req<ExportDownloadResponse>(`/orgs/${id}/export/${jobId}/download`, { method: 'GET' }, token),
+  },
+  exportJobs: {
+    list: (token: string) =>
+      req<ExportJobResponse[]>('/export-jobs', { method: 'GET' }, token),
   },
   billingHistory: {
     list: (orgId: string, token: string) =>

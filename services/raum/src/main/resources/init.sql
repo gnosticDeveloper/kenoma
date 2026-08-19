@@ -128,7 +128,8 @@ CREATE TABLE IF NOT EXISTS export_jobs (
                                            requested_at    timestamptz DEFAULT current_timestamp,
                                            started_at      timestamptz,
                                            completed_at    timestamptz,
-                                           error_message   text
+                                           error_message   text,
+                                           object_keys     text
 );
 
 CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs(status);

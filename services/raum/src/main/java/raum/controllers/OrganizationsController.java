@@ -20,6 +20,8 @@ import raum.dto.BillingEmailRequestDTO;
 import raum.dto.BillingEmailVerifyRequestDTO;
 import raum.dto.BillingInfoRequestDTO;
 import raum.dto.OrgCurrencyResponseDTO;
+import raum.backup.ArtifactStore;
+import raum.dto.ExportDownloadResponseDTO;
 import raum.dto.ExportJobResponseDTO;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
@@ -40,11 +42,13 @@ public class OrganizationsController {
     final OrganizationService service;
     final OpenBaoService openBaoService;
     final ExportJobService exportJobService;
+    final ArtifactStore artifactStore;
 
-    public OrganizationsController(OrganizationService service, OpenBaoService openBaoService, ExportJobService exportJobService) {
+    public OrganizationsController(OrganizationService service, OpenBaoService openBaoService, ExportJobService exportJobService, ArtifactStore artifactStore) {
         this.service = service;
         this.openBaoService = openBaoService;
         this.exportJobService = exportJobService;
+        this.artifactStore = artifactStore;
     }
 
     @Operation(summary = "Register an organisation", description = "Creates a new tenant organisation. Requires ORG_MANAGE.")
@@ -251,6 +255,30 @@ public class OrganizationsController {
     @GetMapping("/{id}/export/{jobId}")
     Mono<ExportJobResponseDTO> getExportJob(@PathVariable("id") UUID id, @PathVariable("jobId") UUID jobId) {
         return requireOwnOrgUnlessOrgManage(id).then(exportJobService.getJob(id, jobId));
+    }
+
+    @Operation(
+            summary = "Get short-lived download links for a completed tenant export job",
+            description = "Returns a presigned URL (expires in 15 minutes) per uploaded file for a DONE " +
+                    "export job - one file under SEPARATE layout per service, one under MERGED. Requires " +
+                    "ORG_MANAGE, or ORG_EXPORT_SELF for the caller's own org."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Download links generated"),
+            @ApiResponse(responseCode = "400", description = "Export job has not finished yet", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions, or ORG_EXPORT_SELF holder requesting another org's job", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Export job not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/{id}/export/{jobId}/download")
+    Mono<ExportDownloadResponseDTO> getExportDownloadLinks(@PathVariable("id") UUID id, @PathVariable("jobId") UUID jobId) {
+        return requireOwnOrgUnlessOrgManage(id)
+                .then(exportJobService.getDownloadKeys(id, jobId))
+                .flatMapMany(Flux::fromIterable)
+                .flatMap(key -> artifactStore.presign(key)
+                        .map(url -> new ExportDownloadResponseDTO.ExportFilePartDTO(key, url)))
+                .collectList()
+                .map(files -> ExportDownloadResponseDTO.builder().jobId(jobId).files(files).build());
     }
 
     /**

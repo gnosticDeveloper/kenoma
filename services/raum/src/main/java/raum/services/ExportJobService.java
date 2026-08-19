@@ -11,6 +11,7 @@ import raum.models.ExportJobStatus;
 import raum.models.ExportLayout;
 import raum.repository.ExportJobRepository;
 import raum.repository.OrganizationRepository;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
@@ -62,10 +63,31 @@ public class ExportJobService {
                         .map(this::toResponseDTO));
     }
 
+    /** Every export job across every org, newest first - for the platform operator's exports overview.
+     * Access is restricted to ORG_MANAGE at the security-config/routing layer, not here. */
+    public Flux<ExportJobResponseDTO> listAll() {
+        return exportJobRepository.findAllByOrderByRequestedAtDesc().map(this::toResponseDTO);
+    }
+
     public Mono<ExportJobResponseDTO> getJob(UUID orgId, UUID jobId) {
         return exportJobRepository.findByIdAndOrgId(jobId, orgId)
                 .switchIfEmpty(Mono.error(new NotFoundException("Export job not found")))
                 .map(this::toResponseDTO);
+    }
+
+    /** The object keys uploaded for a DONE job, ready to be presigned. Errors 400 if the job hasn't
+     * finished yet (nothing to download), 404 if the job doesn't exist for this org. */
+    public Mono<List<String>> getDownloadKeys(UUID orgId, UUID jobId) {
+        return exportJobRepository.findByIdAndOrgId(jobId, orgId)
+                .switchIfEmpty(Mono.error(new NotFoundException("Export job not found")))
+                .flatMap(job -> {
+                    if (!ExportJobStatus.DONE.name().equals(job.getStatus())) {
+                        return Mono.error(new BadRequestException("Export job is not done yet (status: " + job.getStatus() + ")"));
+                    }
+                    List<String> keys = job.getObjectKeys() == null || job.getObjectKeys().isBlank()
+                            ? List.of() : List.of(job.getObjectKeys().split(","));
+                    return Mono.just(keys);
+                });
     }
 
     private FormatAndLayout parseFormatAndLayout(String format, String layout) {
