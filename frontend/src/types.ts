@@ -399,3 +399,20 @@ export interface StockBalanceResponse {
   quantity: number
   modifiedAt: string
 }
+
+// ── DR Backups ──
+
+export type DrBackupScope = 'INSTANCE' | 'ORG'
+
+export interface DrBackupResponse {
+  id: string
+  scope: DrBackupScope
+  instanceHost: string
+  instancePort: number
+  instanceDb: string
+  orgId: string | null
+  serviceName: string | null
+  objectKey: string
+  createdAt: string
+  restorable: boolean
+}

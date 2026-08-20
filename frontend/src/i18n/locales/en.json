@@ -49,6 +49,7 @@
     "bime": "Bime",
     "orgs": "Organizations",
     "exports": "Exports",
+    "drBackups": "DR Backups",
     "services": "Services",
     "credentials": "Credentials",
     "onboarding": "Onboarding",
@@ -190,6 +191,19 @@
     "viewError": "View error",
     "unknownOrg": "Unknown organization",
     "noFilesRecorded": "No files were recorded for this job - it likely completed before file tracking was added and can't be downloaded. Start a new export instead."
+  },
+  "drBackupsPage": {
+    "title": "DR Backups",
+    "subtitle": "Disaster-recovery backups captured across every organization and the platform's own instance. Grouped by organization and backup day - select the services you want to restore together.",
+    "instanceGroup": "Platform instances",
+    "emptyState": "No DR backups yet.",
+    "refresh": "Refresh",
+    "selectedCount": "{{count}} selected",
+    "restoreSelected": "Restore selected",
+    "restoreConfirm": "Restore {{count}} selected backup(s) from {{target}}? This overwrites current data and cannot be undone.",
+    "restoredCount": "{{count}} backup(s) restored.",
+    "restorePartialFailure": "{{succeeded}} restored, {{failed}} failed. Check and retry the failed ones.",
+    "unknownOrg": "Unknown organization"
   },
   "servicesPage": {
     "title": "Services",

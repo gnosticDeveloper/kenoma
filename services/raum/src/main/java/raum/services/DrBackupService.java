@@ -4,6 +4,7 @@ import common.exception.BadRequestException;
 import org.springframework.stereotype.Service;
 import raum.dto.DrBackupResponseDTO;
 import raum.models.DrBackup;
+import raum.models.DrBackupScope;
 import raum.repository.DrBackupRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -53,6 +54,10 @@ public class DrBackupService {
                 .serviceName(backup.getServiceName())
                 .objectKey(backup.getObjectKey())
                 .createdAt(backup.getCreatedAt())
+                // representativeCredentialsId only means anything for INSTANCE scope - ORG-scope rows
+                // never set it and are always restorable via DrRestoreService.restoreOrg.
+                .restorable(!DrBackupScope.INSTANCE.name().equals(backup.getScope())
+                        || backup.getRepresentativeCredentialsId() != null)
                 .build();
     }
 }

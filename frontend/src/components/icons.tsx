@@ -120,6 +120,15 @@ export function StockIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+export function DrBackupsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M10 2 3.5 4.5v5c0 4 2.8 6.7 6.5 8.5 3.7-1.8 6.5-4.5 6.5-8.5v-5L10 2Z" />
+      <path d="M7 10.2l2.1 2.1L13.3 8" />
+    </Icon>
+  )
+}
+
 export function LogoMarkIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props} strokeWidth="1.8">

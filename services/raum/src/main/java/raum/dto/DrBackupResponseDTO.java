@@ -25,4 +25,6 @@ public class DrBackupResponseDTO {
     String serviceName;
     String objectKey;
     Instant createdAt;
+    @Schema(description = "False only for raum's own platform-database INSTANCE backup - restoring it while raum itself is serving the request is unsafe and not exposed via this API; restore that one manually instead")
+    boolean restorable;
 }

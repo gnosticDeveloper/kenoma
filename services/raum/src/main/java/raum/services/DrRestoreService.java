@@ -108,9 +108,28 @@ public class DrRestoreService {
                 .map(adminCreds -> new PgConn(backup.getInstanceHost(), backup.getInstancePort(), backup.getInstanceDb(),
                         adminCreds.getUserName(), adminCreds.getPassword()))
                 .flatMap(conn -> downloadAndDecompress(backup.getObjectKey())
-                        .flatMap(sqlFile -> runRestore(conn, sqlFile)))
+                        .flatMap(sqlFile -> runRestore(conn, sqlFile))
+                        .then(regrantTablePrivileges(conn)))
                 .doOnSuccess(v -> log.warn("INSTANCE DR restore completed for {}:{}/{}",
                         backup.getInstanceHost(), backup.getInstancePort(), backup.getInstanceDb()));
+    }
+
+    /** {@code --clean} drops and recreates every table, wiping whatever grants existed on the old
+     * ones. Vault's dynamic per-connection roles are rotated continuously, so re-granting to PUBLIC -
+     * which every role, including ones issued after this restore runs, is automatically a member of -
+     * is the only way to reliably restore live write access rather than chasing specific role names.
+     * This matches the blanket SELECT/INSERT/UPDATE/DELETE every dynamic role already gets at
+     * issuance time (see {@code scripts/kenoma-pre-init.sh}'s role creation_statements), so it's not
+     * a broader grant than the existing security model already hands out uniformly. */
+    private Mono<Void> regrantTablePrivileges(PgConn conn) {
+        return Mono.<Void>fromRunnable(() -> {
+                    try {
+                        sqlCopyDumpWriter.runInlineSql(conn,
+                                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO PUBLIC;");
+                    } catch (IOException | InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }).subscribeOn(Schedulers.boundedElastic());
     }
 
     private Mono<Void> restoreOrg(DrBackup backup) {
