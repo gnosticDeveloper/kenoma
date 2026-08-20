@@ -43,8 +43,9 @@ class TenantExportPollerIT extends BaseIT {
     @Autowired
     private TenantExportPoller poller;
 
-    @MockitoBean
-    private ArtifactStore artifactStore;
+
+    @MockitoBean(name = "s3ArtifactStore")
+    private S3ArtifactStore artifactStore;
 
     @BeforeEach
     void resetCapture() {
