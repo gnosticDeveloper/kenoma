@@ -596,6 +596,37 @@ button, input, select {
 .role-row { display: flex; align-items: center; gap: 8px; }
 .role-row .combobox { flex: 1; min-width: 0; }
 
+/* ── DR backup restore checklist (grouped by scope+org+day) ── */
+.backup-group { margin-bottom: 14px; }
+.backup-group:last-child { margin-bottom: 0; }
+.backup-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.backup-group-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.backup-group-title .field-checkbox { margin: 0; }
+.backup-group-date { font-size: 11px; font-weight: 400; color: var(--color-text-muted); }
+.backup-group-actions { display: flex; align-items: center; gap: 10px; }
+.backup-group-selected { font-size: 12px; color: var(--color-text-muted); }
+.backup-checklist { display: flex; flex-direction: column; gap: 4px; }
+.backup-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  cursor: pointer;
+}
+.backup-row:last-child { border-bottom: none; }
+.backup-row input[type="checkbox"] { width: 15px; height: 15px; flex-shrink: 0; }
+.backup-row-service { flex: 1; }
+.backup-row-meta { font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); }
+
 /* ── Combobox ── */
 .combobox { position: relative; }
 .combobox-control {

@@ -8,12 +8,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import common.exception.ErrorResponse;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import raum.dto.DrBackupResponseDTO;
 import raum.dto.RestoreRequestDTO;
@@ -50,13 +52,14 @@ public class DrBackupsController {
     @Operation(summary = "Restore a DR backup", description = "Destructive: INSTANCE scope replays a full instance dump " +
             "in place; ORG scope deletes then replays a single org's rows. Requires body {\"confirm\": true} and ORG_MANAGE.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Restore completed"),
+            @ApiResponse(responseCode = "204", description = "Restore completed"),
             @ApiResponse(responseCode = "400", description = "Missing confirmation, or bad request", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "DR backup not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/{id}/restore")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     Mono<Void> restore(@PathVariable("id") UUID id, @RequestBody RestoreRequestDTO request) {
         return drBackupService.restore(id, request.isConfirm());
     }

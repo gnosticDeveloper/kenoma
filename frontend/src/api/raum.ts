@@ -7,6 +7,8 @@ import type {
   BillingHistoryResponse,
   BillingInfoRequest,
   Credentials,
+  DrBackupResponse,
+  DrBackupScope,
   ExchangeRateRequest,
   ExchangeRateResponse,
   ExportDownloadResponse,
@@ -57,6 +59,17 @@ export const raum = {
   exportJobs: {
     list: (token: string) =>
       req<ExportJobResponse[]>('/export-jobs', { method: 'GET' }, token),
+  },
+  drBackups: {
+    list: (token: string, scope?: DrBackupScope, orgId?: string) => {
+      const params = new URLSearchParams()
+      if (scope) params.set('scope', scope)
+      if (orgId) params.set('orgId', orgId)
+      const qs = params.toString()
+      return req<DrBackupResponse[]>(`/dr-backups${qs ? `?${qs}` : ''}`, { method: 'GET' }, token)
+    },
+    restore: (id: string, token: string) =>
+      req<void>(`/dr-backups/${id}/restore`, { method: 'POST', ...payload({ confirm: true }) }, token),
   },
   billingHistory: {
     list: (orgId: string, token: string) =>

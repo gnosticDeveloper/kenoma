@@ -164,8 +164,13 @@ public class DrBackupScheduler {
 
     private Path runPgDump(Credentials rep, CredentialsDTO creds) throws IOException, InterruptedException {
         Path dumpFile = Files.createTempFile("dr-backup-", ".sql.gz");
+        // --no-privileges is deliberately omitted: GRANTs must survive the dump, since --clean drops
+        // and recreates every table on restore, which would otherwise strip the write privileges
+        // Vault's dynamic per-connection roles were granted at credential-issuance time and silently
+        // break the live app's DB access until someone manually re-runs GRANTs (confirmed by live-fire
+        // restore testing 2026-08-19 - see memory).
         ProcessBuilder pb = new ProcessBuilder("sh", "-c",
-                "pg_dump --no-owner --no-privileges --clean --if-exists | gzip > " + dumpFile);
+                "pg_dump --no-owner --clean --if-exists | gzip > " + dumpFile);
         pb.environment().put("PGHOST", rep.getDbHost());
         pb.environment().put("PGPORT", String.valueOf(rep.getDbPort()));
         pb.environment().put("PGDATABASE", rep.getDbName());

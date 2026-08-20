@@ -49,6 +49,7 @@
     "bime": "Bime",
     "orgs": "Organizaciones",
     "exports": "Exportaciones",
+    "drBackups": "Respaldos DR",
     "services": "Servicios",
     "credentials": "Credenciales",
     "onboarding": "Incorporación",
@@ -190,6 +191,19 @@
     "viewError": "Ver error",
     "unknownOrg": "Organización desconocida",
     "noFilesRecorded": "No se registraron archivos para este trabajo - probablemente se completó antes de agregar el seguimiento de archivos y no se puede descargar. Inicia una nueva exportación."
+  },
+  "drBackupsPage": {
+    "title": "Respaldos DR",
+    "subtitle": "Respaldos de recuperación ante desastres capturados en todas las organizaciones y en la instancia propia de la plataforma. Agrupados por organización y día de respaldo - selecciona los servicios que quieres restaurar juntos.",
+    "instanceGroup": "Instancias de la plataforma",
+    "emptyState": "Aún no hay respaldos DR.",
+    "refresh": "Actualizar",
+    "selectedCount": "{{count}} seleccionado(s)",
+    "restoreSelected": "Restaurar seleccionados",
+    "restoreConfirm": "¿Restaurar {{count}} respaldo(s) seleccionado(s) de {{target}}? Esto sobrescribe los datos actuales y no se puede deshacer.",
+    "restoredCount": "{{count}} respaldo(s) restaurado(s).",
+    "restorePartialFailure": "{{succeeded}} restaurado(s), {{failed}} fallido(s). Revisa y reintenta los fallidos.",
+    "unknownOrg": "Organización desconocida"
   },
   "servicesPage": {
     "title": "Servicios",

@@ -80,6 +80,24 @@ public class SqlCopyDumpWriter {
         }
     }
 
+    /** Runs a single SQL statement directly against a target database via {@code -c}. Used after an
+     * INSTANCE-scope restore to re-grant table privileges - {@code --clean} drops and recreates every
+     * table, and Vault continuously rotates the dynamic per-connection roles that hold those grants,
+     * so a grant statement captured in the dump itself can already target a role that no longer
+     * exists (or not yet cover one freshly issued since). */
+    public void runInlineSql(PgConn conn, String sql) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder("psql", "-h", conn.host(), "-p", String.valueOf(conn.port()),
+                "-U", conn.user(), "-d", conn.db(), "-v", "ON_ERROR_STOP=1", "-c", sql);
+        pb.environment().put("PGPASSWORD", conn.password());
+
+        Process process = pb.start();
+        String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new IllegalStateException("psql inline SQL exited " + exitCode + ": " + stderr);
+        }
+    }
+
     public void gzip(Path plainFile, Path gzFile) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder("sh", "-c", "gzip -c " + plainFile + " > " + gzFile);
         Process process = pb.start();

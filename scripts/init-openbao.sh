@@ -75,6 +75,14 @@ fi
 
 bao write -f transit/keys/vassago-jwt type=ecdsa-p256
 
+# Pre-created here (root token) rather than left to raum-service-policy's own "create" grant at
+# runtime: OpenBao (confirmed on 2.5.2 via live-fire testing 2026-08-19) rejects transit key
+# *creation* from any non-root token with 403, even when the policy explicitly grants create/sudo
+# on the exact path and `bao token capabilities` reports it as allowed. Reads/encrypt/decrypt on an
+# already-existing key work fine under the narrow raum-service-policy grant, so creating it once
+# here with the root token sidesteps the issue entirely - same pattern as vassago-jwt above.
+bao write -f transit/keys/dr-backup type=aes256-gcm96
+
 echo "Checking AppRole auth method..."
 if bao auth list | grep -q '^approle/'; then
   echo "AppRole already enabled, skipping."
