@@ -50,8 +50,7 @@ public abstract class BaseIT {
             .withNetworkAliases("raum-postgres")
             .withDatabaseName("raum")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("init.sql");
+            .withPassword("postgres");
 
     @SuppressWarnings("resource")
     static final GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
@@ -60,6 +59,7 @@ public abstract class BaseIT {
 
     static {
         raumDb.start();
+        TestMigrations.migrate(raumDb, "raum");
         redis.start();
     }
 

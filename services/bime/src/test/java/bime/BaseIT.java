@@ -58,11 +58,15 @@ public abstract class BaseIT {
     static final PostgreSQLContainer bimeDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
             .withDatabaseName("bime")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("bime-init.sql");
+            .withPassword("postgres");
 
     static {
         bimeDb.start();
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(bimeDb.getJdbcUrl(), bimeDb.getUsername(), bimeDb.getPassword())
+                .locations("classpath:db/migration/bime")
+                .load()
+                .migrate();
     }
 
     private static final AtomicBoolean bootstrapped = new AtomicBoolean(false);

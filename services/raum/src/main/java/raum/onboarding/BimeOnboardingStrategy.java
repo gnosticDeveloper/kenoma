@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import raum.clients.BimeClient;
 import raum.clients.BimeClient.MetadataAssignmentItem;
 import raum.dto.OnboardingRequestDTO;
-import raum.openbao.OpenBaoService;
+import raum.migration.MigrationRunner;
 import raum.repository.CredentialsRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -23,19 +23,18 @@ import java.util.UUID;
 @Order(2)
 public class BimeOnboardingStrategy implements OnboardingStrategy {
 
-    private static final String SCHEMA_RESOURCE = "bime-init.sql";
-
     private final BimeClient bimeClient;
     private final CredentialsRepository credentialsRepository;
-    private final OpenBaoService openBaoService;
+    private final MigrationRunner migrationRunner;
 
     @Value("${bime.service-id}")
     private UUID bimeServiceId;
 
-    public BimeOnboardingStrategy(BimeClient bimeClient, CredentialsRepository credentialsRepository, OpenBaoService openBaoService) {
+    public BimeOnboardingStrategy(BimeClient bimeClient, CredentialsRepository credentialsRepository,
+                                  MigrationRunner migrationRunner) {
         this.bimeClient = bimeClient;
         this.credentialsRepository = credentialsRepository;
-        this.openBaoService = openBaoService;
+        this.migrationRunner = migrationRunner;
     }
 
     @Override
@@ -63,8 +62,8 @@ public class BimeOnboardingStrategy implements OnboardingStrategy {
     public Mono<Void> execute(UUID orgId, CredentialsDTO credentials, OnboardingRequestDTO request, OnboardingContext context) {
         String jwt = context.getJwt();
         ResourceBundle p = presetsFor(request.getLocale());
-        return SchemaProvisioner.staticClientFor(credentialsRepository, openBaoService, orgId, bimeServiceId, credentials)
-                .flatMap(schemaClient -> SchemaProvisioner.applySchema(schemaClient, SCHEMA_RESOURCE))
+        return credentialsRepository.findByOrgIdAndServiceId(orgId, bimeServiceId)
+                .flatMap(migrationRunner::migrateInstance)
                 .then(Mono.defer(() -> switch (request.getBimePreset()) {
                     case CLOTHING_STORE -> clothingStore(jwt, p);
                     case BOOK_STORE -> bookStore(jwt, p);

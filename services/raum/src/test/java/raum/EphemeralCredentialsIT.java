@@ -54,8 +54,7 @@ class EphemeralCredentialsIT {
             .withNetworkAliases("raum-postgres")
             .withDatabaseName("raum")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("init.sql");
+            .withPassword("postgres");
 
     @Container
     static final PostgreSQLContainer operationalDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
@@ -208,6 +207,11 @@ class EphemeralCredentialsIT {
 
     @BeforeAll
     static void setup() throws Exception {
+        // @Container-managed, so raumDb is only guaranteed started (not yet migrated) by this point -
+        // this must run before the psql queries below, and before Initializer.initialize() (which
+        // JUnit/Spring don't run until just before the first @Test, i.e. after this @BeforeAll).
+        TestMigrations.migrate(raumDb, "raum");
+
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
                 .defaultHeader("X-Vault-Token", "dev-root-token")

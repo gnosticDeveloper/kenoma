@@ -9,6 +9,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import raum.clients.VassagoClient;
 import raum.dto.OnboardingRequestDTO;
+import raum.migration.MigrationRunner;
 import raum.openbao.OpenBaoService;
 import raum.repository.CredentialsRepository;
 import reactor.core.publisher.Mono;
@@ -25,12 +26,12 @@ import java.util.UUID;
 public class VassagoOnboardingStrategy implements OnboardingStrategy {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-    private static final String SCHEMA_RESOURCE = "users.sql";
 
     private final VassagoClient vassagoClient;
     private final PasswordEncoder passwordEncoder;
     private final CredentialsRepository credentialsRepository;
     private final OpenBaoService openBaoService;
+    private final MigrationRunner migrationRunner;
 
     @Value("${vassago.service-id}")
     private UUID vassagoServiceId;
@@ -42,11 +43,13 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
     private UUID raumServiceId;
 
     public VassagoOnboardingStrategy(VassagoClient vassagoClient, PasswordEncoder passwordEncoder,
-                                     CredentialsRepository credentialsRepository, OpenBaoService openBaoService) {
+                                     CredentialsRepository credentialsRepository, OpenBaoService openBaoService,
+                                     MigrationRunner migrationRunner) {
         this.vassagoClient = vassagoClient;
         this.passwordEncoder = passwordEncoder;
         this.credentialsRepository = credentialsRepository;
         this.openBaoService = openBaoService;
+        this.migrationRunner = migrationRunner;
     }
 
     @Override
@@ -91,9 +94,10 @@ public class VassagoOnboardingStrategy implements OnboardingStrategy {
 
         DatabaseClient client = SchemaProvisioner.buildClient(vassagoCredentials);
 
-        return SchemaProvisioner.staticClientFor(credentialsRepository, openBaoService, orgId, vassagoServiceId, vassagoCredentials)
-                .flatMap(schemaClient -> SchemaProvisioner.applySchema(schemaClient, SCHEMA_RESOURCE)
-                        .then(SchemaProvisioner.grantDml(schemaClient, vassagoCredentials.getUserName())))
+        return credentialsRepository.findByOrgIdAndServiceId(orgId, vassagoServiceId)
+                .flatMap(migrationRunner::migrateInstance)
+                .then(SchemaProvisioner.staticClientFor(credentialsRepository, openBaoService, orgId, vassagoServiceId, vassagoCredentials)
+                        .flatMap(schemaClient -> SchemaProvisioner.grantDml(schemaClient, vassagoCredentials.getUserName())))
                 .then(Mono.defer(() -> client.sql("""
                         INSERT INTO users (org_id, name, last_name, email, username, password, roles, is_ready, created_at, modified_at)
                         VALUES (:orgId, :name, :lastName, :email, :username, :password, :roles, true, :now, :now)

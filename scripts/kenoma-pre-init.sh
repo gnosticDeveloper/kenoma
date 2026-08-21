@@ -83,13 +83,6 @@ RAUM_TOKEN=$(echo "$RAUM_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -
 echo "Raum AppRole login successful."
 
 
-echo "Provisioning Vassago database schema..."
-PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
-  -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
-  -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
-  -f /users.sql
-echo "Operational database schema provisioned."
-
 SHOULD_SEED_OPERATOR=true
 if [ "$MODE" = "clean" ]; then
   USER_COUNT=$(PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \

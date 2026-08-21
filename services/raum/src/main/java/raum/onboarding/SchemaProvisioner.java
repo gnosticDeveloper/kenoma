@@ -3,18 +3,11 @@ package raum.onboarding;
 import common.dto.CredentialsDTO;
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactoryOptions;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.r2dbc.core.DatabaseClient;
-import org.springframework.util.StreamUtils;
 import raum.openbao.OpenBaoService;
 import raum.repository.CredentialsRepository;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.List;
 import java.util.UUID;
 
 import static io.r2dbc.spi.ConnectionFactoryOptions.*;
@@ -55,13 +48,6 @@ public final class SchemaProvisioner {
         return DatabaseClient.create(ConnectionFactories.get(opts));
     }
 
-    public static Mono<Void> applySchema(DatabaseClient client, String schemaResource) {
-        return Mono.fromCallable(() -> loadStatements(schemaResource))
-                .flatMapMany(Flux::fromIterable)
-                .concatMap(statement -> client.sql(statement).then())
-                .then();
-    }
-
     /**
      * Grants DML on all current tables in schema public to the given (already-issued) ephemeral role.
      * The ephemeral role's own creation_statements only grant access to tables that existed at the moment
@@ -71,14 +57,5 @@ public final class SchemaProvisioner {
     public static Mono<Void> grantDml(DatabaseClient staticClient, String username) {
         return staticClient.sql("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"" + username + "\"")
                 .then();
-    }
-
-    private static List<String> loadStatements(String schemaResource) throws IOException {
-        String sql = StreamUtils.copyToString(
-                new ClassPathResource(schemaResource).getInputStream(), StandardCharsets.UTF_8);
-        return Arrays.stream(sql.split(";"))
-                .map(String::trim)
-                .filter(statement -> !statement.isEmpty())
-                .toList();
     }
 }

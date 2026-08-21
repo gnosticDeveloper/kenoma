@@ -63,6 +63,7 @@ public class SecurityConfig {
                         .pathMatchers("/orgs/**").hasAuthority("ORG_MANAGE")
                         .pathMatchers("/export-jobs").hasAuthority("ORG_MANAGE")
                         .pathMatchers("/dr-backups/**").hasAuthority("ORG_MANAGE")
+                        .pathMatchers("/migrations/**").hasAuthority("ORG_MANAGE")
                         .pathMatchers("/services/**").hasAuthority("SERVICE_MANAGE")
                         .pathMatchers("/credentials/**").hasAuthority("CREDENTIAL_MANAGE")
                         .pathMatchers("/pricing/**").hasAuthority("PRICING_MANAGE")
