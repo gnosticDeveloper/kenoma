@@ -448,6 +448,16 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set GRAFANA_ADMIN_USER in .env}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
       GF_SERVER_ROOT_URL: https://grafana.${BASE_DOMAIN:-localhost}/
+      # SMTP relay used by Grafana's built-in alerting to send email notifications.
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: ${GRAFANA_SMTP_HOST:?Set GRAFANA_SMTP_HOST in .env}
+      GF_SMTP_USER: ${GRAFANA_SMTP_USER:?Set GRAFANA_SMTP_USER in .env}
+      GF_SMTP_PASSWORD: ${GRAFANA_SMTP_PASSWORD:?Set GRAFANA_SMTP_PASSWORD in .env}
+      GF_SMTP_FROM_ADDRESS: ${GRAFANA_SMTP_FROM_ADDRESS:-alerts@${MAILGUN_DOMAIN}}
+      GF_SMTP_FROM_NAME: Kenoma Alerts
+      # Alert recipient, read by config/grafana/provisioning/alerting/contactpoints.yaml
+      # via ${GRAFANA_ALERT_EMAIL} interpolation — kept out of the repo on purpose.
+      GRAFANA_ALERT_EMAIL: ${GRAFANA_ALERT_EMAIL:?Set GRAFANA_ALERT_EMAIL in .env}
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
