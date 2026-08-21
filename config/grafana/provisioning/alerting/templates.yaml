@@ -1,0 +1,13 @@
+apiVersion: 1
+
+templates:
+  - orgId: 1
+    name: kenoma-email
+    template: |
+      {{ define "kenoma.subject" }}[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}{{ if gt (len .Alerts) 1 }} ({{ len .Alerts }} services){{ end }}{{ end }}
+
+      {{ define "kenoma.message" }}{{ range .Alerts }}{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} - {{ .Labels.job }} ({{ .Labels.severity }})
+      {{ .Annotations.summary }}
+      {{ if eq .Status "firing" }}Since: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}{{ else }}Resolved: {{ .EndsAt.Format "2006-01-02 15:04:05 MST" }}{{ end }}
+
+      {{ end }}{{ end }}
