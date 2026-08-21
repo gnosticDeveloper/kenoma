@@ -34,7 +34,7 @@ import static org.mockito.Mockito.verify;
 /**
  * Drives TenantExportPoller.runExport directly against the real testcontainer Postgres (real psql/
  * pg_dump/gzip subprocesses, not mocked) to catch things a pure-Mockito unit test can't: schema drift
- * between init.sql and the hardcoded RAUM_TABLES column lists, and whether the WHERE org_id/id filter
+ * between the Flyway migrations and the hardcoded RAUM_TABLES column lists, and whether the WHERE org_id/id filter
  * actually excludes other orgs' rows. OpenBao/S3 stay out of scope — ArtifactStore is mocked, and
  * these test orgs are given no `credentials` rows, so the vassago/bime dump path never engages.
  */

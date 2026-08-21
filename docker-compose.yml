@@ -31,16 +31,21 @@ services:
       retries: 5
 
   raum-db-init:
-    image: postgres:18.1-alpine3.23
+    image: flyway/flyway:12.4.0
     container_name: raum-db-init
     depends_on:
       raum-postgres:
         condition: service_healthy
-    environment:
-      PGPASSWORD: ${RAUM_DB_PASSWORD:-postgres}
     volumes:
-      - ./services/raum/src/main/resources/init.sql:/init.sql
-    entrypoint: ["sh", "-c", "psql -h raum-postgres -U ${RAUM_DB_USER:-postgres} -d raum -f /init.sql"]
+      - ./services/common/src/main/resources/db/migration/raum:/flyway/sql
+    command:
+      - -url=jdbc:postgresql://raum-postgres:5432/raum
+      - -user=${RAUM_DB_USER:-postgres}
+      - -password=${RAUM_DB_PASSWORD:-postgres}
+      - -baselineOnMigrate=true
+      - -baselineVersion=1
+      - -connectRetries=10
+      - migrate
 
   bime-postgres:
     image: postgres:18.1-alpine3.23
@@ -60,16 +65,38 @@ services:
       retries: 5
 
   bime-db-init:
-    image: postgres:18.1-alpine3.23
+    image: flyway/flyway:12.4.0
     container_name: bime-db-init
     depends_on:
       bime-postgres:
         condition: service_healthy
-    environment:
-      PGPASSWORD: ${BIME_DB_PASSWORD:-postgres}
     volumes:
-      - ./services/common/src/main/resources/bime-init.sql:/init.sql
-    entrypoint: ["sh", "-c", "psql -h bime-postgres -U ${BIME_DB_USER:-postgres} -d bime -f /init.sql"]
+      - ./services/common/src/main/resources/db/migration/bime:/flyway/sql
+    command:
+      - -url=jdbc:postgresql://bime-postgres:5432/bime
+      - -user=${BIME_DB_USER:-postgres}
+      - -password=${BIME_DB_PASSWORD:-postgres}
+      - -baselineOnMigrate=true
+      - -baselineVersion=1
+      - -connectRetries=10
+      - migrate
+
+  vassago-db-init:
+    image: flyway/flyway:12.4.0
+    container_name: vassago-db-init
+    depends_on:
+      vassago-postgres:
+        condition: service_healthy
+    volumes:
+      - ./services/common/src/main/resources/db/migration/vassago:/flyway/sql
+    command:
+      - -url=jdbc:postgresql://vassago-postgres:5432/vassago
+      - -user=${VASSAGO_DB_USER:-admin}
+      - -password=${VASSAGO_DB_PASSWORD:-adminpass}
+      - -baselineOnMigrate=true
+      - -baselineVersion=1
+      - -connectRetries=10
+      - migrate
 
   redis:
     image: redis:7-alpine
@@ -150,6 +177,8 @@ services:
         condition: service_completed_successfully
       bime-db-init:
         condition: service_completed_successfully
+      vassago-db-init:
+        condition: service_completed_successfully
       openbao-init:
         condition: service_completed_successfully
     environment:
@@ -182,7 +211,6 @@ services:
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/kenoma-pre-init.sh:/kenoma-pre-init.sh
-      - ./services/common/src/main/resources/users.sql:/users.sql
       - ./.env-out:/out
       - approle-out:/approle-out
       - openbao-init-out:/init-out

@@ -225,7 +225,7 @@ class PricingAdversarialIT extends BaseIT {
 
     @Test
     void addBasePricing_currencyMismatchWithExistingHistory_returns400() {
-        // The seeded base_pricing row (from init.sql) is USD — adding a EUR row without
+        // The seeded base_pricing row (from R__seed_platform_data.sql) is USD — adding a EUR row without
         // first establishing EUR as the base currency must be rejected, not silently
         // accepted and left to flip what "the" reference currency is for every future invoice.
         mockAdminJwt();

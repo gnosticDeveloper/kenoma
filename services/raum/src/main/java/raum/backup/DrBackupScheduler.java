@@ -23,9 +23,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Disaster-recovery backup: one pg_dump per distinct physical (host, port, db_name) discovered
@@ -85,7 +82,7 @@ public class DrBackupScheduler {
     public void runDrBackup() {
         Mono<Void> discoveredInstances = credentialsRepository.findAll()
                 .collectList()
-                .map(this::discoverInstances)
+                .map(InstanceDiscovery::discoverInstances)
                 .flatMapMany(Flux::fromIterable)
                 .concatMap(instance -> backupInstance(instance)
                         .onErrorResume(e -> {
@@ -102,19 +99,7 @@ public class DrBackupScheduler {
                 .subscribe(null, e -> log.error("DR backup run failed", e));
     }
 
-    /** One representative credentials row per distinct (db_host, db_port, db_name) — that connection
-     * (already registered in Vault by {@link raum.services.CredentialsService}) stands in for the
-     * whole physical instance, since every org on it shares the same host/port/db_name. */
-    private List<Instance> discoverInstances(List<Credentials> all) {
-        Map<String, Instance> byKey = new LinkedHashMap<>();
-        for (Credentials c : all) {
-            String key = c.getDbHost() + ":" + c.getDbPort() + "/" + c.getDbName();
-            byKey.putIfAbsent(key, new Instance(key, c));
-        }
-        return List.copyOf(byKey.values());
-    }
-
-    private Mono<Void> backupInstance(Instance instance) {
+    private Mono<Void> backupInstance(InstanceDiscovery.Instance instance) {
         Credentials rep = instance.representative();
         return openBaoService.registerBackupRole(rep.getId(), rep.getDbHost(), rep.getDbPort(), rep.getDbName())
                 .then(openBaoService.issueBackupCredentials(rep.getId()))
@@ -136,11 +121,12 @@ public class DrBackupScheduler {
         CredentialsDTO creds = new CredentialsDTO();
         creds.setUserName(raumDbUser);
         creds.setPassword(raumDbPassword);
-        Instance instance = new Instance(raumDbHost + ":" + raumDbPort + "/" + raumDbName, self);
+        InstanceDiscovery.Instance instance =
+                new InstanceDiscovery.Instance(raumDbHost + ":" + raumDbPort + "/" + raumDbName, self);
         return dumpAndUpload(instance, self, creds);
     }
 
-    private Mono<Void> dumpAndUpload(Instance instance, Credentials rep, CredentialsDTO creds) {
+    private Mono<Void> dumpAndUpload(InstanceDiscovery.Instance instance, Credentials rep, CredentialsDTO creds) {
         String key = objectKey(instance.key());
         return Mono.fromCallable(() -> runPgDump(rep, creds))
                 .subscribeOn(Schedulers.boundedElastic())
@@ -199,6 +185,4 @@ public class DrBackupScheduler {
             log.warn("Failed to delete temp DR dump file {}", file, e);
         }
     }
-
-    private record Instance(String key, Credentials representative) {}
 }

@@ -51,8 +51,7 @@ class OnboardingIT {
             .withNetworkAliases("raum-postgres")
             .withDatabaseName("raum")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("init.sql");
+            .withPassword("postgres");
 
     @SuppressWarnings({"resource", "rawtypes"})
     static final PostgreSQLContainer vassagoDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
@@ -60,8 +59,7 @@ class OnboardingIT {
             .withNetworkAliases("vassago-postgres")
             .withDatabaseName("vassago")
             .withUsername("admin")
-            .withPassword("adminpass")
-            .withInitScript("vassago-users.sql");
+            .withPassword("adminpass");
 
     @SuppressWarnings({"resource", "rawtypes"})
     static final PostgreSQLContainer bimeDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
@@ -89,7 +87,12 @@ class OnboardingIT {
 
     static {
         raumDb.start();
+        TestMigrations.migrate(raumDb, "raum");
         vassagoDb.start();
+        // Pre-migrated (rather than left for the onboarding call under test to create live) because
+        // @BeforeEach.setUp() below runs "DELETE FROM users" before the very first test's onboarding
+        // call ever happens.
+        TestMigrations.migrate(vassagoDb, "vassago");
         bimeDb.start();
         openBao.start();
         redis.start();

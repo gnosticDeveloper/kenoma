@@ -53,8 +53,7 @@ public abstract class BaseIT {
             .withNetworkAliases("raum-postgres")
             .withDatabaseName("raum")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("raum-init.sql");
+            .withPassword("postgres");
 
     @SuppressWarnings("resource")
     static final PostgreSQLContainer operationalDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
@@ -62,8 +61,7 @@ public abstract class BaseIT {
             .withNetworkAliases("vassago-postgres")
             .withDatabaseName("vassago")
             .withUsername("admin")
-            .withPassword("adminpass")
-            .withInitScript("users-test.sql");
+            .withPassword("adminpass");
 
     @SuppressWarnings("resource")
     static final GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
@@ -151,7 +149,20 @@ public abstract class BaseIT {
 
     static {
         raumDb.start();
+        // bootstrapOnce() below (@BeforeAll, so it runs before Spring context creation starts the
+        // "raum" container) queries raumDb directly, so it can't rely on that container's own
+        // Flyway-on-boot to have populated it yet - migrate it here instead.
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(raumDb.getJdbcUrl(), raumDb.getUsername(), raumDb.getPassword())
+                .locations("classpath:db/migration/raum")
+                .load()
+                .migrate();
         operationalDb.start();
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(operationalDb.getJdbcUrl(), operationalDb.getUsername(), operationalDb.getPassword())
+                .locations("classpath:db/migration/vassago")
+                .load()
+                .migrate();
         redis.start();
         openBao.start();
         openBaoInit.start();
