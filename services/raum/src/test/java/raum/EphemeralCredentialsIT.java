@@ -200,7 +200,8 @@ class EphemeralCredentialsIT {
                     "mailgun.api-key=test-key",
                     "mailgun.domain=test.example.com",
                     "mailgun.from=noreply@test.example.com",
-                    "app.base-url=http://localhost:3000"
+                    "app.base-url=http://localhost:3000",
+                    "spring.flyway.enabled=false"
             );
         }
     }
