@@ -83,6 +83,8 @@ RAUM_TOKEN=$(echo "$RAUM_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -
 echo "Raum AppRole login successful."
 
 
+OPERATOR_ROLES="{\"${VASSAGO_SERVICE_ID}\":[\"VASSAGO_ADMIN\",\"VASSAGO_MEMBER\"],\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\",\"RAUM_ONBOARDING\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
+
 SHOULD_SEED_OPERATOR=true
 if [ "$MODE" = "clean" ]; then
   USER_COUNT=$(PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
@@ -97,7 +99,6 @@ fi
 
 if [ "$SHOULD_SEED_OPERATOR" = true ]; then
   echo "Seeding operator user..."
-  OPERATOR_ROLES="{\"${VASSAGO_SERVICE_ID}\":[\"VASSAGO_ADMIN\",\"VASSAGO_MEMBER\"],\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\",\"RAUM_ONBOARDING\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
   BCRYPT_HASH=$(python3 -c "
 import bcrypt
 pwd = '${OPERATOR_PASSWORD}'.encode()
@@ -111,6 +112,14 @@ print(bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=10)).decode().replace('\$2b\$', '
                 '${OPERATOR_USERNAME}', '${BCRYPT_HASH}', '${OPERATOR_ROLES}', true)
         ON CONFLICT (org_id, username) DO UPDATE SET roles = EXCLUDED.roles;"
   echo "Operator user seeded/reconciled."
+else
+  echo "Reconciling operator roles to current service IDs (no insert, no password change)..."
+  PGPASSWORD="${VASSAGO_DB_PASSWORD}" psql \
+    -h "${VASSAGO_DB_HOST}" -p "${VASSAGO_DB_PORT}" \
+    -U "${VASSAGO_DB_USER}" -d "${VASSAGO_DB_NAME}" \
+    -c "UPDATE users SET roles = '${OPERATOR_ROLES}'
+        WHERE org_id = '${PLATFORM_ORG_ID}' AND username = '${OPERATOR_USERNAME}';"
+  echo "Operator role reconciliation complete."
 fi
 
 if [ "$MODE" = "clean" ]; then
