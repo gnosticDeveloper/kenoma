@@ -13,7 +13,7 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Short-lived download links for a DONE tenant export job's uploaded files")
+@Schema(description = "Downloadable files for a DONE tenant export job")
 public class ExportDownloadResponseDTO {
     UUID jobId;
     List<ExportFilePartDTO> files;
@@ -22,9 +22,9 @@ public class ExportDownloadResponseDTO {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    @Schema(description = "One uploaded export file and its presigned download URL (expires in 15 minutes)")
+    @Schema(description = "One uploaded export file - fetch its content via GET /orgs/{id}/export/{jobId}/download/{index}")
     public static class ExportFilePartDTO {
         String key;
-        String url;
+        int index;
     }
 }

@@ -13,10 +13,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * DR-only decorator around {@link S3ArtifactStore}: encrypts content via Vault's transit engine
+ * Decorator around {@link S3ArtifactStore}: encrypts content via Vault's transit engine
  * ({@link OpenBaoService#encrypt}/{@link OpenBaoService#decrypt}) before upload and after download,
- * and refuses to ever hand out a presigned link - DR backups (unlike tenant exports, which use the
- * plain {@link S3ArtifactStore} directly) must never be directly downloadable.
+ * and refuses to ever hand out a presigned link - both DR backups and tenant exports must never be
+ * directly downloadable straight from the bucket. A tenant export's own download flow
+ * (see {@code raum.controllers.OrganizationsController#downloadExportFile}) goes through
+ * {@link #download} and streams the decrypted bytes through the app instead.
  */
 @Slf4j
 @Component("encryptingArtifactStore")

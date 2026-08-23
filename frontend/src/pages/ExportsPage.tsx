@@ -13,13 +13,34 @@ function fileName(key: string): string {
   return key.split('/').pop() ?? key
 }
 
-export function DownloadFileList({ files }: { files: ExportFilePart[] }) {
+async function triggerDownload(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+interface DownloadFileListProps {
+  orgId: string
+  jobId: string
+  files: ExportFilePart[]
+  token: string
+}
+
+export function DownloadFileList({ orgId, jobId, files, token }: DownloadFileListProps) {
+  async function download(f: ExportFilePart) {
+    const blob = await raum.orgs.downloadExportFile(orgId, jobId, f.index, token)
+    triggerDownload(blob, fileName(f.key))
+  }
+
   return (
     <div className="download-file-list">
       {files.map(f => (
-        <a key={f.key} className="btn btn-outline" href={f.url} target="_blank" rel="noreferrer" title={f.key}>
+        <button key={f.key} type="button" className="btn btn-outline" title={f.key} onClick={() => download(f)}>
           <ExportsIcon /> {fileName(f.key)}
-        </a>
+        </button>
       ))}
     </div>
   )
@@ -125,11 +146,10 @@ export default function ExportsPage({ token }: Props) {
         {downloadLinks.state.status === 'success' && downloadLinks.state.data.files.length === 0 && (
           <p className="panel-hint">{t('exportsPage.noFilesRecorded')}</p>
         )}
-        {downloadLinks.state.status === 'success' && downloadLinks.state.data.files.length > 0 && (
+        {downloadLinks.state.status === 'success' && downloadLinks.state.data.files.length > 0 && downloadTarget && (
           <div className="field">
             <label>{t('orgsPage.exportDownloadFiles')}</label>
-            <DownloadFileList files={downloadLinks.state.data.files} />
-            <p className="panel-hint">{t('orgsPage.exportDownloadLinksExpire')}</p>
+            <DownloadFileList orgId={downloadTarget.orgId} jobId={downloadTarget.id} files={downloadLinks.state.data.files} token={token} />
           </div>
         )}
       </Modal>
