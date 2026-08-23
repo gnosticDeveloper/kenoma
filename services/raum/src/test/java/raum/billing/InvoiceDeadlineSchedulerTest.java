@@ -6,6 +6,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.ReactiveTransaction;
+import org.springframework.transaction.ReactiveTransactionManager;
 import raum.models.BillingHistory;
 import raum.models.Organization;
 import raum.repository.BillingHistoryRepository;
@@ -38,12 +40,25 @@ class InvoiceDeadlineSchedulerTest {
     private InvoiceDocumentService invoiceDocumentService;
     @Mock
     private MailgunService mailgunService;
+    @Mock
+    private ReactiveTransactionManager transactionManager;
+    @Mock
+    private ReactiveTransaction reactiveTransaction;
 
     private InvoiceDeadlineScheduler scheduler;
 
     private void stubZeroInvoice() {
         lenient().when(pricingService.calculateInvoice(any(), any(), any())).thenReturn(Mono.just(
                 InvoiceCalculation.builder().amount(BigDecimal.ZERO).currency("USD").lineItems(List.of()).build()));
+    }
+
+    /** No-op transaction manager backing {@link org.springframework.transaction.reactive.TransactionalOperator}
+     * (see InvoiceDeadlineScheduler's saveHistoryAndAdvance) - these are plain repository mocks, not a real
+     * R2DBC connection, so the transaction itself has nothing to actually commit/roll back here. */
+    private void stubTransactionManager() {
+        lenient().when(transactionManager.getReactiveTransaction(any())).thenReturn(Mono.just(reactiveTransaction));
+        lenient().when(transactionManager.commit(any())).thenReturn(Mono.empty());
+        lenient().when(transactionManager.rollback(any())).thenReturn(Mono.empty());
     }
 
     private Organization orgDueOneCycleBehind() {
@@ -58,7 +73,8 @@ class InvoiceDeadlineSchedulerTest {
     @Test
     void checkInvoiceDeadlines_savesBillingHistoryAndAdvancesDueDate() {
         stubZeroInvoice();
-        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService);
+        stubTransactionManager();
+        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService, transactionManager);
         Organization org = orgDueOneCycleBehind();
         Instant originalDueAt = org.getNextInvoiceDueAt();
 
@@ -82,7 +98,8 @@ class InvoiceDeadlineSchedulerTest {
     @Test
     void checkInvoiceDeadlines_advancesPastMultipleMissedCycles() {
         stubZeroInvoice();
-        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService);
+        stubTransactionManager();
+        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService, transactionManager);
         Organization org = Organization.builder()
                 .id(UUID.randomUUID())
                 .billingCycle("MONTHLY")
@@ -107,7 +124,8 @@ class InvoiceDeadlineSchedulerTest {
     @Test
     void checkInvoiceDeadlines_isolatesFailureToOneOrg() {
         stubZeroInvoice();
-        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService);
+        stubTransactionManager();
+        scheduler = new InvoiceDeadlineScheduler(organizationRepository, billingHistoryRepository, pricingService, invoiceDocumentService, mailgunService, transactionManager);
         Organization failingOrg = orgDueOneCycleBehind();
         Organization healthyOrg = orgDueOneCycleBehind();
 

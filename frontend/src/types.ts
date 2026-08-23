@@ -99,7 +99,7 @@ export interface ExportJobResponse {
 
 export interface ExportFilePart {
   key: string
-  url: string
+  index: number
 }
 
 export interface ExportDownloadResponse {

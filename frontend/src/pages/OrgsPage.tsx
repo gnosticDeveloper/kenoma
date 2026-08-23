@@ -595,8 +595,7 @@ export default function OrgsPage({ token }: Props) {
             {currentExportJob.status === 'DONE' && exportDownload.state.status === 'success' && exportDownload.state.data.files.length > 0 && (
               <div className="field">
                 <label>{t('orgsPage.exportDownloadFiles')}</label>
-                <DownloadFileList files={exportDownload.state.data.files} />
-                <p className="panel-hint">{t('orgsPage.exportDownloadLinksExpire')}</p>
+                <DownloadFileList orgId={currentExportJob.orgId} jobId={currentExportJob.id} files={exportDownload.state.data.files} token={token} />
               </div>
             )}
 

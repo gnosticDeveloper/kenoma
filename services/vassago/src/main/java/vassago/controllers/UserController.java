@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -113,6 +114,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Password does not meet complexity requirements", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "Token not found, already used, or expired", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
+    @SecurityRequirements({})
     @PostMapping("/verify")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> verifyToken(@RequestBody VerifyTokenRequestDTO dto) {

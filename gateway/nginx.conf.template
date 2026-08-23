@@ -122,6 +122,12 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    location /migrations {
+        proxy_pass http://raum:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     # Each service exposes its own role names at its internal /roles path; exact-match
     # here so the external /roles/{service} URL can be routed to the right upstream
     # without colliding with another service's own top-level path namespace.

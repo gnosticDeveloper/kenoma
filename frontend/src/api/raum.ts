@@ -55,6 +55,17 @@ export const raum = {
       req<ExportJobResponse>(`/orgs/${id}/export/${jobId}`, { method: 'GET' }, token),
     getExportDownloadLinks: (id: string, jobId: string, token: string) =>
       req<ExportDownloadResponse>(`/orgs/${id}/export/${jobId}/download`, { method: 'GET' }, token),
+    downloadExportFile: async (id: string, jobId: string, index: number, token: string): Promise<Blob> => {
+      const res = await fetch(`${API_BASE_URL}/orgs/${id}/export/${jobId}/download/${index}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new ApiError(res.status, res.statusText, text)
+      }
+      return res.blob()
+    },
   },
   exportJobs: {
     list: (token: string) =>

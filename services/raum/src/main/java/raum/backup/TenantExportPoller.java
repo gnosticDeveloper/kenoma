@@ -38,7 +38,11 @@ import java.util.zip.ZipOutputStream;
 
 /**
  * Tenant export (issue #125 phase 2, formats/layout added for issue #140): given an org, produces a
- * dump of the org's data and uploads it to the same bucket DR backups use.
+ * dump of the org's data and uploads it to the same bucket DR backups use, encrypted the same way
+ * (transit-encrypted via {@link raum.openbao.OpenBaoService}, see {@link EncryptingArtifactStore}) -
+ * export content is a tenant's own PII/business data, same sensitivity class as a DR backup, so it
+ * gets the same encryption-at-rest posture. Downloading it back out goes through the app (decrypt +
+ * stream), not a presigned link straight to the bucket - see {@code OrganizationsController}.
  *
  * <p><b>Every service's contribution is row-filtered by org_id (or a join chain reaching it) —
  * none of the three service databases (raum, vassago, bime) are actually database-per-tenant.</b>
@@ -222,7 +226,7 @@ public class TenantExportPoller {
                                CredentialsRepository credentialsRepository,
                                ServiceRepository serviceRepository,
                                OpenBaoService openBaoService,
-                               @Qualifier("s3ArtifactStore") ArtifactStore artifactStore,
+                               @Qualifier("encryptingArtifactStore") ArtifactStore artifactStore,
                                SqlCopyDumpWriter sqlCopyDumpWriter,
                                @Value("${RAUM_DB_HOST:localhost}") String raumDbHost,
                                @Value("${RAUM_DB_PORT:5432}") int raumDbPort,

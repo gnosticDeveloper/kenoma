@@ -172,7 +172,6 @@
     },
     "exportRequestedAt": "Solicitado {{date}}",
     "exportDownloadFiles": "Descargar archivos",
-    "exportDownloadLinksExpire": "Los enlaces expiran en 15 minutos.",
     "exportStartAnother": "Iniciar otra exportación",
     "exportActiveExists": "Ya hay una exportación en curso para esta organización — mostrando su estado."
   },

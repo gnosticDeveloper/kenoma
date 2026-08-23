@@ -1,5 +1,6 @@
 package raum.controllers;
 
+import common.exception.BadRequestException;
 import common.exception.ErrorResponse;
 import common.exception.ForbiddenException;
 import common.exception.NotFoundException;
@@ -14,7 +15,10 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import raum.dto.BillingEmailRequestDTO;
@@ -33,6 +37,12 @@ import raum.services.ExportJobService;
 import raum.services.OrganizationService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -46,7 +56,7 @@ public class OrganizationsController {
     final ArtifactStore artifactStore;
 
     public OrganizationsController(OrganizationService service, OpenBaoService openBaoService, ExportJobService exportJobService,
-                                    @Qualifier("s3ArtifactStore") ArtifactStore artifactStore) {
+                                    @Qualifier("encryptingArtifactStore") ArtifactStore artifactStore) {
         this.service = service;
         this.openBaoService = openBaoService;
         this.exportJobService = exportJobService;
@@ -260,13 +270,16 @@ public class OrganizationsController {
     }
 
     @Operation(
-            summary = "Get short-lived download links for a completed tenant export job",
-            description = "Returns a presigned URL (expires in 15 minutes) per uploaded file for a DONE " +
-                    "export job - one file under SEPARATE layout per service, one under MERGED. Requires " +
-                    "ORG_MANAGE, or ORG_EXPORT_SELF for the caller's own org."
+            summary = "List a completed tenant export job's downloadable files",
+            description = "Returns one entry per uploaded file for a DONE export job - one file under " +
+                    "SEPARATE layout per service, one under MERGED. Export content is encrypted at rest " +
+                    "(same as DR backups), so files are never presigned straight to the bucket - fetch " +
+                    "each one's actual bytes via GET /{id}/export/{jobId}/download/{index}, which decrypts " +
+                    "and streams it through this service. Requires ORG_MANAGE, or ORG_EXPORT_SELF for the " +
+                    "caller's own org."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Download links generated"),
+            @ApiResponse(responseCode = "200", description = "File list returned"),
             @ApiResponse(responseCode = "400", description = "Export job has not finished yet", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions, or ORG_EXPORT_SELF holder requesting another org's job", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -276,11 +289,54 @@ public class OrganizationsController {
     Mono<ExportDownloadResponseDTO> getExportDownloadLinks(@PathVariable("id") UUID id, @PathVariable("jobId") UUID jobId) {
         return requireOwnOrgUnlessOrgManage(id)
                 .then(exportJobService.getDownloadKeys(id, jobId))
-                .flatMapMany(Flux::fromIterable)
-                .flatMap(key -> artifactStore.presign(key)
-                        .map(url -> new ExportDownloadResponseDTO.ExportFilePartDTO(key, url)))
-                .collectList()
-                .map(files -> ExportDownloadResponseDTO.builder().jobId(jobId).files(files).build());
+                .map(keys -> {
+                    List<ExportDownloadResponseDTO.ExportFilePartDTO> files = new ArrayList<>();
+                    for (int i = 0; i < keys.size(); i++) {
+                        files.add(new ExportDownloadResponseDTO.ExportFilePartDTO(keys.get(i), i));
+                    }
+                    return ExportDownloadResponseDTO.builder().jobId(jobId).files(files).build();
+                });
+    }
+
+    @Operation(
+            summary = "Download one file from a completed tenant export job",
+            description = "Decrypts and streams the file at the given index (from GET /{id}/export/{jobId}/download) " +
+                    "through this service - export content is encrypted at rest and never served straight from " +
+                    "the bucket. Requires ORG_MANAGE, or ORG_EXPORT_SELF for the caller's own org."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "File content"),
+            @ApiResponse(responseCode = "400", description = "Export job has not finished yet, or index out of range", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions, or ORG_EXPORT_SELF holder requesting another org's job", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Export job not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/{id}/export/{jobId}/download/{index}")
+    Mono<ResponseEntity<byte[]>> downloadExportFile(@PathVariable("id") UUID id, @PathVariable("jobId") UUID jobId,
+                                                      @PathVariable("index") int index) {
+        return requireOwnOrgUnlessOrgManage(id)
+                .then(exportJobService.getDownloadKeys(id, jobId))
+                .flatMap(keys -> {
+                    if (index < 0 || index >= keys.size()) {
+                        return Mono.error(new BadRequestException("No file at index " + index));
+                    }
+                    String key = keys.get(index);
+                    String fileName = key.substring(key.lastIndexOf('/') + 1);
+                    return artifactStore.download(key)
+                            .flatMap(file -> Mono.fromCallable(() -> Files.readAllBytes(file))
+                                    .doFinally(signal -> deleteQuietly(file)))
+                            .map(bytes -> ResponseEntity.ok()
+                                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + fileName)
+                                    .body(bytes));
+                });
+    }
+
+    private void deleteQuietly(Path file) {
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException ignored) {
+        }
     }
 
     /**

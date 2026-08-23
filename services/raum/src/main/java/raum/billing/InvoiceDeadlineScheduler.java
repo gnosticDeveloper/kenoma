@@ -6,6 +6,8 @@ import io.r2dbc.postgresql.codec.Json;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.ReactiveTransactionManager;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import raum.models.BillingCycle;
 import raum.models.BillingHistory;
 import raum.models.Organization;
@@ -32,17 +34,20 @@ public class InvoiceDeadlineScheduler {
     private final PricingService pricingService;
     private final InvoiceDocumentService invoiceDocumentService;
     private final MailgunService mailgunService;
+    private final TransactionalOperator transactionalOperator;
 
     public InvoiceDeadlineScheduler(OrganizationRepository organizationRepository,
                                      BillingHistoryRepository billingHistoryRepository,
                                      PricingService pricingService,
                                      InvoiceDocumentService invoiceDocumentService,
-                                     MailgunService mailgunService) {
+                                     MailgunService mailgunService,
+                                     ReactiveTransactionManager transactionManager) {
         this.organizationRepository = organizationRepository;
         this.billingHistoryRepository = billingHistoryRepository;
         this.pricingService = pricingService;
         this.invoiceDocumentService = invoiceDocumentService;
         this.mailgunService = mailgunService;
+        this.transactionalOperator = TransactionalOperator.create(transactionManager);
     }
 
     @Scheduled(cron = "${raum.billing.deadline-cron:0 0 3 * * *}")
@@ -67,6 +72,14 @@ public class InvoiceDeadlineScheduler {
                 .then();
     }
 
+    /**
+     * Creates the billing_history entry and advances the org's next-due-date in one transaction -
+     * previously these were two independent saves, so a crash/error between them (e.g. between app
+     * restarts, or the second save failing) left an invoice entry persisted but the due date never
+     * advanced. Next cron run would then find the org still due and create a second invoice for the
+     * same period. Wrapping both in {@link #transactionalOperator} makes them succeed or roll back
+     * together.
+     */
     private Mono<BillingHistory> saveHistoryAndAdvance(Organization org, InvoiceCalculation invoice, Instant now) {
         try {
             BillingHistory entry = BillingHistory.builder()
@@ -83,7 +96,8 @@ public class InvoiceDeadlineScheduler {
             org.setModifiedAt(now);
 
             return billingHistoryRepository.save(entry)
-                    .flatMap(saved -> organizationRepository.save(org).thenReturn(saved));
+                    .flatMap(saved -> organizationRepository.save(org).thenReturn(saved))
+                    .as(transactionalOperator::transactional);
         } catch (Exception e) {
             return Mono.error(e);
         }
