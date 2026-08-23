@@ -89,9 +89,10 @@ public class OpenBaoService {
     }
 
     public Mono<Void> registerDatabaseConnection(UUID id, String username, String password,
-                                                 String dbHost, int dbPort, String dbName) {
+                                                 String dbHost, int dbPort, String dbName, UUID orgId) {
         String connectionName = id.toString();
-        String roleName = connectionName + "-role";
+        String adminRoleName = CredentialTier.ADMIN.roleName(connectionName);
+        String memberRoleName = CredentialTier.MEMBER.roleName(connectionName);
         String connectionUrl = String.format(
                 "postgresql://{{username}}:{{password}}@%s:%d/%s?sslmode=disable",
                 dbHost, dbPort, dbName);
@@ -100,7 +101,7 @@ public class OpenBaoService {
                 .uri("/v1/database/config/{name}", connectionName)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", roleName,
+                        "allowed_roles", adminRoleName + "," + memberRoleName,
                         "connection_url", connectionUrl,
                         "username", username,
                         "password", password
@@ -113,10 +114,19 @@ public class OpenBaoService {
                         })
                 )
                 .bodyToMono(Void.class)
-                .then(createRole(connectionName, roleName, dbName, username));
+                .then(createRole(connectionName, adminRoleName, dbName, username, orgId,
+                        "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; "))
+                .then(createRole(connectionName, memberRoleName, dbName, username, orgId,
+                        // Read-only: a caller who only holds a non-admin role for the target service
+                        // (e.g. VASSAGO_MEMBER, BIME_VIEWER) can never write through this connection —
+                        // even a raw psql session, and even to their own row — closing the self-elevation
+                        // path (UPDATE users SET roles = ...) that a blanket-write grant left open. See
+                        // raum.controllers.CredentialsController for tier resolution.
+                        "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; "));
     }
 
-    private Mono<Void> createRole(String connectionName, String roleName, String dbName, String ownerUsername) {
+    private Mono<Void> createRole(String connectionName, String roleName, String dbName, String ownerUsername,
+                                   UUID orgId, String grantStatement) {
         return webClient.post()
                 .uri("/v1/database/roles/{role}", roleName)
                 .bodyValue(Map.of(
@@ -124,11 +134,8 @@ public class OpenBaoService {
                         "creation_statements", "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; " +
                                 "GRANT CONNECT ON DATABASE \"" + dbName + "\" TO \"{{name}}\"; " +
                                 "GRANT USAGE ON SCHEMA public TO \"{{name}}\"; " +
-                                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
-                        // Defensive: ephemeral roles are not expected to own any objects (schema DDL runs under the
-                        // static credentials — see SchemaProvisioner.staticClientFor), but REASSIGN OWNED BY is a
-                        // no-op if the role owns nothing, so this protects against the role ever ending up owning
-                        // something and blocking its own revocation ("cannot be dropped because objects depend on it").
+                                grantStatement +
+                                "ALTER ROLE \"{{name}}\" SET app.org_id = '" + orgId + "';",
                         "revocation_statements", "REASSIGN OWNED BY \"{{name}}\" TO \"" + ownerUsername + "\"; " +
                                 "DROP OWNED BY \"{{name}}\"; " +
                                 "DROP ROLE IF EXISTS \"{{name}}\";",
@@ -169,7 +176,11 @@ public class OpenBaoService {
     }
 
     public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id) {
-        return fetchDatabaseCreds(id + "-role");
+        return issueEphemeralCredentials(id, CredentialTier.ADMIN);
+    }
+
+    public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id, CredentialTier tier) {
+        return fetchDatabaseCreds(tier.roleName(id.toString()));
     }
 
     /**

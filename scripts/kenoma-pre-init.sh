@@ -50,13 +50,13 @@ PLATFORM_ORG_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
 CREDENTIAL_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
   -h "${RAUM_DB_HOST}" -p "${RAUM_DB_PORT}" \
   -U "${RAUM_DB_USER}" -d "${RAUM_DB_NAME}" \
-  -t -A -c "SELECT id FROM credentials WHERE service_id = '${VASSAGO_SERVICE_ID}' LIMIT 1;")
+  -t -A -c "SELECT id FROM credentials WHERE service_id = '${VASSAGO_SERVICE_ID}' AND org_id = '${PLATFORM_ORG_ID}' LIMIT 1;")
 [ -z "$CREDENTIAL_ID" ] && echo "ERROR: Credential ID not found" && exit 1
 
 BIME_CREDENTIAL_ID=$(PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
   -h "${RAUM_DB_HOST}" -p "${RAUM_DB_PORT}" \
   -U "${RAUM_DB_USER}" -d "${RAUM_DB_NAME}" \
-  -t -A -c "SELECT id FROM credentials WHERE service_id = '${BIME_SERVICE_ID}' LIMIT 1;")
+  -t -A -c "SELECT id FROM credentials WHERE service_id = '${BIME_SERVICE_ID}' AND org_id = '${PLATFORM_ORG_ID}' LIMIT 1;")
 [ -z "$BIME_CREDENTIAL_ID" ] && echo "ERROR: Bime credential ID not found" && exit 1
 
 echo "Raum service ID:    ${RAUM_SERVICE_ID}"
@@ -129,7 +129,7 @@ echo "Registering database connection in OpenBao..."
 cat > /tmp/db-config-payload.json << DBCONFIG
 {
   "plugin_name": "postgresql-database-plugin",
-  "allowed_roles": "${CREDENTIAL_ID}-role",
+  "allowed_roles": "${CREDENTIAL_ID}-admin-role,${CREDENTIAL_ID}-member-role",
   "connection_url": "postgresql://{{username}}:{{password}}@${VASSAGO_DB_HOST}:${VASSAGO_DB_PORT}/${VASSAGO_DB_NAME}?sslmode=disable",
   "username": "${VASSAGO_DB_USER}",
   "password": "${VASSAGO_DB_PASSWORD}"
@@ -142,11 +142,11 @@ wget -q -O - \
   "${OPENBAO_BASE_URL}/v1/database/config/${CREDENTIAL_ID}"
 echo "Database connection registered."
 
-echo "Creating database role in OpenBao..."
+echo "Creating database roles in OpenBao..."
 cat > /tmp/role-payload.json << ROLEJSON
 {
   "db_name": "${CREDENTIAL_ID}",
-  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${VASSAGO_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
+  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${VASSAGO_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; ALTER ROLE \"{{name}}\" SET app.org_id = '${PLATFORM_ORG_ID}';",
   "default_ttl": "1h",
   "max_ttl": "24h"
 }
@@ -155,8 +155,22 @@ wget -q -O - \
   --header="Content-Type: application/json" \
   --header="X-Vault-Token: ${ROOT_TOKEN}" \
   --post-file=/tmp/role-payload.json \
-  "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-role"
-echo "Database role created."
+  "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-admin-role"
+
+cat > /tmp/role-payload-member.json << ROLEJSON
+{
+  "db_name": "${CREDENTIAL_ID}",
+  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${VASSAGO_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; ALTER ROLE \"{{name}}\" SET app.org_id = '${PLATFORM_ORG_ID}';",
+  "default_ttl": "1h",
+  "max_ttl": "24h"
+}
+ROLEJSON
+wget -q -O - \
+  --header="Content-Type: application/json" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
+  --post-file=/tmp/role-payload-member.json \
+  "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-member-role"
+echo "Database roles created."
 
 echo "Storing Bime credentials in OpenBao KV..."
 wget -q -O - \
@@ -170,7 +184,7 @@ echo "Registering Bime database connection in OpenBao..."
 cat > /tmp/bime-db-config-payload.json << DBCONFIG
 {
   "plugin_name": "postgresql-database-plugin",
-  "allowed_roles": "${BIME_CREDENTIAL_ID}-role",
+  "allowed_roles": "${BIME_CREDENTIAL_ID}-admin-role,${BIME_CREDENTIAL_ID}-member-role",
   "connection_url": "postgresql://{{username}}:{{password}}@${BIME_DB_HOST}:${BIME_DB_PORT}/${BIME_DB_NAME}?sslmode=disable",
   "username": "${BIME_DB_USER}",
   "password": "${BIME_DB_PASSWORD}"
@@ -183,11 +197,11 @@ wget -q -O - \
   "${OPENBAO_BASE_URL}/v1/database/config/${BIME_CREDENTIAL_ID}"
 echo "Bime database connection registered."
 
-echo "Creating Bime database role in OpenBao..."
+echo "Creating Bime database roles in OpenBao..."
 cat > /tmp/bime-role-payload.json << ROLEJSON
 {
   "db_name": "${BIME_CREDENTIAL_ID}",
-  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${BIME_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
+  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${BIME_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; ALTER ROLE \"{{name}}\" SET app.org_id = '${PLATFORM_ORG_ID}';",
   "default_ttl": "1h",
   "max_ttl": "24h"
 }
@@ -196,7 +210,21 @@ wget -q -O - \
   --header="Content-Type: application/json" \
   --header="X-Vault-Token: ${ROOT_TOKEN}" \
   --post-file=/tmp/bime-role-payload.json \
-  "${OPENBAO_BASE_URL}/v1/database/roles/${BIME_CREDENTIAL_ID}-role"
+  "${OPENBAO_BASE_URL}/v1/database/roles/${BIME_CREDENTIAL_ID}-admin-role"
+
+cat > /tmp/bime-role-payload-member.json << ROLEJSON
+{
+  "db_name": "${BIME_CREDENTIAL_ID}",
+  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${BIME_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; ALTER ROLE \"{{name}}\" SET app.org_id = '${PLATFORM_ORG_ID}';",
+  "default_ttl": "1h",
+  "max_ttl": "24h"
+}
+ROLEJSON
+wget -q -O - \
+  --header="Content-Type: application/json" \
+  --header="X-Vault-Token: ${ROOT_TOKEN}" \
+  --post-file=/tmp/bime-role-payload-member.json \
+  "${OPENBAO_BASE_URL}/v1/database/roles/${BIME_CREDENTIAL_ID}-member-role"
 echo "Bime database role created."
 
 echo "Marking pre-initialized credentials as initialized..."

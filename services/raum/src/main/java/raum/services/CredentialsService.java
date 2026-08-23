@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
 import raum.models.Credentials;
+import raum.openbao.CredentialTier;
 import raum.openbao.OpenBaoService;
 import raum.repository.CredentialsRepository;
 import reactor.core.publisher.Mono;
@@ -48,7 +49,8 @@ public class CredentialsService {
                                 dto.getPassword(),
                                 dto.getDbHost(),
                                 dto.getDbPort(),
-                                dto.getDbName()
+                                dto.getDbName(),
+                                saved.getOrgId()
                         ))
                         .thenReturn(BasicCredentialDTO.builder()
                                 .orgId(saved.getOrgId())
@@ -73,10 +75,10 @@ public class CredentialsService {
         return s == null || s.isBlank();
     }
 
-    public Mono<CredentialsDTO> getEphemeralCredentialsByOrgIdAndServiceId(BasicCredentialDTO dto) {
+    public Mono<CredentialsDTO> getEphemeralCredentialsByOrgIdAndServiceId(BasicCredentialDTO dto, CredentialTier tier) {
         return credentialsRepository.findByOrgIdAndServiceId(dto.getOrgId(), dto.getServiceId())
                 .flatMap(credentials ->
-                        openBaoService.issueEphemeralCredentials(credentials.getId())
+                        openBaoService.issueEphemeralCredentials(credentials.getId(), tier)
                                 .map(ephemeral -> {
                                     CredentialsDTO result = new CredentialsDTO();
                                     result.setOrgId(credentials.getOrgId());
