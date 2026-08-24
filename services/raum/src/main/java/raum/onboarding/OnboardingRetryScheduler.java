@@ -7,13 +7,16 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import raum.dto.OnboardingRequestDTO;
 import raum.models.Credentials;
+import raum.models.Organization;
 import raum.openbao.OpenBaoService;
 import raum.repository.CredentialsRepository;
+import raum.repository.OrganizationRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -22,6 +25,7 @@ import java.util.stream.Collectors;
 public class OnboardingRetryScheduler {
 
     private final CredentialsRepository credentialsRepository;
+    private final OrganizationRepository organizationRepository;
     private final OpenBaoService openBaoService;
     private final OnboardingConfigStore configStore;
     private final VassagoOnboardingStrategy vassagoStrategy;
@@ -31,11 +35,13 @@ public class OnboardingRetryScheduler {
     private UUID vassagoServiceId;
 
     public OnboardingRetryScheduler(CredentialsRepository credentialsRepository,
+                                    OrganizationRepository organizationRepository,
                                     OpenBaoService openBaoService,
                                     OnboardingConfigStore configStore,
                                     VassagoOnboardingStrategy vassagoStrategy,
                                     List<OnboardingStrategy> strategies) {
         this.credentialsRepository = credentialsRepository;
+        this.organizationRepository = organizationRepository;
         this.openBaoService = openBaoService;
         this.configStore = configStore;
         this.vassagoStrategy = vassagoStrategy;
@@ -49,12 +55,18 @@ public class OnboardingRetryScheduler {
                 .flatMap(uninitList -> {
                     if (uninitList.isEmpty()) return Mono.empty();
 
-                    Map<UUID, List<Credentials>> byOrg = uninitList.stream()
-                            .collect(Collectors.groupingBy(Credentials::getOrgId));
+                    return organizationRepository.findAllByStoppedAtIsNull()
+                            .map(Organization::getId)
+                            .collect(Collectors.toSet())
+                            .flatMap(activeOrgIds -> {
+                                Map<UUID, List<Credentials>> byOrg = uninitList.stream()
+                                        .filter(c -> activeOrgIds.contains(c.getOrgId()))
+                                        .collect(Collectors.groupingBy(Credentials::getOrgId));
 
-                    return Flux.fromIterable(byOrg.entrySet())
-                            .concatMap(entry -> retryForOrg(entry.getKey(), entry.getValue()))
-                            .then();
+                                return Flux.fromIterable(byOrg.entrySet())
+                                        .concatMap(entry -> retryForOrg(entry.getKey(), entry.getValue()))
+                                        .then();
+                            });
                 })
                 .subscribe(
                         null,

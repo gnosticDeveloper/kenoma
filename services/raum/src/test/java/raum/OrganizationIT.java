@@ -1,5 +1,6 @@
 package raum;
 
+import common.dto.BasicCredentialDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -141,6 +142,36 @@ class OrganizationIT extends BaseIT {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .exchange()
                 .expectStatus().isNoContent();
+    }
+
+    @Test
+    void deleteOrg_blocksFutureEphemeralCredentialIssuance() {
+        OrgRequestDTO create = new OrgRequestDTO("Org To Deactivate", "deactivate@org.com", "Deactivate Admin");
+        OrgResponseDTO created = client.post().uri("/orgs")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(create)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(OrgResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(created).isNotNull();
+
+        client.delete().uri("/orgs/{id}", created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isNoContent();
+
+        client.post().uri("/credentials/ephemeral")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(BasicCredentialDTO.builder()
+                        .orgId(created.getId())
+                        .serviceId(UUID.randomUUID())
+                        .build())
+                .exchange()
+                .expectStatus().isForbidden();
     }
 
     @Test
