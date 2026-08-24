@@ -23,13 +23,14 @@ for svc in "${!SVC_PORTS[@]}"; do
   docker exec "$svc" curl -sf "http://localhost:${port}/v3/api-docs" -o "/tmp/${svc}-openapi.json"
   docker cp "${svc}:/tmp/${svc}-openapi.json" "${OUT_DIR}/${svc}-openapi.json"
 
-  jq --arg svc "$svc" '
+  docker run --rm -v "${OUT_DIR}:/docs" ghcr.io/jqlang/jq \
+    --arg svc "$svc" '
     if .paths["/roles"] then
       .paths[("/roles/" + $svc)] = .paths["/roles"] |
       del(.paths["/roles"]) |
       .paths[("/roles/" + $svc)].get.operationId = ("get" + ($svc | ltrimstr($svc[0:1]) as $rest | ($svc[0:1] | ascii_upcase) + $rest) + "Roles")
     else . end
-  ' "${OUT_DIR}/${svc}-openapi.json" > "${OUT_DIR}/${svc}-openapi.json.tmp"
+  ' "/docs/${svc}-openapi.json" > "${OUT_DIR}/${svc}-openapi.json.tmp"
   mv "${OUT_DIR}/${svc}-openapi.json.tmp" "${OUT_DIR}/${svc}-openapi.json"
 done
 
