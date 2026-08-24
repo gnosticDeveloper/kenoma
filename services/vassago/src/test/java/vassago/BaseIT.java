@@ -216,14 +216,15 @@ public abstract class BaseIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", credentialId + "-role",
+                        "allowed_roles", credentialId + "-admin-role," + credentialId + "-member-role",
                         "connection_url", "postgresql://{{username}}:{{password}}@vassago-postgres:5432/vassago?sslmode=disable",
                         "username", "admin",
                         "password", "adminpass"
                 ))
                 .retrieve().bodyToMono(Void.class).block();
 
-        bao.post().uri("/v1/database/roles/{role}", credentialId + "-role")
+
+        bao.post().uri("/v1/database/roles/{role}", credentialId + "-admin-role")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
                         "db_name", credentialId.toString(),
@@ -232,7 +233,24 @@ public abstract class BaseIT {
                                 GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
                                 GRANT USAGE ON SCHEMA public TO "{{name}}";
                                 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
-                                """,
+                                ALTER ROLE "{{name}}" SET app.org_id = '%s';
+                                """.formatted(orgId),
+                        "default_ttl", "1h",
+                        "max_ttl", "24h"
+                ))
+                .retrieve().bodyToMono(Void.class).block();
+
+        bao.post().uri("/v1/database/roles/{role}", credentialId + "-member-role")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "db_name", credentialId.toString(),
+                        "creation_statements", """
+                                CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+                                GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
+                                GRANT USAGE ON SCHEMA public TO "{{name}}";
+                                GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{name}}";
+                                ALTER ROLE "{{name}}" SET app.org_id = '%s';
+                                """.formatted(orgId),
                         "default_ttl", "1h",
                         "max_ttl", "24h"
                 ))

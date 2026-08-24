@@ -175,53 +175,49 @@ class OnboardingIT {
                 .bodyValue(Map.of("data", Map.of("username", "admin", "password", "adminpass")))
                 .retrieve().bodyToMono(Void.class).block();
 
-        bao.post().uri("/v1/database/config/{id}", vassagoCredId)
+        registerOpenBaoConnectionAndRoles(bao, vassagoCredId, "vassago", "vassago-postgres");
+        registerOpenBaoConnectionAndRoles(bao, bimeCredId, "bime", "bime-postgres");
+    }
+
+    private static void registerOpenBaoConnectionAndRoles(WebClient bao, UUID credId, String dbName, String dbHost) {
+        bao.post().uri("/v1/database/config/{id}", credId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", vassagoCredId + "-role",
-                        "connection_url", "postgresql://{{username}}:{{password}}@vassago-postgres:5432/vassago?sslmode=disable",
+                        "allowed_roles", credId + "-admin-role," + credId + "-member-role",
+                        "connection_url", "postgresql://{{username}}:{{password}}@%s:5432/%s?sslmode=disable".formatted(dbHost, dbName),
                         "username", "admin",
                         "password", "adminpass"
                 ))
                 .retrieve().bodyToMono(Void.class).block();
 
-        bao.post().uri("/v1/database/roles/{role}", vassagoCredId + "-role")
+        bao.post().uri("/v1/database/roles/{role}", credId + "-admin-role")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
-                        "db_name", vassagoCredId.toString(),
+                        "db_name", credId.toString(),
                         "creation_statements", """
                                 CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
-                                GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
+                                GRANT CONNECT ON DATABASE "%s" TO "{{name}}";
                                 GRANT USAGE ON SCHEMA public TO "{{name}}";
                                 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
-                                """,
+                                ALTER ROLE "{{name}}" SET app.org_id = '%s';
+                                """.formatted(dbName, orgId),
                         "default_ttl", "1h",
                         "max_ttl", "24h"
                 ))
                 .retrieve().bodyToMono(Void.class).block();
 
-        bao.post().uri("/v1/database/config/{id}", bimeCredId)
+        bao.post().uri("/v1/database/roles/{role}", credId + "-member-role")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
-                        "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", bimeCredId + "-role",
-                        "connection_url", "postgresql://{{username}}:{{password}}@bime-postgres:5432/bime?sslmode=disable",
-                        "username", "admin",
-                        "password", "adminpass"
-                ))
-                .retrieve().bodyToMono(Void.class).block();
-
-        bao.post().uri("/v1/database/roles/{role}", bimeCredId + "-role")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of(
-                        "db_name", bimeCredId.toString(),
+                        "db_name", credId.toString(),
                         "creation_statements", """
                                 CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
-                                GRANT CONNECT ON DATABASE "bime" TO "{{name}}";
+                                GRANT CONNECT ON DATABASE "%s" TO "{{name}}";
                                 GRANT USAGE ON SCHEMA public TO "{{name}}";
-                                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
-                                """,
+                                GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{name}}";
+                                ALTER ROLE "{{name}}" SET app.org_id = '%s';
+                                """.formatted(dbName, orgId),
                         "default_ttl", "1h",
                         "max_ttl", "24h"
                 ))

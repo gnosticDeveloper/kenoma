@@ -37,6 +37,12 @@ import static org.mockito.Mockito.verify;
  * between the Flyway migrations and the hardcoded RAUM_TABLES column lists, and whether the WHERE org_id/id filter
  * actually excludes other orgs' rows. OpenBao/S3 stay out of scope — ArtifactStore is mocked, and
  * these test orgs are given no `credentials` rows, so the vassago/bime dump path never engages.
+ *
+ * <p>Mocks the {@code encryptingArtifactStore} bean directly (not just its {@code s3ArtifactStore}
+ * delegate) since exports are now routed through it for encryption-at-rest - mocking only the
+ * delegate would leave the real {@link EncryptingArtifactStore} in the chain, which calls
+ * {@code OpenBaoService.encrypt} before ever reaching the (mocked) delegate, and this suite
+ * deliberately has no live OpenBao (see {@link BaseIT}).
  */
 class TenantExportPollerIT extends BaseIT {
 
@@ -44,8 +50,8 @@ class TenantExportPollerIT extends BaseIT {
     private TenantExportPoller poller;
 
 
-    @MockitoBean(name = "s3ArtifactStore")
-    private S3ArtifactStore artifactStore;
+    @MockitoBean(name = "encryptingArtifactStore")
+    private ArtifactStore artifactStore;
 
     @BeforeEach
     void resetCapture() {
