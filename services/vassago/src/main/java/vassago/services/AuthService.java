@@ -16,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+import vassago.clients.RaumClient;
 import vassago.db.VassagoDbService;
 import vassago.dto.LoginRequestDTO;
 import vassago.dto.RecoverRequestDTO;
@@ -43,6 +44,7 @@ public class AuthService {
     private final MailgunService mailgunService;
     private final RedisTokenService redisTokenService;
     private final VerificationTokenService verificationTokenService;
+    private final RaumClient raumClient;
 
     @Value("${vassago.refresh-token.ttl-seconds:2592000}")
     private long refreshTtlSeconds;
@@ -58,6 +60,11 @@ public class AuthService {
                 || dto.getPassword() == null || dto.getPassword().isBlank()) {
             return Mono.error(new BadRequestException("orgId, username, and password are required"));
         }
+        return raumClient.isOrgActive(dto.getOrgId())
+                .flatMap(active -> active ? loginInternal(dto, response) : Mono.error(new UnauthorizedException("Invalid credentials")));
+    }
+
+    private Mono<String> loginInternal(LoginRequestDTO dto, ServerHttpResponse response) {
         return vassagoDbService.getClient(dto.getOrgId())
                 .onErrorMap(NotFoundException.class, ex -> new UnauthorizedException("Invalid credentials"))
                 .flatMap(client -> client.sql("""
@@ -111,35 +118,45 @@ public class AuthService {
                     if (fpCookie == null || !verificationTokenService.hashToken(fpCookie.getValue()).equals(data.fpHash())) {
                         return Mono.error(new UnauthorizedException("Session binding mismatch"));
                     }
-                    return vassagoDbService.getClient(data.orgId())
-                            .flatMap(client -> client.sql("""
-                                    SELECT id, roles FROM users
-                                    WHERE username = :username AND org_id = :orgId AND stopped_at IS NULL AND is_ready
-                                    """)
-                                    .bind("username", data.username())
-                                    .bind("orgId", data.orgId())
-                                    .fetch()
-                                    .one()
-                                    .switchIfEmpty(Mono.error(new UnauthorizedException("Invalid or expired session")))
-                            )
-                            .flatMap(row -> {
-                                UUID userId = (UUID) row.get("id");
-                                Map<String, List<String>> roles = RolesUtils.deserialize((String) row.get("roles"));
-                                return jwtService.issueToken(data.orgId(), userId, roles);
-                            })
-                            .flatMap(token -> {
-                                String newRtRaw = verificationTokenService.generateToken();
-                                String newRtHash = verificationTokenService.hashToken(newRtRaw);
-                                String newFpRaw = verificationTokenService.generateToken();
-                                String newFpHash = verificationTokenService.hashToken(newFpRaw);
-                                return redisTokenService.markRotated(rtHash, data.userId())
-                                        .then(redisTokenService.storeRefreshToken(newRtHash, data.orgId(), data.userId(), data.username(), newFpHash))
-                                        .then(Mono.fromRunnable(() -> {
-                                            setCookie(exchange.getResponse(), REFRESH_COOKIE, newRtRaw);
-                                            setCookie(exchange.getResponse(), FP_COOKIE, newFpRaw);
-                                        }))
-                                        .thenReturn(token);
-                            });
+                    // Same explicit check as login() - a refresh token can live up to 30 days, so
+                    // without this a deactivated org's user could keep extending their session
+                    // indefinitely as long as their pooled DB connection stayed warm.
+                    return raumClient.isOrgActive(data.orgId())
+                            .flatMap(active -> active
+                                    ? refreshInternal(data, rtHash, exchange)
+                                    : Mono.error(new UnauthorizedException("Invalid or expired session")));
+                });
+    }
+
+    private Mono<String> refreshInternal(RedisTokenService.RefreshTokenData data, String rtHash, ServerWebExchange exchange) {
+        return vassagoDbService.getClient(data.orgId())
+                .flatMap(client -> client.sql("""
+                        SELECT id, roles FROM users
+                        WHERE username = :username AND org_id = :orgId AND stopped_at IS NULL AND is_ready
+                        """)
+                        .bind("username", data.username())
+                        .bind("orgId", data.orgId())
+                        .fetch()
+                        .one()
+                        .switchIfEmpty(Mono.error(new UnauthorizedException("Invalid or expired session")))
+                )
+                .flatMap(row -> {
+                    UUID userId = (UUID) row.get("id");
+                    Map<String, List<String>> roles = RolesUtils.deserialize((String) row.get("roles"));
+                    return jwtService.issueToken(data.orgId(), userId, roles);
+                })
+                .flatMap(token -> {
+                    String newRtRaw = verificationTokenService.generateToken();
+                    String newRtHash = verificationTokenService.hashToken(newRtRaw);
+                    String newFpRaw = verificationTokenService.generateToken();
+                    String newFpHash = verificationTokenService.hashToken(newFpRaw);
+                    return redisTokenService.markRotated(rtHash, data.userId())
+                            .then(redisTokenService.storeRefreshToken(newRtHash, data.orgId(), data.userId(), data.username(), newFpHash))
+                            .then(Mono.fromRunnable(() -> {
+                                setCookie(exchange.getResponse(), REFRESH_COOKIE, newRtRaw);
+                                setCookie(exchange.getResponse(), FP_COOKIE, newFpRaw);
+                            }))
+                            .thenReturn(token);
                 });
     }
 

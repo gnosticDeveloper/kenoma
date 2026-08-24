@@ -10,6 +10,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import vassago.openbao.OpenBaoService;
 
+import java.util.UUID;
+
 @Component
 public class RaumClient {
     private final WebClient webClient;
@@ -33,5 +35,19 @@ public class RaumClient {
                 .onStatus(HttpStatusCode::is4xxClientError, response ->
                         Mono.error(new NotFoundException("No database credentials found for the requested organization")))
                 .bodyToMono(CredentialsDTO.class);
+    }
+
+    /** Used by {@link vassago.services.AuthService#login} to reject a deactivated org's user
+     * explicitly, rather than relying on the DB connection pool incidentally being cold enough
+     * to hit {@link #getEphemeralCredentials} and fail there. Fails closed (treats as inactive)
+     * on any error reaching raum - this check exists to be a hard security gate, so an
+     * unreachable raum should block login, not silently let it through unchecked. */
+    public Mono<Boolean> isOrgActive(UUID orgId) {
+        return webClient.get()
+                .uri("/orgs/{id}/active", orgId)
+                .header("X-Vault-Token", openBaoService.getToken())
+                .retrieve()
+                .bodyToMono(Boolean.class)
+                .onErrorReturn(false);
     }
 }

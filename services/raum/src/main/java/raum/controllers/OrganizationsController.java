@@ -139,6 +139,33 @@ public class OrganizationsController {
                         : Mono.error(new UnauthorizedException("Invalid token")));
     }
 
+    @Operation(
+            summary = "Check whether an organisation is active (not deactivated)",
+            description = "Returns true only for an org that exists and hasn't been deactivated - a deactivated " +
+                    "org and a nonexistent org both return false (not distinguished, so this can't be used to " +
+                    "probe org-id existence). For machine-to-machine callers only — authenticates via " +
+                    "X-Vault-Token (OpenBao AppRole), not a user JWT. Intended for other services that need to " +
+                    "gate an action on org-active status without pulling the full /orgs/active-ids list (e.g. " +
+                    "Vassago's login flow rejecting a deactivated org's user before ever touching its DB)."
+    )
+    @SecurityRequirements({@SecurityRequirement(name = "vaultToken")})
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Active status returned"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid X-Vault-Token", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/{id}/active")
+    Mono<Boolean> isOrgActive(
+            @PathVariable("id") UUID id,
+            @Parameter(description = "OpenBao AppRole token") @RequestHeader(value = "X-Vault-Token", required = false) String vaultToken) {
+        if (vaultToken == null) {
+            return Mono.error(new UnauthorizedException("X-Vault-Token required"));
+        }
+        return openBaoService.validateToken(vaultToken)
+                .flatMap(valid -> valid
+                        ? service.isOrgActive(id)
+                        : Mono.error(new UnauthorizedException("Invalid token")));
+    }
+
     @Operation(summary = "Get an organisation by ID", description = "Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Organisation found"),
@@ -346,7 +373,7 @@ public class OrganizationsController {
      */
     private Mono<Void> requireOwnOrgUnlessOrgManage(UUID requestedOrgId) {
         return ReactiveSecurityContextHolder.getContext()
-                .map(ctx -> (RaumAuthentication) ctx.getAuthentication())
+                .mapNotNull(ctx -> (RaumAuthentication) ctx.getAuthentication())
                 .flatMap(auth -> {
                     boolean isOrgManage = auth.getAuthorities().stream()
                             .anyMatch(a -> a.getAuthority().equals(RaumPermission.ORG_MANAGE.name()));

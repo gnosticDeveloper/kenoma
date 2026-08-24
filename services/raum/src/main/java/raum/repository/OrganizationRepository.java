@@ -4,6 +4,7 @@ import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import raum.models.Organization;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -14,4 +15,6 @@ public interface OrganizationRepository extends ReactiveCrudRepository<Organizat
     Flux<Organization> findAllByBillingEmailVerifiedTrueAndNextInvoiceDueAtLessThanEqualAndStoppedAtIsNull(Instant now);
 
     Flux<Organization> findAllByStoppedAtIsNull();
+
+    Mono<Boolean> existsByIdAndStoppedAtIsNull(UUID id);
 }

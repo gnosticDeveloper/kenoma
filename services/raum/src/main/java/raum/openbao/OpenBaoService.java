@@ -219,10 +219,13 @@ public class OpenBaoService {
      * new one, since the physical instance behind it is shared across every org/service credential
      * row that points at the same (host, port, db_name) — one representative connection is enough.
      *
-     * <p>The connection's {@code allowed_roles} was set at org-onboarding time to only the ephemeral
-     * "{id}-role" — Vault refuses to issue creds for any role not on that list, so this must widen it
-     * to include the backup role before (re)creating it. Re-registering the connection needs the same
-     * admin credentials used originally, fetched back from the static KV entry.
+     * <p>The connection's {@code allowed_roles} was set at org-onboarding time to only the two
+     * ephemeral tier roles ({@link CredentialTier#ADMIN}/{@link CredentialTier#MEMBER}) — Vault
+     * refuses to issue creds for any role not on that list, so this must widen it to include the
+     * backup role (while preserving both tier roles - re-registering a connection replaces
+     * {@code allowed_roles} wholesale, it doesn't append) before (re)creating it. Re-registering the
+     * connection needs the same admin credentials used originally, fetched back from the static KV
+     * entry.
      *
      * <p>Checks Vault for actual current state first (rather than caching "already registered" in app
      * memory) so this stays correct across restarts, multiple raum instances, and anyone changing
@@ -295,7 +298,8 @@ public class OpenBaoService {
                 .uri("/v1/database/config/{name}", connectionName)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", connectionName + "-role," + backupRoleName,
+                        "allowed_roles", CredentialTier.ADMIN.roleName(connectionName) + "," +
+                                CredentialTier.MEMBER.roleName(connectionName) + "," + backupRoleName,
                         "connection_url", connectionUrl,
                         "username", adminCreds.getUserName(),
                         "password", adminCreds.getPassword()
