@@ -16,6 +16,9 @@ path "database/roles/*" {
 path "database/creds/*" {
   capabilities = ["read"]
 }
+path "sys/leases/revoke-prefix/database/creds/*" {
+  capabilities = ["update", "sudo"]
+}
 path "transit/keys/vassago-jwt" {
   capabilities = ["read"]
 }
