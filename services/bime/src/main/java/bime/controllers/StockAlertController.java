@@ -49,7 +49,7 @@ public class StockAlertController {
         return stockAlertThresholdService.setThreshold(dto);
     }
 
-    @Operation(summary = "List stock alert thresholds", description = "Returns configured thresholds for the organisation, optionally filtered by variant and/or location. Requires BIME_VIEW.")
+    @Operation(summary = "List stock alert thresholds", description = "Returns configured thresholds for the organization, optionally filtered by variant and/or location. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of thresholds (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -79,7 +79,7 @@ public class StockAlertController {
 
     @Operation(
             summary = "List active low-stock alerts",
-            description = "Returns variants currently at or below their configured threshold at a location, for the organisation. " +
+            description = "Returns variants currently at or below their configured threshold at a location, for the organization. " +
                     "A row disappears once stock recovers above threshold. Requires BIME_VIEW."
     )
     @ApiResponses({

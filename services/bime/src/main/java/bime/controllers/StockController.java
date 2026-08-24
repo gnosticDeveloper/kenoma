@@ -61,7 +61,7 @@ public class StockController {
         return stockLedgerService.getMovementById(id);
     }
 
-    @Operation(summary = "List stock movements", description = "Returns stock movement records for the organisation, optionally filtered by variant and/or location. Requires BIME_VIEW.")
+    @Operation(summary = "List stock movements", description = "Returns stock movement records for the organization, optionally filtered by variant and/or location. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of movements (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -75,7 +75,7 @@ public class StockController {
         return stockLedgerService.getMovements(variantId, locationId);
     }
 
-    @Operation(summary = "List stock balances", description = "Returns current on-hand stock balances for the organisation, optionally filtered by variant and/or location. Requires BIME_VIEW.")
+    @Operation(summary = "List stock balances", description = "Returns current on-hand stock balances for the organization, optionally filtered by variant and/or location. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of balances (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
