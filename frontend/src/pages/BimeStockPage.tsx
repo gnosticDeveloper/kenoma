@@ -84,6 +84,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const locationItems = (locations.state.status === 'success' ? locations.state.data : []).map(l => ({ id: l.id, label: l.name, sublabel: l.code }))
   const productItems = (products.state.status === 'success' ? products.state.data : []).map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))
 
+  function filterByProduct<T extends { variantId: string }>(rows: T[], productId: string | null): T[] {
+    if (!productId) return rows
+    const variantIds = new Set((variantsByProduct[productId] ?? []).map(v => v.id))
+    return rows.filter(r => variantIds.has(r.variantId))
+  }
+
   function variantItemsFor(productId: string) {
     return (variantsByProduct[productId] ?? []).map(v => ({
       id: v.id,
@@ -308,7 +314,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {movements.state.status === 'error' && <Feedback state={movements.state} />}
             <DataTable
               columns={movementColumns}
-              rows={movements.state.status === 'success' ? movements.state.data : []}
+              rows={filterByProduct(movements.state.status === 'success' ? movements.state.data : [], movFilterProduct)}
               rowKey={m => m.id}
               emptyLabel={t('bimeStockPage.movementsEmptyState')}
               headerAction={
@@ -342,7 +348,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {balances.state.status === 'error' && <Feedback state={balances.state} />}
             <DataTable
               columns={balanceColumns}
-              rows={balances.state.status === 'success' ? balances.state.data : []}
+              rows={filterByProduct(balances.state.status === 'success' ? balances.state.data : [], balFilterProduct)}
               rowKey={b => `${b.variantId}-${b.locationId}`}
               emptyLabel={t('bimeStockPage.balancesEmptyState')}
               headerAction={<button className="btn btn-outline" onClick={loadBalances} type="button">{t('common.actions.refresh')}</button>}
@@ -370,7 +376,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {thresholds.state.status === 'error' && <Feedback state={thresholds.state} />}
             <DataTable
               columns={thresholdColumns}
-              rows={thresholds.state.status === 'success' ? thresholds.state.data : []}
+              rows={filterByProduct(thresholds.state.status === 'success' ? thresholds.state.data : [], thrFilterProduct)}
               rowKey={th => `${th.variantId}-${th.locationId}`}
               emptyLabel={t('bimeStockPage.thresholdsEmptyState')}
               headerAction={
@@ -405,7 +411,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {activeAlerts.state.status === 'error' && <Feedback state={activeAlerts.state} />}
             <DataTable
               columns={activeAlertColumns}
-              rows={activeAlerts.state.status === 'success' ? activeAlerts.state.data : []}
+              rows={filterByProduct(activeAlerts.state.status === 'success' ? activeAlerts.state.data : [], alertFilterProduct)}
               rowKey={a => `${a.variantId}-${a.locationId}`}
               emptyLabel={t('bimeStockPage.alertsEmptyState')}
               headerAction={<button className="btn btn-outline" onClick={loadActiveAlerts} type="button">{t('common.actions.refresh')}</button>}
