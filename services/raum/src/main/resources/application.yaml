@@ -15,6 +15,13 @@ spring:
     url: r2dbc:postgresql://${RAUM_DB_HOST:localhost}:${RAUM_DB_PORT:5432}/${RAUM_DB_NAME:raum}
     username: ${RAUM_DB_USER:postgres}
     password: ${RAUM_DB_PASSWORD:postgres}
+  flyway:
+    url: jdbc:postgresql://${RAUM_DB_HOST:localhost}:${RAUM_DB_PORT:5432}/${RAUM_DB_NAME:raum}
+    user: ${RAUM_DB_USER:postgres}
+    password: ${RAUM_DB_PASSWORD:postgres}
+    baseline-on-migrate: true
+    baseline-version: "1"
+    locations: classpath:db/migration/raum
 
 management:
   endpoints:
@@ -58,6 +65,7 @@ raum.billing:
 
 raum.backup:
   dr-cron: ${DR_BACKUP_CRON:0 0 5 * * *}
+  org-backup-cron: ${DR_ORG_BACKUP_CRON:0 30 2 * * *}
 
 raum.fx-provider:
   base-url: ${FX_PROVIDER_BASE_URL:https://v6.exchangerate-api.com/v6}

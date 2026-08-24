@@ -23,7 +23,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/products/{productId}/variants")
 @RequiredArgsConstructor
-@Tag(name = "Product Variants", description = "Manage variants of a product (e.g. specific colour/size combinations). Stock is tracked at the variant level.")
+@Tag(name = "Product Variants", description = "Manage variants of a product (e.g. specific color/size combinations). Stock is tracked at the variant level.")
 @SecurityRequirement(name = "bearerAuth")
 public class ProductVariantController {
 

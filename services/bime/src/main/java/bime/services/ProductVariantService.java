@@ -293,7 +293,36 @@ public class ProductVariantService {
                                         .map(stockRows -> mergeVariantData(variants, optionRows, stockRows));
                             })
                             .flatMapMany(Flux::fromIterable);
-                });
+                })
+                .collectList()
+                .flatMapMany(variants -> applyProductSkuFallback(handle, productId, orgId, variants));
+    }
+
+    /** Variants without their own sku display the parent product's sku instead of null. */
+    private Flux<ProductVariantResponseDTO> applyProductSkuFallback(
+            BimeDbHandle handle, UUID productId, UUID orgId, List<ProductVariantResponseDTO> variants) {
+        if (variants.stream().allMatch(v -> v.getSku() != null)) {
+            return Flux.fromIterable(variants);
+        }
+        return fetchProductSku(handle, productId, orgId)
+                .map(productSku -> {
+                    for (ProductVariantResponseDTO variant : variants) {
+                        if (variant.getSku() == null) variant.setSku(productSku);
+                    }
+                    return variants;
+                })
+                .flatMapMany(Flux::fromIterable);
+    }
+
+    private Mono<String> fetchProductSku(BimeDbHandle handle, UUID productId, UUID orgId) {
+        return handle.client().sql("""
+                SELECT sku FROM products WHERE id = :productId AND org_id = :orgId
+                """)
+                .bind("productId", productId)
+                .bind("orgId", orgId)
+                .fetch()
+                .one()
+                .map(row -> (String) row.get("sku"));
     }
 
     private Flux<ProductVariantResponseDTO> loadVariantRows(BimeDbHandle handle, UUID productId, UUID orgId) {
@@ -420,7 +449,12 @@ public class ProductVariantService {
                                         .then()
                                 )
                                 .thenReturn(variant)
-                );
+                )
+                .flatMap(variant -> {
+                    if (variant.getSku() != null) return Mono.just(variant);
+                    return fetchProductSku(handle, productId, orgId)
+                            .map(productSku -> { variant.setSku(productSku); return variant; });
+                });
     }
 
     private Flux<MetadataOptionResponseDTO> loadVariantOptions(BimeDbHandle handle, UUID variantId) {

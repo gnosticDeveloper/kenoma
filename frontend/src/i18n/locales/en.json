@@ -9,7 +9,7 @@
       "deactivate": "Deactivate",
       "edit": "Edit",
       "close": "Close",
-      "load": "Load",
+      "refresh": "Refresh",
       "loading": "Loading…",
       "copy": "Copy",
       "copied": "Copied",
@@ -30,11 +30,6 @@
       "500": "Something went wrong on our end. Please try again shortly.",
       "generic": "Something went wrong. Please try again."
     },
-    "theme": {
-      "auto": "Auto",
-      "dark": "Dark",
-      "light": "Light"
-    },
     "search": "Search…",
     "combobox": {
       "noMatches": "No matches.",
@@ -53,6 +48,8 @@
     "vassago": "Vassago",
     "bime": "Bime",
     "orgs": "Organizations",
+    "exports": "Exports",
+    "drBackups": "DR Backups",
     "services": "Services",
     "credentials": "Credentials",
     "onboarding": "Onboarding",
@@ -154,7 +151,58 @@
     "markUnpaid": "Mark as unpaid",
     "markPaidReferencePrompt": "Payment reference (optional, e.g. transfer ID):",
     "paidOnTooltip": "Paid {{date}} — {{reference}}",
-    "noReference": "no reference"
+    "noReference": "no reference",
+    "exportData": "Export data",
+    "exportTitle": "Export data — {{name}}",
+    "exportIntro": "Queue an offboarding export of this organization's data. SQL is a restorable database dump; JSON/CSV are human-readable.",
+    "exportFormat": "Format",
+    "exportLayout": "Layout",
+    "exportLayoutHint": "Only applies to JSON/CSV — SQL always produces one restorable file per service.",
+    "layoutValue": {
+      "SEPARATE": "One file per service",
+      "MERGED": "One combined file"
+    },
+    "startExport": "Start export",
+    "exportStatus": "Status",
+    "exportStatusValue": {
+      "PENDING": "Queued",
+      "RUNNING": "Running",
+      "DONE": "Done",
+      "FAILED": "Failed"
+    },
+    "exportRequestedAt": "Requested {{date}}",
+    "exportDownloadFiles": "Download files",
+    "exportStartAnother": "Start another export",
+    "exportActiveExists": "An export is already in progress for this organization — showing its status."
+  },
+  "exportsPage": {
+    "title": "Exports",
+    "subtitle": "Tenant data export jobs queued across every organization.",
+    "org": "Organization",
+    "format": "Format",
+    "layout": "Layout",
+    "status": "Status",
+    "requestedAt": "Requested",
+    "completedAt": "Completed",
+    "emptyState": "No export jobs yet.",
+    "refresh": "Refresh",
+    "download": "Download",
+    "viewError": "View error",
+    "unknownOrg": "Unknown organization",
+    "noFilesRecorded": "No files were recorded for this job - it likely completed before file tracking was added and can't be downloaded. Start a new export instead."
+  },
+  "drBackupsPage": {
+    "title": "DR Backups",
+    "subtitle": "Disaster-recovery backups captured across every organization and the platform's own instance. Grouped by organization and backup day - select the services you want to restore together.",
+    "instanceGroup": "Platform instances",
+    "emptyState": "No DR backups yet.",
+    "refresh": "Refresh",
+    "selectedCount": "{{count}} selected",
+    "restoreSelected": "Restore selected",
+    "restoreConfirm": "Restore {{count}} selected backup(s) from {{target}}? This overwrites current data and cannot be undone.",
+    "restoredCount": "{{count}} backup(s) restored.",
+    "restorePartialFailure": "{{succeeded}} restored, {{failed}} failed. Check and retry the failed ones.",
+    "unknownOrg": "Unknown organization"
   },
   "servicesPage": {
     "title": "Services",
@@ -324,6 +372,7 @@
     "options": "Options",
     "stock": "Stock",
     "noStock": "No stock recorded.",
+    "stockAt": "{{quantity}} at {{location}}",
     "variantsEmptyState": "No variants yet.",
     "deactivateVariantConfirm": "Deactivate this variant?",
     "variantCreated": "Variant created.",
@@ -451,5 +500,39 @@
     "confirming": "Confirming…",
     "success": "Notification email confirmed.",
     "backToLogin": "Continue to log in"
+  },
+  "roles": {
+    "VASSAGO_ADMIN": {
+      "displayName": "Account Administrator",
+      "description": "Can create, view, edit, and offboard any user in the organization."
+    },
+    "VASSAGO_MEMBER": {
+      "displayName": "Account Member",
+      "description": "Can view every user in the organization, and edit their own profile."
+    },
+    "RAUM_ADMIN": {
+      "displayName": "Platform Administrator",
+      "description": "Operates the platform itself: manages every organization, registered services, database credentials, and pricing configuration."
+    },
+    "RAUM_OWNER": {
+      "displayName": "Organization Owner",
+      "description": "Can request and download an export of this organization's own data, for backup or offboarding."
+    },
+    "RAUM_ONBOARDING": {
+      "displayName": "Onboarding Operator",
+      "description": "Can initiate onboarding of new organizations."
+    },
+    "BIME_ADMIN": {
+      "displayName": "Inventory Administrator",
+      "description": "Full control over products, stock, and locations."
+    },
+    "BIME_VIEWER": {
+      "displayName": "Inventory Viewer",
+      "description": "Can view products, stock, and locations without making changes."
+    },
+    "BIME_CATALOG_VIEWER": {
+      "displayName": "Catalog Browser",
+      "description": "Can only browse the product catalog, without visibility into stock levels or locations."
+    }
   }
 }

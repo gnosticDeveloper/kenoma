@@ -47,13 +47,15 @@ class TenantExportPollerTest {
     private OpenBaoService openBaoService;
     @Mock
     private ArtifactStore artifactStore;
+    @Mock
+    private SqlCopyDumpWriter sqlCopyDumpWriter;
 
     private final UUID orgId = UUID.randomUUID();
     private final UUID jobId = UUID.randomUUID();
 
     private TenantExportPoller spyPoller() {
         TenantExportPoller poller = new TenantExportPoller(
-                exportJobRepository, credentialsRepository, serviceRepository, openBaoService, artifactStore,
+                exportJobRepository, credentialsRepository, serviceRepository, openBaoService, artifactStore, sqlCopyDumpWriter,
                 "localhost", 5432, "raum", "postgres", "postgres");
         return spy(poller);
     }
@@ -66,7 +68,7 @@ class TenantExportPollerTest {
     @Test
     void poll_pendingJob_success_marksRunningThenDone() {
         TenantExportPoller poller = spyPoller();
-        doReturn(Mono.empty()).when(poller).runExport(any());
+        doReturn(Mono.just(List.of())).when(poller).runExport(any());
         when(exportJobRepository.findAllByStatusOrderByRequestedAtAsc(ExportJobStatus.PENDING.name()))
                 .thenReturn(Flux.just(pendingJob()));
         // claim() and complete() mutate the same ExportJob instance in place, so an ArgumentCaptor
@@ -127,7 +129,7 @@ class TenantExportPollerTest {
     @Test
     void poll_onlyClaimsOldestPendingJob_ignoresRest() {
         TenantExportPoller poller = spyPoller();
-        doReturn(Mono.empty()).when(poller).runExport(any());
+        doReturn(Mono.just(List.of())).when(poller).runExport(any());
         ExportJob older = pendingJob();
         ExportJob newer = ExportJob.builder().id(UUID.randomUUID()).orgId(UUID.randomUUID())
                 .status(ExportJobStatus.PENDING.name()).requestedAt(Instant.now().plusSeconds(60)).build();

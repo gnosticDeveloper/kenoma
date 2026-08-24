@@ -22,13 +22,13 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/metadata")
 @RequiredArgsConstructor
-@Tag(name = "Product Metadata", description = "Manage reusable metadata definitions (e.g. Colour, Size) and their selectable options")
+@Tag(name = "Product Metadata", description = "Manage reusable metadata definitions (e.g. Color, Size) and their selectable options")
 @SecurityRequirement(name = "bearerAuth")
 public class ProductMetadataController {
 
     private final ProductMetadataService productMetadataService;
 
-    @Operation(summary = "Create a metadata definition", description = "Creates a new metadata attribute definition for the authenticated organisation. Requires BIME_MANAGE.")
+    @Operation(summary = "Create a metadata definition", description = "Creates a new metadata attribute definition for the authenticated organization. Requires BIME_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Metadata definition created"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -42,7 +42,7 @@ public class ProductMetadataController {
         return productMetadataService.createMetadata(dto);
     }
 
-    @Operation(summary = "List all metadata definitions", description = "Returns all metadata definitions for the organisation, each including their options. Requires BIME_VIEW_CATALOG.")
+    @Operation(summary = "List all metadata definitions", description = "Returns all metadata definitions for the organization, each including their options. Requires BIME_VIEW_CATALOG.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of metadata definitions (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

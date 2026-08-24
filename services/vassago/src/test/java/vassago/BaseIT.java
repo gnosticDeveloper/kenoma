@@ -53,8 +53,7 @@ public abstract class BaseIT {
             .withNetworkAliases("raum-postgres")
             .withDatabaseName("raum")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("raum-init.sql");
+            .withPassword("postgres");
 
     @SuppressWarnings("resource")
     static final PostgreSQLContainer operationalDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
@@ -62,8 +61,7 @@ public abstract class BaseIT {
             .withNetworkAliases("vassago-postgres")
             .withDatabaseName("vassago")
             .withUsername("admin")
-            .withPassword("adminpass")
-            .withInitScript("users-test.sql");
+            .withPassword("adminpass");
 
     @SuppressWarnings("resource")
     static final GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
@@ -151,7 +149,20 @@ public abstract class BaseIT {
 
     static {
         raumDb.start();
+        // bootstrapOnce() below (@BeforeAll, so it runs before Spring context creation starts the
+        // "raum" container) queries raumDb directly, so it can't rely on that container's own
+        // Flyway-on-boot to have populated it yet - migrate it here instead.
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(raumDb.getJdbcUrl(), raumDb.getUsername(), raumDb.getPassword())
+                .locations("classpath:db/migration/raum")
+                .load()
+                .migrate();
         operationalDb.start();
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(operationalDb.getJdbcUrl(), operationalDb.getUsername(), operationalDb.getPassword())
+                .locations("classpath:db/migration/vassago")
+                .load()
+                .migrate();
         redis.start();
         openBao.start();
         openBaoInit.start();
@@ -205,14 +216,15 @@ public abstract class BaseIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", credentialId + "-role",
+                        "allowed_roles", credentialId + "-admin-role," + credentialId + "-member-role",
                         "connection_url", "postgresql://{{username}}:{{password}}@vassago-postgres:5432/vassago?sslmode=disable",
                         "username", "admin",
                         "password", "adminpass"
                 ))
                 .retrieve().bodyToMono(Void.class).block();
 
-        bao.post().uri("/v1/database/roles/{role}", credentialId + "-role")
+
+        bao.post().uri("/v1/database/roles/{role}", credentialId + "-admin-role")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
                         "db_name", credentialId.toString(),
@@ -221,7 +233,24 @@ public abstract class BaseIT {
                                 GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
                                 GRANT USAGE ON SCHEMA public TO "{{name}}";
                                 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
-                                """,
+                                ALTER ROLE "{{name}}" SET app.org_id = '%s';
+                                """.formatted(orgId),
+                        "default_ttl", "1h",
+                        "max_ttl", "24h"
+                ))
+                .retrieve().bodyToMono(Void.class).block();
+
+        bao.post().uri("/v1/database/roles/{role}", credentialId + "-member-role")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "db_name", credentialId.toString(),
+                        "creation_statements", """
+                                CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+                                GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
+                                GRANT USAGE ON SCHEMA public TO "{{name}}";
+                                GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{name}}";
+                                ALTER ROLE "{{name}}" SET app.org_id = '%s';
+                                """.formatted(orgId),
                         "default_ttl", "1h",
                         "max_ttl", "24h"
                 ))
@@ -229,8 +258,8 @@ public abstract class BaseIT {
 
         String adminRoles = "{\"" + vassagoServiceId + "\":[\""
                 + VassagoRole.VASSAGO_ADMIN.name() + "\",\""
-                + VassagoRole.VASSAGO_USER.name() + "\"]}";
-        String userRoles = "{\"" + vassagoServiceId + "\":[\"" + VassagoRole.VASSAGO_USER.name() + "\"]}";
+                + VassagoRole.VASSAGO_MEMBER.name() + "\"]}";
+        String userRoles = "{\"" + vassagoServiceId + "\":[\"" + VassagoRole.VASSAGO_MEMBER.name() + "\"]}";
 
         operationalDb.execInContainer("psql", "-U", "admin", "-d", "vassago",
                 "-c", """

@@ -18,6 +18,8 @@ import raum.models.CurrencyRefreshCadence;
 import raum.models.CurrencyRefreshMode;
 import raum.models.Organization;
 import raum.models.PendingOrgVerification;
+import raum.openbao.OpenBaoService;
+import raum.repository.CredentialsRepository;
 import raum.repository.OrganizationRepository;
 import raum.repository.PendingOrgVerificationRepository;
 import reactor.core.publisher.Flux;
@@ -38,15 +40,21 @@ public class OrganizationService {
     private final PendingOrgVerificationRepository pendingOrgVerificationRepository;
     private final VerificationTokenService verificationTokenService;
     private final MailgunService mailgunService;
+    private final CredentialsRepository credentialsRepository;
+    private final OpenBaoService openBaoService;
 
     public OrganizationService(OrganizationRepository repository,
                                 PendingOrgVerificationRepository pendingOrgVerificationRepository,
                                 VerificationTokenService verificationTokenService,
-                                MailgunService mailgunService) {
+                                MailgunService mailgunService,
+                                CredentialsRepository credentialsRepository,
+                                OpenBaoService openBaoService) {
         this.repository = repository;
         this.pendingOrgVerificationRepository = pendingOrgVerificationRepository;
         this.verificationTokenService = verificationTokenService;
         this.mailgunService = mailgunService;
+        this.credentialsRepository = credentialsRepository;
+        this.openBaoService = openBaoService;
     }
 
     public Mono<OrgResponseDTO> registerOrg(OrgRequestDTO dto) {
@@ -86,6 +94,15 @@ public class OrganizationService {
         return repository.findAllByStoppedAtIsNull().map(Organization::getId);
     }
 
+    /** For machine-to-machine callers that need a single org's active status without pulling the
+     * full active-ids list (e.g. Vassago's login flow, see {@link raum.controllers.OrganizationsController#isOrgActive}) -
+     * true for an org that exists and isn't deactivated, false both for a deactivated org and for
+     * one that doesn't exist at all (deliberately not distinguished, so this can't be used to probe
+     * org-id existence). */
+    public Mono<Boolean> isOrgActive(UUID orgId) {
+        return repository.existsByIdAndStoppedAtIsNull(orgId);
+    }
+
     public Mono<OrgResponseDTO> getOrgDataById(UUID id) {
         return repository.findById(id).map(this::toResponseDTO);
     }
@@ -123,14 +140,25 @@ public class OrganizationService {
                 });
     }
 
+    /**
+     * Soft-deletes the org (sets {@code stopped_at}) and revokes every outstanding OpenBao lease
+     * issued for its credentials, so already-open ephemeral DB connections stop working immediately
+     * instead of running out their TTL. New ephemeral credential issuance for a stopped org is
+     * separately blocked in {@link raum.services.CredentialsService#getEphemeralCredentialsByOrgIdAndServiceId} -
+     * together these two close the org-deactivation-doesn't-actually-cut-off-access gap. Revocation
+     * runs best-effort per credential (one failing doesn't block the others or the deactivation
+     * itself - see {@link OpenBaoService#revokeAllLeasesForCredential}).
+     */
     public Mono<Void> deleteOrg(UUID id) {
         return repository.findById(id)
+                .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
                 .flatMap(org -> {
                     org.setStoppedAt(Instant.now());
                     return repository.save(org);
                 })
-                .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
-                .then();
+                .then(credentialsRepository.findAllByOrgId(id)
+                        .concatMap(cred -> openBaoService.revokeAllLeasesForCredential(cred.getId()))
+                        .then());
     }
 
     public Mono<OrgResponseDTO> updateBillingInfo(UUID orgId, BillingInfoRequestDTO dto) {

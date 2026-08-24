@@ -28,6 +28,7 @@ import raum.dto.OrgResponseDTO;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -54,8 +55,7 @@ class EphemeralCredentialsIT {
             .withNetworkAliases("raum-postgres")
             .withDatabaseName("raum")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("init.sql");
+            .withPassword("postgres");
 
     @Container
     static final PostgreSQLContainer operationalDb = new PostgreSQLContainer("postgres:18.1-alpine3.23")
@@ -201,13 +201,19 @@ class EphemeralCredentialsIT {
                     "mailgun.api-key=test-key",
                     "mailgun.domain=test.example.com",
                     "mailgun.from=noreply@test.example.com",
-                    "app.base-url=http://localhost:3000"
+                    "app.base-url=http://localhost:3000",
+                    "spring.flyway.enabled=false"
             );
         }
     }
 
     @BeforeAll
     static void setup() throws Exception {
+        // @Container-managed, so raumDb is only guaranteed started (not yet migrated) by this point -
+        // this must run before the psql queries below, and before Initializer.initialize() (which
+        // JUnit/Spring don't run until just before the first @Test, i.e. after this @BeforeAll).
+        TestMigrations.migrate(raumDb, "raum");
+
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
                 .defaultHeader("X-Vault-Token", "dev-root-token")
@@ -236,14 +242,14 @@ class EphemeralCredentialsIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", credentialId + "-role",
+                        "allowed_roles", credentialId + "-admin-role," + credentialId + "-member-role",
                         "connection_url", "postgresql://{{username}}:{{password}}@vassago-postgres:5432/vassago?sslmode=disable",
                         "username", "admin",
                         "password", "adminpass"
                 ))
                 .retrieve().bodyToMono(Void.class).block();
 
-        client.post().uri("/v1/database/roles/{role}", credentialId + "-role")
+        client.post().uri("/v1/database/roles/{role}", credentialId + "-admin-role")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
                         "db_name", credentialId.toString(),
@@ -252,6 +258,21 @@ class EphemeralCredentialsIT {
                                 GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
                                 GRANT USAGE ON SCHEMA public TO "{{name}}";
                                 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
+                                """,
+                        "default_ttl", "1h",
+                        "max_ttl", "24h"
+                ))
+                .retrieve().bodyToMono(Void.class).block();
+
+        client.post().uri("/v1/database/roles/{role}", credentialId + "-member-role")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "db_name", credentialId.toString(),
+                        "creation_statements", """
+                                CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+                                GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
+                                GRANT USAGE ON SCHEMA public TO "{{name}}";
+                                GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{name}}";
                                 """,
                         "default_ttl", "1h",
                         "max_ttl", "24h"
@@ -454,6 +475,84 @@ class EphemeralCredentialsIT {
         assertThat(result).isNotNull();
         assertThat(result.getOrgId()).isEqualTo(newOrg.getId());
         assertThat(result.getServiceId()).isEqualTo(serviceId);
+    }
+
+    /**
+     * Regression test for the org-deactivation lease-revocation gap: {@code OrganizationService.
+     * deleteOrg} calls {@code OpenBaoService.revokeAllLeasesForCredential}, which needs
+     * {@code sys/leases/revoke-prefix/database/creds/*} on raum's own OpenBao AppRole policy
+     * ({@code raum-service-policy.hcl}). That capability was missing entirely at first - the code
+     * compiled and ran without error (the revoke call's failure is swallowed via onErrorResume, by
+     * design, so deactivation itself never fails), but Vault silently 403'd every revoke attempt and
+     * the underlying Postgres role never actually got dropped.
+     *
+     * <p>This is deliberately NOT a unit test with a mocked OpenBaoService - a mock can't catch a
+     * missing real-world Vault ACL grant. This class is the one IT suite where raum's own
+     * OpenBaoService authenticates as the real, policy-restricted {@code raum-service} AppRole
+     * (not the root token {@code OnboardingIT} uses via a mocked {@code OpenBaoProvisioner}), so a
+     * regression here - re-missing the policy stanza, or Vault's sudo-path rules changing - would
+     * make this test fail with a real 403 surfacing as the org's DB role staying alive after
+     * deactivation, exactly like the bug that prompted this test.
+     */
+    @Test
+    void deleteOrg_revokesLeaseUsingRaumsOwnRestrictedOpenBaoToken() throws Exception {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        OrgResponseDTO newOrg = client.post().uri("/orgs")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new OrgRequestDTO("Deactivate Cascade Org", "cascade@test.com", "Test Admin"))
+                .retrieve()
+                .bodyToMono(OrgResponseDTO.class)
+                .block();
+        assertThat(newOrg).isNotNull();
+
+        BasicCredentialDTO registered = client.post().uri("/credentials")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(CredentialsDTO.builder()
+                        .orgId(newOrg.getId())
+                        .serviceId(serviceId)
+                        .userName("admin")
+                        .password("adminpass")
+                        .dbHost("vassago-postgres")
+                        .dbPort(5432)
+                        .dbName("vassago")
+                        .dbEngine("postgres")
+                        .build())
+                .retrieve()
+                .bodyToMono(BasicCredentialDTO.class)
+                .block();
+        assertThat(registered).isNotNull();
+
+        CredentialsDTO ephemeral = client.post().uri("/credentials/ephemeral")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Vault-Token", vassagoToken)
+                .bodyValue(BasicCredentialDTO.builder()
+                        .orgId(newOrg.getId())
+                        .serviceId(serviceId)
+                        .build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block();
+        assertThat(ephemeral).isNotNull();
+
+        String jdbcUrl = "jdbc:postgresql://localhost:%d/vassago".formatted(operationalDb.getMappedPort(5432));
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, ephemeral.getUserName(), ephemeral.getPassword())) {
+            assertThat(conn.isValid(2)).isTrue();
+        }
+
+        client.delete().uri("/orgs/{id}", newOrg.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .retrieve()
+                .bodyToMono(Void.class)
+                .block();
+
+        assertThatThrownBy(() -> DriverManager.getConnection(jdbcUrl, ephemeral.getUserName(), ephemeral.getPassword()))
+                .isInstanceOf(SQLException.class);
     }
 
     @Test

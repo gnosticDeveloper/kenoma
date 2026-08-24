@@ -39,10 +39,10 @@ export function parseJwtClaims(token: string): JwtClaims {
 export function derivePermissions(claims: JwtClaims): Permissions {
   const allRoles = Object.values(claims.roles).flat()
   const vassagoAdmin = allRoles.includes('VASSAGO_ADMIN')
-  const vassagoUser  = allRoles.includes('VASSAGO_USER')
-  const bimeManage = allRoles.includes('BIME_ADMIN') || allRoles.includes('BIME_MANAGER')
+  const vassagoUser  = allRoles.includes('VASSAGO_MEMBER')
+  const bimeManage = allRoles.includes('BIME_ADMIN')
   const bimeView   = bimeManage || allRoles.includes('BIME_VIEWER')
-  const bimeViewCatalog = bimeView || allRoles.includes('BIME_USER')
+  const bimeViewCatalog = bimeView || allRoles.includes('BIME_CATALOG_VIEWER')
   return {
     canManage:          allRoles.includes('RAUM_ADMIN'),
     canOnboard:         allRoles.includes('RAUM_ONBOARDING'),

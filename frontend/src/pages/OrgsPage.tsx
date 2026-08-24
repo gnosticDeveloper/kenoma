@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { raum } from '../api/raum'
+import { formatMoney } from '../lib/money'
 import { useApiCall } from '../hooks/useApiCall'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/Modal'
@@ -8,12 +9,17 @@ import { DataTable, type Column } from '../components/DataTable'
 import { RowActionsMenu } from '../components/RowActionsMenu'
 import { CopyButton } from '../components/CopyButton'
 import { Feedback } from '../components/Feedback'
+import { DownloadFileList } from './ExportsPage'
 import type {
   BillingCycle,
   BillingHistoryResponse,
   BillingInfoRequest,
   CurrencyRefreshCadence,
   CurrencyRefreshMode,
+  ExportDownloadResponse,
+  ExportFormat,
+  ExportJobResponse,
+  ExportLayout,
   OrgRequest,
   OrgResponse,
 } from '../types'
@@ -28,6 +34,9 @@ const EMPTY_BILLING_FORM: BillingInfoRequest = {
 const BILLING_CYCLES: BillingCycle[] = ['MONTHLY', 'QUARTERLY', 'ANNUAL']
 const CURRENCY_REFRESH_MODES: CurrencyRefreshMode[] = ['MANUAL', 'PERIODIC']
 const CURRENCY_REFRESH_CADENCES: CurrencyRefreshCadence[] = ['DAILY', 'WEEKLY', 'EVERY_N_DAYS', 'MONTHLY']
+const EXPORT_FORMATS: ExportFormat[] = ['SQL', 'JSON', 'CSV']
+const EXPORT_LAYOUTS: ExportLayout[] = ['SEPARATE', 'MERGED']
+const ACTIVE_EXPORT_STATUSES = ['PENDING', 'RUNNING']
 
 function billingInfoFromOrg(org: OrgResponse): BillingInfoRequest {
   return {
@@ -44,9 +53,9 @@ function billingInfoFromOrg(org: OrgResponse): BillingInfoRequest {
   }
 }
 
-function formatAmount(row: BillingHistoryResponse): string {
+function formatAmount(row: BillingHistoryResponse, locale: string): string {
   if (row.amount == null || row.currency == null) return '—'
-  return `${row.currency} ${row.amount}`
+  return formatMoney(row.amount, row.currency, locale)
 }
 
 async function triggerDownload(blob: Blob, fileName: string) {
@@ -59,7 +68,7 @@ async function triggerDownload(blob: Blob, fileName: string) {
 }
 
 export default function OrgsPage({ token }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const toast = useToast()
 
   const list = useApiCall<OrgResponse[]>()
@@ -203,6 +212,53 @@ export default function OrgsPage({ token }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resendInvoice.state])
 
+  // ── Tenant export ──
+  const [exportTarget, setExportTarget] = useState<OrgResponse | null>(null)
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('SQL')
+  const [exportLayout, setExportLayout] = useState<ExportLayout>('SEPARATE')
+  const exportJob = useApiCall<ExportJobResponse>()
+  const exportDownload = useApiCall<ExportDownloadResponse>()
+  // Without this, reopening the modal (or clicking "start another export") for an org that already
+  // has a job sitting in exportJob's state - from an earlier open, possibly minutes/sessions ago -
+  // would immediately show that stale job's status/download links instead of the format picker,
+  // since exportJob.state is never otherwise cleared and orgId alone would still "match".
+  const [exportSessionActive, setExportSessionActive] = useState(false)
+
+  const currentExportJob = exportSessionActive && exportTarget
+    && exportJob.state.status === 'success' && exportJob.state.data.orgId === exportTarget.id
+    ? exportJob.state.data
+    : null
+
+  function openExport(org: OrgResponse) {
+    setExportTarget(org)
+    setExportFormat('SQL')
+    setExportLayout('SEPARATE')
+    setExportSessionActive(false)
+  }
+
+  function startExport() {
+    if (!exportTarget) return
+    setExportSessionActive(true)
+    exportJob.call(() => raum.orgs.requestExport(exportTarget.id, exportFormat, exportLayout, token))
+  }
+
+  // Polls the job every 3s while it's PENDING/RUNNING - each successful poll re-triggers this
+  // effect (exportJob.state changes), which schedules the next one, until a terminal status stops it.
+  useEffect(() => {
+    if (!currentExportJob || !ACTIVE_EXPORT_STATUSES.includes(currentExportJob.status)) return
+    const timer = setTimeout(() => {
+      exportJob.call(() => raum.orgs.getExportJob(currentExportJob.orgId, currentExportJob.id, token))
+    }, 3000)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentExportJob])
+
+  useEffect(() => {
+    if (!currentExportJob || currentExportJob.status !== 'DONE') return
+    exportDownload.call(() => raum.orgs.getExportDownloadLinks(currentExportJob.orgId, currentExportJob.id, token))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentExportJob?.id, currentExportJob?.status])
+
   const columns: Column<OrgResponse>[] = [
     { key: 'name', header: t('orgsPage.name'), render: o => o.name, sortValue: o => o.name },
     { key: 'contactEmail', header: t('orgsPage.contactEmail'), render: o => o.contactEmail, sortValue: o => o.contactEmail },
@@ -224,6 +280,7 @@ export default function OrgsPage({ token }: Props) {
         <RowActionsMenu actions={[
           { label: t('common.actions.edit'), onClick: () => openEdit(o) },
           { label: t('orgsPage.viewBillingHistory'), onClick: () => openHistory(o) },
+          { label: t('orgsPage.exportData'), onClick: () => openExport(o) },
           { label: t('common.actions.delete'), onClick: () => remove(o), danger: true },
         ]} />
       ),
@@ -233,7 +290,7 @@ export default function OrgsPage({ token }: Props) {
   const historyColumns: Column<BillingHistoryResponse>[] = [
     { key: 'dueAt', header: t('orgsPage.dueAt'), render: h => new Date(h.dueAt).toLocaleDateString() },
     { key: 'billingCycle', header: t('orgsPage.billingCycle'), render: h => t(`orgsPage.cycle.${h.billingCycle}`) },
-    { key: 'amount', header: t('orgsPage.amount'), render: formatAmount },
+    { key: 'amount', header: t('orgsPage.amount'), render: h => formatAmount(h, i18n.language) },
     {
       key: 'paymentStatus',
       header: t('orgsPage.paymentStatus'),
@@ -477,6 +534,87 @@ export default function OrgsPage({ token }: Props) {
           rowKey={h => h.id}
           emptyLabel={t('orgsPage.billingHistoryEmptyState')}
         />
+      </Modal>
+
+      <Modal
+        open={exportTarget !== null}
+        onClose={() => setExportTarget(null)}
+        title={exportTarget ? t('orgsPage.exportTitle', { name: exportTarget.name }) : ''}
+      >
+        {exportJob.state.status === 'error' && <Feedback state={exportJob.state} />}
+        {exportDownload.state.status === 'error' && <Feedback state={exportDownload.state} />}
+
+        {!currentExportJob && (
+          <>
+            <p className="panel-hint">{t('orgsPage.exportIntro')}</p>
+            <div className="fields">
+              <div className="field">
+                <label>{t('orgsPage.exportFormat')}</label>
+                <select value={exportFormat} onChange={e => setExportFormat(e.target.value as ExportFormat)}>
+                  {EXPORT_FORMATS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+              {exportFormat !== 'SQL' && (
+                <div className="field">
+                  <label>{t('orgsPage.exportLayout')}</label>
+                  <select value={exportLayout} onChange={e => setExportLayout(e.target.value as ExportLayout)}>
+                    {EXPORT_LAYOUTS.map(l => <option key={l} value={l}>{t(`orgsPage.layoutValue.${l}`)}</option>)}
+                  </select>
+                  <p className="panel-hint">{t('orgsPage.exportLayoutHint')}</p>
+                </div>
+              )}
+            </div>
+            <div className="actions">
+              <button className="btn btn-primary" disabled={exportJob.state.status === 'loading'} onClick={startExport}>
+                {exportJob.state.status === 'loading' ? t('common.actions.loading') : t('orgsPage.startExport')}
+              </button>
+            </div>
+          </>
+        )}
+
+        {currentExportJob && (
+          <>
+            <p className="panel-hint">{t('orgsPage.exportRequestedAt', { date: new Date(currentExportJob.requestedAt).toLocaleString() })}</p>
+            <div className="field">
+              <label>{t('orgsPage.exportStatus')}</label>
+              <p>
+                <span className={`status-badge ${currentExportJob.status === 'DONE' ? 'status-ok' : currentExportJob.status === 'FAILED' ? 'status-fail' : ''}`}>
+                  {t(`orgsPage.exportStatusValue.${currentExportJob.status}`)}
+                </span>
+              </p>
+            </div>
+
+            {currentExportJob.status === 'FAILED' && currentExportJob.errorMessage && (
+              <p className="panel-hint">{currentExportJob.errorMessage}</p>
+            )}
+
+            {currentExportJob.status === 'DONE' && exportDownload.state.status === 'success' && exportDownload.state.data.files.length === 0 && (
+              <p className="panel-hint">{t('exportsPage.noFilesRecorded')}</p>
+            )}
+
+            {currentExportJob.status === 'DONE' && exportDownload.state.status === 'success' && exportDownload.state.data.files.length > 0 && (
+              <div className="field">
+                <label>{t('orgsPage.exportDownloadFiles')}</label>
+                <DownloadFileList orgId={currentExportJob.orgId} jobId={currentExportJob.id} files={exportDownload.state.data.files} token={token} />
+              </div>
+            )}
+
+            {(currentExportJob.status === 'DONE' || currentExportJob.status === 'FAILED') && (
+              <div className="actions">
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setExportFormat('SQL')
+                    setExportLayout('SEPARATE')
+                    setExportSessionActive(false)
+                  }}
+                >
+                  {t('orgsPage.exportStartAnother')}
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </Modal>
     </div>
   )

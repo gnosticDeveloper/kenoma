@@ -81,6 +81,32 @@ export interface PaymentStatusUpdateRequest {
   reference?: string
 }
 
+export type ExportFormat = 'SQL' | 'JSON' | 'CSV'
+export type ExportLayout = 'SEPARATE' | 'MERGED'
+export type ExportJobStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED'
+
+export interface ExportJobResponse {
+  id: string
+  orgId: string
+  status: ExportJobStatus
+  format: ExportFormat
+  layout: ExportLayout
+  requestedAt: string
+  startedAt: string | null
+  completedAt: string | null
+  errorMessage: string | null
+}
+
+export interface ExportFilePart {
+  key: string
+  index: number
+}
+
+export interface ExportDownloadResponse {
+  jobId: string
+  files: ExportFilePart[]
+}
+
 export interface BasePricingRequest {
   price: number
   currency: string
@@ -138,6 +164,12 @@ export interface ServiceRequest {
 export interface ServiceResponse {
   id: string
   name: string
+  description: string
+}
+
+export interface RoleResponse {
+  name: string
+  displayName: string
   description: string
 }
 
@@ -366,4 +398,21 @@ export interface StockBalanceResponse {
   locationId: string
   quantity: number
   modifiedAt: string
+}
+
+// ── DR Backups ──
+
+export type DrBackupScope = 'INSTANCE' | 'ORG'
+
+export interface DrBackupResponse {
+  id: string
+  scope: DrBackupScope
+  instanceHost: string
+  instancePort: number
+  instanceDb: string
+  orgId: string | null
+  serviceName: string | null
+  objectKey: string
+  createdAt: string
+  restorable: boolean
 }

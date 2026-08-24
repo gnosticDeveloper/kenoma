@@ -50,8 +50,7 @@ public abstract class BaseIT {
             .withNetworkAliases("raum-postgres")
             .withDatabaseName("raum")
             .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("init.sql");
+            .withPassword("postgres");
 
     @SuppressWarnings("resource")
     static final GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
@@ -60,6 +59,7 @@ public abstract class BaseIT {
 
     static {
         raumDb.start();
+        TestMigrations.migrate(raumDb, "raum");
         redis.start();
     }
 
@@ -87,6 +87,16 @@ public abstract class BaseIT {
         String rolesJson = "{\"" + raumServiceId + "\":[\"RAUM_ADMIN\"]}";
         when(claims.getSubject()).thenReturn("test-admin");
         when(claims.get(eq("orgId"), eq(String.class))).thenReturn(orgId.toString());
+        when(claims.get(eq("roles"), eq(String.class))).thenReturn(rolesJson);
+        when(jwtValidator.validateToken(anyString())).thenReturn(Mono.just(claims));
+    }
+
+    @SuppressWarnings("unchecked")
+    protected void mockOwnerJwt(UUID callerOrgId) {
+        Claims claims = mock(Claims.class);
+        String rolesJson = "{\"" + raumServiceId + "\":[\"RAUM_OWNER\"]}";
+        when(claims.getSubject()).thenReturn("test-owner");
+        when(claims.get(eq("orgId"), eq(String.class))).thenReturn(callerOrgId.toString());
         when(claims.get(eq("roles"), eq(String.class))).thenReturn(rolesJson);
         when(jwtValidator.validateToken(anyString())).thenReturn(Mono.just(claims));
     }

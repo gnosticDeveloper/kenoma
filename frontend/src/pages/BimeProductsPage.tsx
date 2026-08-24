@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
+import { formatMoney } from '../lib/money'
 import { useApiCall } from '../hooks/useApiCall'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/Modal'
@@ -84,7 +85,7 @@ function AssignmentsInput({ value, onChange, metadataDefs }: {
 const EMPTY_PRODUCT_FORM: ProductRequest = { sku: '', name: '', description: '' }
 
 export default function BimeProductsPage({ token, permissions }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const toast = useToast()
   const [activeTab, setActiveTab] = useState('products')
 
@@ -342,7 +343,7 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       key: 'price',
       header: t('bimeProductsPage.price'),
       render: v => v.price != null
-        ? <span>{v.priceCurrency} {v.price}</span>
+        ? <span>{formatMoney(v.price, v.priceCurrency ?? '', i18n.language)}</span>
         : <span className="td-muted">{t('bimeProductsPage.noPriceSet')}</span>,
     },
     {
@@ -361,7 +362,9 @@ export default function BimeProductsPage({ token, permissions }: Props) {
         <span className="td-muted">{t('bimeProductsPage.noStock')}</span>
       ) : (
         <span className="td-muted">
-          {v.stock.map(s => `${s.quantity} @ ${locationLookup[s.locationId]?.name ?? '—'}`).join(', ')}
+          {v.stock.map(s => t('bimeProductsPage.stockAt', {
+            quantity: s.quantity, location: locationLookup[s.locationId]?.name ?? '—',
+          })).join(', ')}
         </span>
       ),
     },

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
+import { createCache } from '../lib/cache'
 import { useApiCall } from '../hooks/useApiCall'
+import { useDebouncedEffect } from '../hooks/useDebouncedEffect'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/Modal'
 import { Tabs } from '../components/Tabs'
@@ -28,6 +30,17 @@ interface Props {
 }
 
 const MOVEMENT_TYPES: MovementType[] = ['INBOUND', 'OUTBOUND', 'ADJUSTMENT']
+
+const FILTER_DEBOUNCE_MS = 500
+const CACHE_TTL_MS = 3 * 60 * 1000
+const movementsCache = createCache<StockMovementResponse[]>(CACHE_TTL_MS)
+const balancesCache = createCache<StockBalanceResponse[]>(CACHE_TTL_MS)
+const thresholdsCache = createCache<StockAlertThresholdResponse[]>(CACHE_TTL_MS)
+const alertsCache = createCache<StockAlertResponse[]>(CACHE_TTL_MS)
+
+function filterCacheKey(variantId: string | null, locationId: string | null): string {
+  return `${variantId ?? ''}|${locationId ?? ''}`
+}
 
 type VariantInfo = { productId: string; sku: string | null; productName: string; optionsLabel: string }
 
@@ -71,6 +84,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const locationItems = (locations.state.status === 'success' ? locations.state.data : []).map(l => ({ id: l.id, label: l.name, sublabel: l.code }))
   const productItems = (products.state.status === 'success' ? products.state.data : []).map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))
 
+  function filterByProduct<T extends { variantId: string }>(rows: T[], productId: string | null): T[] {
+    if (!productId) return rows
+    const variantIds = new Set((variantsByProduct[productId] ?? []).map(v => v.id))
+    return rows.filter(r => variantIds.has(r.variantId))
+  }
+
   function variantItemsFor(productId: string) {
     return (variantsByProduct[productId] ?? []).map(v => ({
       id: v.id,
@@ -106,12 +125,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [movFilterLocation, setMovFilterLocation] = useState<string | null>(null)
 
   function loadMovements() {
-    movements.call(() => bime.stock.listMovements(token, {
+    movements.call(() => movementsCache.get(filterCacheKey(movFilterVariant, movFilterLocation), () => bime.stock.listMovements(token, {
       variantId: movFilterVariant ?? undefined,
       locationId: movFilterLocation ?? undefined,
-    }))
+    })))
   }
-  useEffect(loadMovements, [])
+  useDebouncedEffect(loadMovements, [movFilterVariant, movFilterLocation], FILTER_DEBOUNCE_MS)
 
   useEffect(() => {
     if (record.state.status !== 'success') return
@@ -121,7 +140,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
     setLocationId(null)
     setDelta(0)
     setNote('')
+    movementsCache.clear()
+    balancesCache.clear()
+    alertsCache.clear()
     loadMovements()
+    loadBalances()
+    loadActiveAlerts()
     toast.show(t('bimeStockPage.recorded'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record.state])
@@ -132,12 +156,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [balFilterLocation, setBalFilterLocation] = useState<string | null>(null)
 
   function loadBalances() {
-    balances.call(() => bime.stock.listBalances(token, {
+    balances.call(() => balancesCache.get(filterCacheKey(balFilterVariant, balFilterLocation), () => bime.stock.listBalances(token, {
       variantId: balFilterVariant ?? undefined,
       locationId: balFilterLocation ?? undefined,
-    }))
+    })))
   }
-  useEffect(loadBalances, [])
+  useDebouncedEffect(loadBalances, [balFilterVariant, balFilterLocation], FILTER_DEBOUNCE_MS)
 
   // ── Alert thresholds ──
   const thresholds = useApiCall<StockAlertThresholdResponse[]>()
@@ -146,12 +170,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [thrFilterLocation, setThrFilterLocation] = useState<string | null>(null)
 
   function loadThresholds() {
-    thresholds.call(() => bime.stock.listAlertThresholds(token, {
+    thresholds.call(() => thresholdsCache.get(filterCacheKey(thrFilterVariant, thrFilterLocation), () => bime.stock.listAlertThresholds(token, {
       variantId: thrFilterVariant ?? undefined,
       locationId: thrFilterLocation ?? undefined,
-    }))
+    })))
   }
-  useEffect(loadThresholds, [])
+  useDebouncedEffect(loadThresholds, [thrFilterVariant, thrFilterLocation], FILTER_DEBOUNCE_MS)
 
   const [thresholdModalOpen, setThresholdModalOpen] = useState(false)
   const [editingThreshold, setEditingThreshold] = useState<StockAlertThresholdResponse | null>(null)
@@ -163,7 +187,10 @@ export default function BimeStockPage({ token, permissions }: Props) {
   useEffect(() => {
     if (saveThreshold.state.status !== 'success') return
     setThresholdModalOpen(false)
+    thresholdsCache.clear()
+    alertsCache.clear()
     loadThresholds()
+    loadActiveAlerts()
     toast.show(t('bimeStockPage.thresholdSaved'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveThreshold.state])
@@ -186,7 +213,10 @@ export default function BimeStockPage({ token, permissions }: Props) {
     if (!window.confirm(t('bimeStockPage.thresholdDeleteConfirm', { variant: variantLabel(th.variantId), location: locationLabel(th.locationId) }))) return
     deleteThreshold.call(() => bime.stock.deleteAlertThreshold(th.variantId, th.locationId, token)).then(result => {
       if (!result.ok) { toast.show(result.message, 'error'); return }
+      thresholdsCache.clear()
+      alertsCache.clear()
       loadThresholds()
+      loadActiveAlerts()
       toast.show(t('bimeStockPage.thresholdDeleted'))
     })
   }
@@ -198,12 +228,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [alertFilterLocation, setAlertFilterLocation] = useState<string | null>(null)
 
   function loadActiveAlerts() {
-    activeAlerts.call(() => bime.stock.listActiveAlerts(token, {
+    activeAlerts.call(() => alertsCache.get(filterCacheKey(alertFilterVariant, alertFilterLocation), () => bime.stock.listActiveAlerts(token, {
       variantId: alertFilterVariant ?? undefined,
       locationId: alertFilterLocation ?? undefined,
-    }))
+    })))
   }
-  useEffect(loadActiveAlerts, [])
+  useDebouncedEffect(loadActiveAlerts, [alertFilterVariant, alertFilterLocation], FILTER_DEBOUNCE_MS)
 
   const movementColumns: Column<StockMovementResponse>[] = [
     { key: 'type', header: t('bimeStockPage.type'), render: m => <span className="role-badge">{t(`bimeStockPage.movementTypes.${m.movementType}`)}</span> },
@@ -284,12 +314,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {movements.state.status === 'error' && <Feedback state={movements.state} />}
             <DataTable
               columns={movementColumns}
-              rows={movements.state.status === 'success' ? movements.state.data : []}
+              rows={filterByProduct(movements.state.status === 'success' ? movements.state.data : [], movFilterProduct)}
               rowKey={m => m.id}
               emptyLabel={t('bimeStockPage.movementsEmptyState')}
               headerAction={
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-outline" onClick={loadMovements} type="button">{t('common.actions.load')}</button>
+                  <button className="btn btn-outline" onClick={loadMovements} type="button">{t('common.actions.refresh')}</button>
                   {permissions.canManageBime && (
                     <button className="btn btn-primary" onClick={() => setRecordOpen(true)} type="button">{t('bimeStockPage.recordAction')}</button>
                   )}
@@ -318,10 +348,10 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {balances.state.status === 'error' && <Feedback state={balances.state} />}
             <DataTable
               columns={balanceColumns}
-              rows={balances.state.status === 'success' ? balances.state.data : []}
+              rows={filterByProduct(balances.state.status === 'success' ? balances.state.data : [], balFilterProduct)}
               rowKey={b => `${b.variantId}-${b.locationId}`}
               emptyLabel={t('bimeStockPage.balancesEmptyState')}
-              headerAction={<button className="btn btn-outline" onClick={loadBalances} type="button">{t('common.actions.load')}</button>}
+              headerAction={<button className="btn btn-outline" onClick={loadBalances} type="button">{t('common.actions.refresh')}</button>}
             />
           </div>
         )}
@@ -346,12 +376,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {thresholds.state.status === 'error' && <Feedback state={thresholds.state} />}
             <DataTable
               columns={thresholdColumns}
-              rows={thresholds.state.status === 'success' ? thresholds.state.data : []}
+              rows={filterByProduct(thresholds.state.status === 'success' ? thresholds.state.data : [], thrFilterProduct)}
               rowKey={th => `${th.variantId}-${th.locationId}`}
               emptyLabel={t('bimeStockPage.thresholdsEmptyState')}
               headerAction={
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-outline" onClick={loadThresholds} type="button">{t('common.actions.load')}</button>
+                  <button className="btn btn-outline" onClick={loadThresholds} type="button">{t('common.actions.refresh')}</button>
                   {permissions.canManageBime && (
                     <button className="btn btn-primary" onClick={openCreateThreshold} type="button">{t('bimeStockPage.setThresholdAction')}</button>
                   )}
@@ -381,10 +411,10 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {activeAlerts.state.status === 'error' && <Feedback state={activeAlerts.state} />}
             <DataTable
               columns={activeAlertColumns}
-              rows={activeAlerts.state.status === 'success' ? activeAlerts.state.data : []}
+              rows={filterByProduct(activeAlerts.state.status === 'success' ? activeAlerts.state.data : [], alertFilterProduct)}
               rowKey={a => `${a.variantId}-${a.locationId}`}
               emptyLabel={t('bimeStockPage.alertsEmptyState')}
-              headerAction={<button className="btn btn-outline" onClick={loadActiveAlerts} type="button">{t('common.actions.load')}</button>}
+              headerAction={<button className="btn btn-outline" onClick={loadActiveAlerts} type="button">{t('common.actions.refresh')}</button>}
             />
           </div>
         )}

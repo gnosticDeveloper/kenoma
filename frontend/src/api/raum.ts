@@ -7,14 +7,21 @@ import type {
   BillingHistoryResponse,
   BillingInfoRequest,
   Credentials,
+  DrBackupResponse,
+  DrBackupScope,
   ExchangeRateRequest,
   ExchangeRateResponse,
+  ExportDownloadResponse,
+  ExportFormat,
+  ExportJobResponse,
+  ExportLayout,
   ModulePricingRequest,
   ModulePricingResponse,
   OrgRequest,
   OrgResponse,
   OnboardingRequest,
   PaymentStatusUpdateRequest,
+  RoleResponse,
   ServiceRequest,
   ServiceResponse,
 } from '../types'
@@ -42,6 +49,38 @@ export const raum = {
       req<void>(`/orgs/${id}/billing-email/confirm`, { method: 'POST', ...payload(dto) }),
     confirmContactEmail: (id: string, dto: BillingEmailVerifyRequest) =>
       req<void>(`/orgs/${id}/contact-email/confirm`, { method: 'POST', ...payload(dto) }),
+    requestExport: (id: string, format: ExportFormat, layout: ExportLayout, token: string) =>
+      req<ExportJobResponse>(`/orgs/${id}/export?format=${format}&layout=${layout}`, { method: 'POST' }, token),
+    getExportJob: (id: string, jobId: string, token: string) =>
+      req<ExportJobResponse>(`/orgs/${id}/export/${jobId}`, { method: 'GET' }, token),
+    getExportDownloadLinks: (id: string, jobId: string, token: string) =>
+      req<ExportDownloadResponse>(`/orgs/${id}/export/${jobId}/download`, { method: 'GET' }, token),
+    downloadExportFile: async (id: string, jobId: string, index: number, token: string): Promise<Blob> => {
+      const res = await fetch(`${API_BASE_URL}/orgs/${id}/export/${jobId}/download/${index}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new ApiError(res.status, res.statusText, text)
+      }
+      return res.blob()
+    },
+  },
+  exportJobs: {
+    list: (token: string) =>
+      req<ExportJobResponse[]>('/export-jobs', { method: 'GET' }, token),
+  },
+  drBackups: {
+    list: (token: string, scope?: DrBackupScope, orgId?: string) => {
+      const params = new URLSearchParams()
+      if (scope) params.set('scope', scope)
+      if (orgId) params.set('orgId', orgId)
+      const qs = params.toString()
+      return req<DrBackupResponse[]>(`/dr-backups${qs ? `?${qs}` : ''}`, { method: 'GET' }, token)
+    },
+    restore: (id: string, token: string) =>
+      req<void>(`/dr-backups/${id}/restore`, { method: 'POST', ...payload({ confirm: true }) }, token),
   },
   billingHistory: {
     list: (orgId: string, token: string) =>
@@ -83,7 +122,7 @@ export const raum = {
     },
   },
   roles: (token: string) =>
-    req<string[]>('/roles/raum', { method: 'GET' }, token),
+    req<RoleResponse[]>('/roles/raum', { method: 'GET' }, token),
 
   services: {
     create: (dto: ServiceRequest, token: string) =>

@@ -20,7 +20,7 @@ public class ProductVariantResponseDTO {
     private UUID id;
     private UUID productId;
     private UUID orgId;
-    @Schema(description = "Variant-specific SKU, or null if the parent product SKU applies", example = "WIDGET-001-RED-XL")
+    @Schema(description = "Variant-specific SKU, or the parent product's SKU if none was set for this variant", example = "WIDGET-001-RED-XL")
     private String sku;
     private Boolean isActive;
     private LocalDateTime createdAt;
@@ -28,7 +28,7 @@ public class ProductVariantResponseDTO {
     private BigDecimal price;
     @Schema(description = "Currency of the price field above - the stored currency, or the requested conversion target if ?currency was passed", example = "USD")
     private String priceCurrency;
-    @Schema(description = "The metadata options that define this variant (e.g. Colour=Red, Size=XL)")
+    @Schema(description = "The metadata options that define this variant (e.g. Color=Red, Size=XL)")
     private List<MetadataOptionResponseDTO> options;
     @Schema(description = "Current stock balances for this variant across all locations")
     private List<VariantStockDTO> stock;

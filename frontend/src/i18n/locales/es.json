@@ -9,7 +9,7 @@
       "deactivate": "Desactivar",
       "edit": "Editar",
       "close": "Cerrar",
-      "load": "Cargar",
+      "refresh": "Actualizar",
       "loading": "Cargando…",
       "copy": "Copiar",
       "copied": "Copiado",
@@ -41,11 +41,6 @@
       "409": "Eso entra en conflicto con algo que ya existe.",
       "500": "Ocurrió un error de nuestro lado. Intenta de nuevo en un momento.",
       "generic": "Algo salió mal. Intenta de nuevo."
-    },
-    "theme": {
-      "auto": "Automático",
-      "dark": "Oscuro",
-      "light": "Claro"
     }
   },
   "nav": {
@@ -53,6 +48,8 @@
     "vassago": "Vassago",
     "bime": "Bime",
     "orgs": "Organizaciones",
+    "exports": "Exportaciones",
+    "drBackups": "Respaldos DR",
     "services": "Servicios",
     "credentials": "Credenciales",
     "onboarding": "Incorporación",
@@ -154,7 +151,58 @@
     "markUnpaid": "Marcar como pendiente",
     "markPaidReferencePrompt": "Referencia de pago (opcional, ej. ID de transferencia):",
     "paidOnTooltip": "Pagado el {{date}} — {{reference}}",
-    "noReference": "sin referencia"
+    "noReference": "sin referencia",
+    "exportData": "Exportar datos",
+    "exportTitle": "Exportar datos — {{name}}",
+    "exportIntro": "Encola una exportación de datos de esta organización para su baja. SQL es un volcado de base de datos restaurable; JSON/CSV son legibles por humanos.",
+    "exportFormat": "Formato",
+    "exportLayout": "Disposición",
+    "exportLayoutHint": "Solo aplica a JSON/CSV — SQL siempre produce un archivo restaurable por servicio.",
+    "layoutValue": {
+      "SEPARATE": "Un archivo por servicio",
+      "MERGED": "Un archivo combinado"
+    },
+    "startExport": "Iniciar exportación",
+    "exportStatus": "Estado",
+    "exportStatusValue": {
+      "PENDING": "En cola",
+      "RUNNING": "En curso",
+      "DONE": "Completado",
+      "FAILED": "Fallido"
+    },
+    "exportRequestedAt": "Solicitado {{date}}",
+    "exportDownloadFiles": "Descargar archivos",
+    "exportStartAnother": "Iniciar otra exportación",
+    "exportActiveExists": "Ya hay una exportación en curso para esta organización — mostrando su estado."
+  },
+  "exportsPage": {
+    "title": "Exportaciones",
+    "subtitle": "Trabajos de exportación de datos encolados en todas las organizaciones.",
+    "org": "Organización",
+    "format": "Formato",
+    "layout": "Disposición",
+    "status": "Estado",
+    "requestedAt": "Solicitado",
+    "completedAt": "Completado",
+    "emptyState": "Aún no hay trabajos de exportación.",
+    "refresh": "Actualizar",
+    "download": "Descargar",
+    "viewError": "Ver error",
+    "unknownOrg": "Organización desconocida",
+    "noFilesRecorded": "No se registraron archivos para este trabajo - probablemente se completó antes de agregar el seguimiento de archivos y no se puede descargar. Inicia una nueva exportación."
+  },
+  "drBackupsPage": {
+    "title": "Respaldos DR",
+    "subtitle": "Respaldos de recuperación ante desastres capturados en todas las organizaciones y en la instancia propia de la plataforma. Agrupados por organización y día de respaldo - selecciona los servicios que quieres restaurar juntos.",
+    "instanceGroup": "Instancias de la plataforma",
+    "emptyState": "Aún no hay respaldos DR.",
+    "refresh": "Actualizar",
+    "selectedCount": "{{count}} seleccionado(s)",
+    "restoreSelected": "Restaurar seleccionados",
+    "restoreConfirm": "¿Restaurar {{count}} respaldo(s) seleccionado(s) de {{target}}? Esto sobrescribe los datos actuales y no se puede deshacer.",
+    "restoredCount": "{{count}} respaldo(s) restaurado(s).",
+    "restorePartialFailure": "{{succeeded}} restaurado(s), {{failed}} fallido(s). Revisa y reintenta los fallidos.",
+    "unknownOrg": "Organización desconocida"
   },
   "servicesPage": {
     "title": "Servicios",
@@ -324,6 +372,7 @@
     "options": "Opciones",
     "stock": "Inventario",
     "noStock": "Sin inventario registrado.",
+    "stockAt": "{{quantity}} en {{location}}",
     "variantsEmptyState": "Aún no hay variantes.",
     "deactivateVariantConfirm": "¿Desactivar esta variante?",
     "variantCreated": "Variante creada.",
@@ -451,5 +500,39 @@
     "confirming": "Confirmando…",
     "success": "Correo de notificaciones confirmado.",
     "backToLogin": "Continuar para iniciar sesión"
+  },
+  "roles": {
+    "VASSAGO_ADMIN": {
+      "displayName": "Administrador de cuentas",
+      "description": "Puede crear, ver, editar y dar de baja a cualquier usuario de la organización."
+    },
+    "VASSAGO_MEMBER": {
+      "displayName": "Miembro de la cuenta",
+      "description": "Puede ver a todos los usuarios de la organización y editar su propio perfil."
+    },
+    "RAUM_ADMIN": {
+      "displayName": "Administrador de la plataforma",
+      "description": "Opera la plataforma en sí: gestiona todas las organizaciones, los servicios registrados, las credenciales de base de datos y la configuración de precios."
+    },
+    "RAUM_OWNER": {
+      "displayName": "Propietario de la organización",
+      "description": "Puede solicitar y descargar una exportación de los datos propios de esta organización, para respaldo o baja."
+    },
+    "RAUM_ONBOARDING": {
+      "displayName": "Operador de incorporación",
+      "description": "Puede iniciar la incorporación de nuevas organizaciones."
+    },
+    "BIME_ADMIN": {
+      "displayName": "Administrador de inventario",
+      "description": "Control total sobre productos, stock y ubicaciones."
+    },
+    "BIME_VIEWER": {
+      "displayName": "Visualizador de inventario",
+      "description": "Puede ver productos, stock y ubicaciones sin realizar cambios."
+    },
+    "BIME_CATALOG_VIEWER": {
+      "displayName": "Explorador de catálogo",
+      "description": "Solo puede explorar el catálogo de productos, sin visibilidad sobre los niveles de stock ni las ubicaciones."
+    }
   }
 }

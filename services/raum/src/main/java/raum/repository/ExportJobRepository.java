@@ -14,4 +14,5 @@ public interface ExportJobRepository extends ReactiveCrudRepository<ExportJob, U
     Mono<ExportJob> findByIdAndOrgId(UUID id, UUID orgId);
     Flux<ExportJob> findAllByStatusOrderByRequestedAtAsc(String status);
     Mono<ExportJob> findFirstByOrgIdAndStatusIn(UUID orgId, Collection<String> statuses);
+    Flux<ExportJob> findAllByOrderByRequestedAtDesc();
 }

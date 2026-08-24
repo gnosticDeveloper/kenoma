@@ -1,5 +1,6 @@
 package raum.controllers;
 
+import common.dto.RoleDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,13 +15,15 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/roles")
-@Tag(name = "Roles", description = "Role names valid for this service")
+@Tag(name = "Roles", description = "Roles valid for this service's role assignments")
 @SecurityRequirement(name = "bearerAuth")
 public class RolesController {
 
-    @Operation(summary = "List Raum's role names", description = "Static role names accepted for this service's role assignments.")
+    @Operation(summary = "List Raum's roles", description = "Static roles accepted for this service's role assignments, with display names and descriptions.")
     @GetMapping
-    Mono<List<String>> getRoles() {
-        return Flux.fromArray(RaumRole.values()).map(Enum::name).collectList();
+    Mono<List<RoleDTO>> getRoles() {
+        return Flux.fromArray(RaumRole.values())
+                .map(r -> new RoleDTO(r.name(), r.getDisplayName(), r.getDescription()))
+                .collectList();
     }
 }

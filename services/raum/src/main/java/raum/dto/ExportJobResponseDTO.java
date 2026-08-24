@@ -19,6 +19,10 @@ public class ExportJobResponseDTO {
     UUID orgId;
     @Schema(description = "PENDING, RUNNING, DONE or FAILED")
     String status;
+    @Schema(description = "SQL, JSON or CSV")
+    String format;
+    @Schema(description = "SEPARATE (one file per service) or MERGED (one combined file) - only meaningful for JSON/CSV")
+    String layout;
     Instant requestedAt;
     Instant startedAt;
     Instant completedAt;

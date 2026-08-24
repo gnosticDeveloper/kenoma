@@ -9,6 +9,7 @@ import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 import common.dto.CredentialsDTO;
 import reactor.core.publisher.Mono;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -88,9 +89,10 @@ public class OpenBaoService {
     }
 
     public Mono<Void> registerDatabaseConnection(UUID id, String username, String password,
-                                                 String dbHost, int dbPort, String dbName) {
+                                                 String dbHost, int dbPort, String dbName, UUID orgId) {
         String connectionName = id.toString();
-        String roleName = connectionName + "-role";
+        String adminRoleName = CredentialTier.ADMIN.roleName(connectionName);
+        String memberRoleName = CredentialTier.MEMBER.roleName(connectionName);
         String connectionUrl = String.format(
                 "postgresql://{{username}}:{{password}}@%s:%d/%s?sslmode=disable",
                 dbHost, dbPort, dbName);
@@ -99,7 +101,7 @@ public class OpenBaoService {
                 .uri("/v1/database/config/{name}", connectionName)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", roleName,
+                        "allowed_roles", adminRoleName + "," + memberRoleName,
                         "connection_url", connectionUrl,
                         "username", username,
                         "password", password
@@ -112,10 +114,19 @@ public class OpenBaoService {
                         })
                 )
                 .bodyToMono(Void.class)
-                .then(createRole(connectionName, roleName, dbName, username));
+                .then(createRole(connectionName, adminRoleName, dbName, username, orgId,
+                        "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; "))
+                .then(createRole(connectionName, memberRoleName, dbName, username, orgId,
+                        // Read-only: a caller who only holds a non-admin role for the target service
+                        // (e.g. VASSAGO_MEMBER, BIME_VIEWER) can never write through this connection —
+                        // even a raw psql session, and even to their own row — closing the self-elevation
+                        // path (UPDATE users SET roles = ...) that a blanket-write grant left open. See
+                        // raum.controllers.CredentialsController for tier resolution.
+                        "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; "));
     }
 
-    private Mono<Void> createRole(String connectionName, String roleName, String dbName, String ownerUsername) {
+    private Mono<Void> createRole(String connectionName, String roleName, String dbName, String ownerUsername,
+                                   UUID orgId, String grantStatement) {
         return webClient.post()
                 .uri("/v1/database/roles/{role}", roleName)
                 .bodyValue(Map.of(
@@ -123,11 +134,8 @@ public class OpenBaoService {
                         "creation_statements", "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; " +
                                 "GRANT CONNECT ON DATABASE \"" + dbName + "\" TO \"{{name}}\"; " +
                                 "GRANT USAGE ON SCHEMA public TO \"{{name}}\"; " +
-                                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
-                        // Defensive: ephemeral roles are not expected to own any objects (schema DDL runs under the
-                        // static credentials — see SchemaProvisioner.staticClientFor), but REASSIGN OWNED BY is a
-                        // no-op if the role owns nothing, so this protects against the role ever ending up owning
-                        // something and blocking its own revocation ("cannot be dropped because objects depend on it").
+                                grantStatement +
+                                "ALTER ROLE \"{{name}}\" SET app.org_id = '" + orgId + "';",
                         "revocation_statements", "REASSIGN OWNED BY \"{{name}}\" TO \"" + ownerUsername + "\"; " +
                                 "DROP OWNED BY \"{{name}}\"; " +
                                 "DROP ROLE IF EXISTS \"{{name}}\";",
@@ -168,7 +176,41 @@ public class OpenBaoService {
     }
 
     public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id) {
-        return fetchDatabaseCreds(id + "-role");
+        return issueEphemeralCredentials(id, CredentialTier.ADMIN);
+    }
+
+    public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id, CredentialTier tier) {
+        return fetchDatabaseCreds(tier.roleName(id.toString()));
+    }
+
+    /**
+     * Revokes every outstanding lease issued under both tiers of a credentials row's Vault role, in
+     * one shot each - no need to track individual lease IDs, {@code revoke-prefix} kills anything
+     * under that role's {@code database/creds/<role>} path regardless of how many leases (or renewals)
+     * are currently live. Used when an org is deactivated ({@link raum.services.OrganizationService})
+     * so already-issued ephemeral DB connections stop working immediately, rather than just running
+     * out their TTL (default 1h, max 24h).
+     */
+    public Mono<Void> revokeAllLeasesForCredential(UUID credentialId) {
+        return revokeLeasesForRole(CredentialTier.ADMIN.roleName(credentialId.toString()))
+                .then(revokeLeasesForRole(CredentialTier.MEMBER.roleName(credentialId.toString())));
+    }
+
+    private Mono<Void> revokeLeasesForRole(String roleName) {
+        return webClient.post()
+                .uri("/v1/sys/leases/revoke-prefix/database/creds/{role}", roleName)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("revokeLeasesForRole FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("revokeLeasesForRole failed: " + body));
+                        })
+                )
+                .bodyToMono(Void.class)
+                .onErrorResume(e -> {
+                    log.warn("revokeAllLeasesForCredential: continuing past revoke failure for role {}", roleName, e);
+                    return Mono.empty();
+                });
     }
 
     /**
@@ -177,10 +219,13 @@ public class OpenBaoService {
      * new one, since the physical instance behind it is shared across every org/service credential
      * row that points at the same (host, port, db_name) — one representative connection is enough.
      *
-     * <p>The connection's {@code allowed_roles} was set at org-onboarding time to only the ephemeral
-     * "{id}-role" — Vault refuses to issue creds for any role not on that list, so this must widen it
-     * to include the backup role before (re)creating it. Re-registering the connection needs the same
-     * admin credentials used originally, fetched back from the static KV entry.
+     * <p>The connection's {@code allowed_roles} was set at org-onboarding time to only the two
+     * ephemeral tier roles ({@link CredentialTier#ADMIN}/{@link CredentialTier#MEMBER}) — Vault
+     * refuses to issue creds for any role not on that list, so this must widen it to include the
+     * backup role (while preserving both tier roles - re-registering a connection replaces
+     * {@code allowed_roles} wholesale, it doesn't append) before (re)creating it. Re-registering the
+     * connection needs the same admin credentials used originally, fetched back from the static KV
+     * entry.
      *
      * <p>Checks Vault for actual current state first (rather than caching "already registered" in app
      * memory) so this stays correct across restarts, multiple raum instances, and anyone changing
@@ -253,7 +298,8 @@ public class OpenBaoService {
                 .uri("/v1/database/config/{name}", connectionName)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", connectionName + "-role," + backupRoleName,
+                        "allowed_roles", CredentialTier.ADMIN.roleName(connectionName) + "," +
+                                CredentialTier.MEMBER.roleName(connectionName) + "," + backupRoleName,
                         "connection_url", connectionUrl,
                         "username", adminCreds.getUserName(),
                         "password", adminCreds.getPassword()
@@ -318,6 +364,92 @@ public class OpenBaoService {
                     dto.setLeaseId(leaseId);
                     return dto;
                 });
+    }
+
+    private static final String TRANSIT_KEY = "dr-backup";
+
+    /**
+     * Idempotent check-then-create for the {@code dr-backup} transit key, mirroring
+     * {@link #registerBackupRole}'s style: query Vault for actual current state first rather than
+     * caching "already provisioned" in app memory, so this stays correct across restarts, multiple
+     * raum instances, and anyone changing things out-of-band in Vault directly.
+     *
+     * <p>Deliberately does not attempt to mount the {@code transit/} secrets engine itself -
+     * mounting a new engine is a {@code sudo}-protected Vault operation and this class's token is a
+     * narrowly-scoped service policy, not an admin one. {@code transit/} is already mounted platform-
+     * wide by {@code scripts/init-openbao.sh} (it's also where {@code transit/keys/vassago-jwt}
+     * lives) - this only ever needs to create one more key under it.
+     */
+    public Mono<Void> ensureTransitKey() {
+        return webClient.get()
+                .uri("/v1/transit/keys/{key}", TRANSIT_KEY)
+                .exchangeToMono(response -> {
+                    if (response.statusCode().is2xxSuccessful()) {
+                        return response.releaseBody().then();
+                    }
+                    if (response.statusCode().value() == 404) {
+                        return createTransitKey();
+                    }
+                    return response.bodyToMono(String.class).flatMap(body -> {
+                        log.error("ensureTransitKey lookup FAILED [{}]: {}", response.statusCode(), body);
+                        return Mono.error(new RuntimeException("ensureTransitKey lookup failed: " + body));
+                    });
+                });
+    }
+
+    private Mono<Void> createTransitKey() {
+        return webClient.post()
+                .uri("/v1/transit/keys/{key}", TRANSIT_KEY)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("createTransitKey FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("createTransitKey failed: " + body));
+                        })
+                )
+                .bodyToMono(Void.class);
+    }
+
+    /** Encrypts DR backup content via Vault's transit engine (encryption-as-a-service) - the raw key
+     * never touches raum's process. Returns Vault's own {@code vault:v1:...} ciphertext envelope. */
+    public Mono<String> encrypt(byte[] plaintext) {
+        String encoded = Base64.getEncoder().encodeToString(plaintext);
+        return ensureTransitKey().then(webClient.post()
+                .uri("/v1/transit/encrypt/{key}", TRANSIT_KEY)
+                .bodyValue(Map.of("plaintext", encoded))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("encrypt FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("encrypt failed: " + body));
+                        })
+                )
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .map(response -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) response.get("data");
+                    return (String) data.get("ciphertext");
+                }));
+    }
+
+    /** Reverses {@link #encrypt(byte[])}. */
+    public Mono<byte[]> decrypt(String ciphertext) {
+        return ensureTransitKey().then(webClient.post()
+                .uri("/v1/transit/decrypt/{key}", TRANSIT_KEY)
+                .bodyValue(Map.of("ciphertext", ciphertext))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("decrypt FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("decrypt failed: " + body));
+                        })
+                )
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .map(response -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) response.get("data");
+                    return Base64.getDecoder().decode((String) data.get("plaintext"));
+                }));
     }
 
     public Mono<S3CredentialsDTO> getBackupS3Credentials() {

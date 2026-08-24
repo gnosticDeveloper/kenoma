@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -24,14 +25,14 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/user")
 @RequiredArgsConstructor
-@Tag(name = "Users", description = "User management within an organisation")
+@Tag(name = "Users", description = "User management within an organization")
 @SecurityRequirement(name = "bearerAuth")
 public class UserController {
     private final UserService userService;
 
     @Operation(
             summary = "Create a user",
-            description = "Creates a new user in the caller's organisation and sends a verification email. " +
+            description = "Creates a new user in the caller's organization and sends a verification email. " +
                     "The user cannot log in until they complete verification via POST /user/verify. " +
                     "Callers cannot assign roles they do not hold themselves. Requires VASSAGO_CREATE_USER."
     )
@@ -47,7 +48,7 @@ public class UserController {
         return userService.createUser(dto);
     }
 
-    @Operation(summary = "Get a user by ID", description = "Returns a user in the caller's organisation. Requires VASSAGO_VIEW_USER.")
+    @Operation(summary = "Get a user by ID", description = "Returns a user in the caller's organization. Requires VASSAGO_VIEW_USER.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "User found"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -60,7 +61,7 @@ public class UserController {
         return userService.getUserById(id);
     }
 
-    @Operation(summary = "List all users", description = "Returns all active users in the caller's organisation. Requires VASSAGO_VIEW_USER.")
+    @Operation(summary = "List all users", description = "Returns all active users in the caller's organization. Requires VASSAGO_VIEW_USER.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of users (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -113,6 +114,7 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Password does not meet complexity requirements", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "Token not found, already used, or expired", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
+    @SecurityRequirements({})
     @PostMapping("/verify")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> verifyToken(@RequestBody VerifyTokenRequestDTO dto) {

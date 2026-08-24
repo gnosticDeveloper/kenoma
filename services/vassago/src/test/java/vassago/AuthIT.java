@@ -400,6 +400,41 @@ class AuthIT extends BaseIT {
                 .bodyValue(verifyRequest)
                 .exchange()
                 .expectStatus().isNotFound();
+
+        // changepw_user is a shared fixture seeded once per JVM fork (BaseIT.bootstrapOnce) and
+        // reused by other IT classes (e.g. UserManagementIT) that log in with CHANGEPW_PASSWORD.
+        // Restore it here so this test's outcome doesn't depend on class execution order.
+        restorePassword(newPassword);
+    }
+
+    private void restorePassword(String currentPassword) {
+        String jwt = login(CHANGEPW_USERNAME, currentPassword).getResponseBody().token();
+
+        PasswordChangeRequestDTO changeRequest = new PasswordChangeRequestDTO();
+        changeRequest.setOldPassword(currentPassword);
+        webTestClient.patch()
+                .uri("/user/password")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwt)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(changeRequest)
+                .exchange()
+                .expectStatus().isNoContent();
+
+        ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mailgunService, atLeastOnce())
+                .sendPasswordResetEmail(anyString(), eq(orgId), tokenCaptor.capture(), anyString());
+        String verificationToken = tokenCaptor.getValue();
+
+        VerifyTokenRequestDTO verifyRequest = new VerifyTokenRequestDTO();
+        verifyRequest.setOrgId(orgId);
+        verifyRequest.setToken(verificationToken);
+        verifyRequest.setNewPassword(CHANGEPW_PASSWORD);
+        webTestClient.post()
+                .uri("/user/verify")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(verifyRequest)
+                .exchange()
+                .expectStatus().isNoContent();
     }
 
     @Test

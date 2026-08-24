@@ -62,11 +62,11 @@ class UserServiceTest {
     }
 
     private static final Map<String, List<String>> ADMIN_ROLES = Map.of(
-            SERVICE_ID.toString(), List.of(VassagoRole.VASSAGO_ADMIN.name(), VassagoRole.VASSAGO_USER.name())
+            SERVICE_ID.toString(), List.of(VassagoRole.VASSAGO_ADMIN.name(), VassagoRole.VASSAGO_MEMBER.name())
     );
 
     private static final Map<String, List<String>> USER_ROLES = Map.of(
-            SERVICE_ID.toString(), List.of(VassagoRole.VASSAGO_USER.name())
+            SERVICE_ID.toString(), List.of(VassagoRole.VASSAGO_MEMBER.name())
     );
 
     @Test
