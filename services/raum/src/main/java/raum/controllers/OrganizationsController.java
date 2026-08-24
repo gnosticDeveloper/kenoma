@@ -63,9 +63,9 @@ public class OrganizationsController {
         this.artifactStore = artifactStore;
     }
 
-    @Operation(summary = "Register an organisation", description = "Creates a new tenant organisation. Requires ORG_MANAGE.")
+    @Operation(summary = "Register an organization", description = "Creates a new tenant organization. Requires ORG_MANAGE.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Organisation registered"),
+            @ApiResponse(responseCode = "200", description = "Organization registered"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -75,9 +75,9 @@ public class OrganizationsController {
         return service.registerOrg(dto);
     }
 
-    @Operation(summary = "List organisations", description = "Returns all active (non-deleted) organisations. Requires ORG_MANAGE.")
+    @Operation(summary = "List organizations", description = "Returns all active (non-deleted) organizations. Requires ORG_MANAGE.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Organisations listed"),
+            @ApiResponse(responseCode = "200", description = "Organizations listed"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
@@ -87,8 +87,8 @@ public class OrganizationsController {
     }
 
     @Operation(
-            summary = "List active organisation IDs",
-            description = "Returns the IDs of all active (non-deleted) organisations, with no other org detail. " +
+            summary = "List active organization IDs",
+            description = "Returns the IDs of all active (non-deleted) organizations, with no other org detail. " +
                     "For machine-to-machine callers only — authenticates via X-Vault-Token (OpenBao AppRole), not a user JWT. " +
                     "Intended for background jobs in other services (e.g. Bime's stock alert scheduler) that need to iterate over every org."
     )
@@ -110,7 +110,7 @@ public class OrganizationsController {
     }
 
     @Operation(
-            summary = "Get an organisation's billing and product pricing currencies",
+            summary = "Get an organization's billing and product pricing currencies",
             description = "Returns the org's billing currency (currency), its product pricing currency " +
                     "(productPricingCurrency - what it prices its own catalog in, independent of billing), " +
                     "and currencyRefreshMode, with no other org detail. " +
@@ -121,7 +121,7 @@ public class OrganizationsController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Org currency found"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid X-Vault-Token", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+            @ApiResponse(responseCode = "404", description = "Organization not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @GetMapping("/{id}/currency")
     Mono<OrgCurrencyResponseDTO> getOrgCurrency(
@@ -140,7 +140,7 @@ public class OrganizationsController {
     }
 
     @Operation(
-            summary = "Check whether an organisation is active (not deactivated)",
+            summary = "Check whether an organization is active (not deactivated)",
             description = "Returns true only for an org that exists and hasn't been deactivated - a deactivated " +
                     "org and a nonexistent org both return false (not distinguished, so this can't be used to " +
                     "probe org-id existence). For machine-to-machine callers only — authenticates via " +
@@ -166,37 +166,37 @@ public class OrganizationsController {
                         : Mono.error(new UnauthorizedException("Invalid token")));
     }
 
-    @Operation(summary = "Get an organisation by ID", description = "Requires ORG_MANAGE.")
+    @Operation(summary = "Get an organization by ID", description = "Requires ORG_MANAGE.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Organisation found"),
+            @ApiResponse(responseCode = "200", description = "Organization found"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+            @ApiResponse(responseCode = "404", description = "Organization not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @GetMapping("/{id}")
     Mono<OrgResponseDTO> getOrgDataById(@PathVariable("id") UUID id) {
         return service.getOrgDataById(id);
     }
 
-    @Operation(summary = "Update an organisation", description = "Replaces all fields of the organisation. Requires ORG_MANAGE.")
+    @Operation(summary = "Update an organization", description = "Replaces all fields of the organization. Requires ORG_MANAGE.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Organisation updated"),
+            @ApiResponse(responseCode = "200", description = "Organization updated"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+            @ApiResponse(responseCode = "404", description = "Organization not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PutMapping("/{id}")
     Mono<OrgResponseDTO> updateOrg(@PathVariable("id") UUID id, @RequestBody OrgRequestDTO dto) {
         return service.updateOrg(id, dto);
     }
 
-    @Operation(summary = "Delete an organisation", description = "Soft-deletes the organisation by setting stopped_at. Requires ORG_MANAGE.")
+    @Operation(summary = "Delete an organization", description = "Soft-deletes the organization by setting stopped_at. Requires ORG_MANAGE.")
     @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "Organisation deleted"),
+            @ApiResponse(responseCode = "204", description = "Organization deleted"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+            @ApiResponse(responseCode = "404", description = "Organization not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -210,19 +210,19 @@ public class OrganizationsController {
             @ApiResponse(responseCode = "400", description = "Invalid billing cycle", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+            @ApiResponse(responseCode = "404", description = "Organization not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PutMapping("/{id}/billing-info")
     Mono<OrgResponseDTO> updateBillingInfo(@PathVariable("id") UUID id, @RequestBody BillingInfoRequestDTO dto) {
         return service.updateBillingInfo(id, dto);
     }
 
-    @Operation(summary = "Request billing email verification", description = "Sets the organisation's billing email and sends a confirmation link. Requires ORG_MANAGE.")
+    @Operation(summary = "Request billing email verification", description = "Sets the organization's billing email and sends a confirmation link. Requires ORG_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Verification email sent"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+            @ApiResponse(responseCode = "404", description = "Organization not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/{id}/billing-email")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -242,7 +242,7 @@ public class OrganizationsController {
         return service.confirmBillingEmail(id, dto);
     }
 
-    @Operation(summary = "Confirm contact email", description = "Confirms the organisation's contact email verification token. No authentication required — the token itself is the credential.")
+    @Operation(summary = "Confirm contact email", description = "Confirms the organization's contact email verification token. No authentication required — the token itself is the credential.")
     @SecurityRequirements({})
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Contact email confirmed"),
@@ -272,7 +272,7 @@ public class OrganizationsController {
             @ApiResponse(responseCode = "400", description = "Unknown format/layout, or layout=MERGED with format=SQL", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions, or ORG_EXPORT_SELF holder requesting another org's export", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Organisation not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+            @ApiResponse(responseCode = "404", description = "Organization not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/{id}/export")
     @ResponseStatus(HttpStatus.ACCEPTED)

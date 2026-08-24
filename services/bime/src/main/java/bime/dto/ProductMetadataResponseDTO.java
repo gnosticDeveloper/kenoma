@@ -19,7 +19,7 @@ public class ProductMetadataResponseDTO {
     private UUID id;
     private UUID orgId;
     private String name;
-    @Schema(description = "All selectable options for this metadata attribute (e.g. Red, Blue, Green for 'Colour')")
+    @Schema(description = "All selectable options for this metadata attribute (e.g. Red, Blue, Green for 'Color')")
     private List<MetadataOptionResponseDTO> options;
     private LocalDateTime createdAt;
 }

@@ -1,6 +1,6 @@
 INSERT INTO services (name, description)
 VALUES
-    ('Raum', 'Credential and organisation registry'),
+    ('Raum', 'Credential and organization registry'),
     ('Vassago', 'Authentication and identity service'),
     ('Bime', 'Inventory management service')
 ON CONFLICT (name) DO NOTHING;

@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-@Schema(description = "Request body for registering or updating an organisation")
+@Schema(description = "Request body for registering or updating an organization")
 public class OrgRequestDTO {
     String name;
     String contactEmail;

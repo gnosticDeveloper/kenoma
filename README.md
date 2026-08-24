@@ -5,7 +5,7 @@
 [![CI](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/ci.yml/badge.svg)](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/codeql.yml/badge.svg)](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/codeql.yml)
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0--BETA-informational.svg)](pom.xml)
+[![Version](https://img.shields.io/badge/version-0.1.1--BETA-informational.svg)](pom.xml)
 
 ---
 
@@ -17,27 +17,35 @@
 | **Vassago** | `8081` | Authentication and identity. JWT issuance, session management, user lifecycle, and password recovery |
 | **Bime** | `8082` | Inventory management. Products, variants, metadata, stock ledger, and warehouse locations |
 | **Common** | No port | Shared library: DTOs, exception handling, JWT validation, R2DBC connection pooling, and the Mailgun email client |
-| **Frontend** | `5173` (dev) | React/Vite admin UI. Dark/light/auto themes, EN/ES i18n |
+| **Frontend** | `5173` (dev) | React/Vite admin UI. EN/ES i18n |
 
-All backend traffic is fronted by **nginx** (config templated from `gateway/nginx.conf.template`), which terminates TLS, applies per-IP rate limiting in front of Vassago's public endpoints, and reverse-proxies `api.<BASE_DOMAIN>` to the three services by path, plus `grafana.<BASE_DOMAIN>` to the observability stack.
+All backend traffic is fronted by **nginx** (config templated from `gateway/nginx.conf.template`), which terminates TLS, applies per-IP rate limiting in front of Vassago's public endpoints, and reverse-proxies `api.<BASE_DOMAIN>` to the three services by path (including `/dr-backups`, `/export-jobs`, and `/migrations`, which route to Raum, and `/roles/vassago`, `/roles/bime`, `/roles/raum`, which each route to that service's own `/roles`), plus `grafana.<BASE_DOMAIN>` to the observability stack.
 
 ### Raum: Organization & Credential Registry
 
-Raum is the platform's administrative backbone. It provisions tenant organizations, registers services that consume the platform, and issues ephemeral database credentials through OpenBao AppRole so downstream services never hold long-lived secrets. It also orchestrates new organization onboarding, provisioning the org admin account in Vassago and seeding initial inventory data in Bime according to a configurable preset, with Redis-backed retry so partial failures can be recovered automatically. Raum additionally owns billing: per-module pricing, multi-currency support with a scheduled FX rate refresh, invoice generation and delivery, manual payment-status management, disaster-recovery backups, and on-demand per-tenant data export.
+Raum is the platform's administrative backbone. It provisions tenant organizations, registers services that consume the platform, and issues ephemeral database credentials through OpenBao AppRole so downstream services never hold long-lived secrets. It also orchestrates new organization onboarding, provisioning the org admin account in Vassago and seeding initial inventory data in Bime according to a configurable preset, with Redis-backed retry so partial failures can be recovered automatically. Raum additionally owns billing (per-module pricing, multi-currency support with a scheduled FX rate refresh, invoice generation and delivery, manual payment-status management), disaster recovery (nightly backups and org/instance-level restore), on-demand per-tenant data export, and schema migrations across every discovered database instance.
 
 **API surface:**
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/orgs` | Create an organization |
+| `GET` | `/orgs` | List organizations |
+| `GET` | `/orgs/active-ids` | List ids of active organizations |
 | `GET` | `/orgs/{id}` | Get an organization |
+| `GET` | `/orgs/{id}/active` | Check whether an organization is active |
+| `GET` | `/orgs/{id}/currency` | Get an organization's configured currency |
 | `PUT` | `/orgs/{id}` | Update an organization |
 | `DELETE` | `/orgs/{id}` | Delete an organization |
 | `PUT` | `/orgs/{id}/billing-info` | Update an organization's billing details |
 | `POST` | `/orgs/{id}/billing-email` | Set/change the organization's billing email |
 | `POST` | `/orgs/{id}/billing-email/confirm` | Confirm a billing email change |
+| `POST` | `/orgs/{id}/contact-email/confirm` | Confirm a contact email change |
 | `POST` | `/orgs/{id}/export` | Kick off an async per-tenant data export job |
-| `GET` | `/orgs/{id}/export/{jobId}` | Poll export job status / retrieve the result |
+| `GET` | `/orgs/{id}/export/{jobId}` | Poll export job status |
+| `GET` | `/orgs/{id}/export/{jobId}/download` | Download the completed export |
+| `GET` | `/orgs/{id}/export/{jobId}/download/{index}` | Download one file from a multi-file export |
+| `GET` | `/export-jobs` | List export jobs |
 | `GET` | `/orgs/{orgId}/billing-history` | List an organization's billing history |
 | `GET` | `/orgs/{orgId}/billing-history/{historyId}/invoice` | Download a generated invoice |
 | `PUT` | `/orgs/{orgId}/billing-history/{historyId}/payment-status` | Manually set a payment's status |
@@ -54,10 +62,14 @@ Raum is the platform's administrative backbone. It provisions tenant organizatio
 | `POST` | `/credentials` | Register credentials for a service |
 | `POST` | `/credentials/ephemeral` | Issue ephemeral credentials for an org/service pair |
 | `POST` | `/onboarding/{orgId}` | Onboard an organization. Seed Vassago admin user and Bime inventory preset |
+| `GET` | `/dr-backups` | List available disaster-recovery backups |
+| `POST` | `/dr-backups/{id}/restore` | Restore a backup, at instance or org level |
+| `POST` | `/migrations/run` | Re-run the Flyway migration sweep across every discovered database |
+| `GET` | `/roles` | List Raum's role definitions and their permissions |
 
-**Scheduled jobs:** daily DR backup (`pg_dump` per database, gzipped, uploaded to S3-compatible storage), invoice deadline notifications, and periodic FX rate refresh (org-configurable periodic vs. real-time).
+**Scheduled jobs:** daily instance-level DR backup (`pg_dump` per database, gzipped, uploaded to S3-compatible storage) plus a separate, offset daily org-level backup, invoice deadline notifications, and periodic FX rate refresh (org-configurable periodic vs. real-time).
 
-**Roles:** `RAUM_ADMIN`, `RAUM_ONBOARDING`
+**Roles:** `RAUM_ADMIN` (full platform administration), `RAUM_OWNER` (export the org's own data), `RAUM_ONBOARDING` (initiate org onboarding).
 
 ### Vassago: Authentication & Identity
 
@@ -79,8 +91,11 @@ Vassago issues and validates ES256 JWTs (ECDSA P-256 via OpenBao transit), manag
 | `DELETE` | `/user/{id}` | Delete a user |
 | `POST` | `/user/verify` | Verify email / complete account setup |
 | `PATCH` | `/user/password` | Change password |
+| `GET` | `/roles` | List Vassago's role definitions and their permissions |
 
-**Roles:** `VASSAGO_ADMIN`, `VASSAGO_USER`
+Login also rejects credentials for a deactivated organization, even if the password is correct.
+
+**Roles:** `VASSAGO_ADMIN` (create, view, edit, and offboard any user in the org), `VASSAGO_MEMBER` (view every user, edit own profile).
 
 ### Bime: Inventory Management
 
@@ -95,6 +110,7 @@ Bime is a multi-tenant inventory service with tenant data isolated at the data l
 | `GET` | `/locations/{id}` | Get a location |
 | `PUT` | `/locations/{id}` | Update a location |
 | `DELETE` | `/locations/{id}` | Delete a location |
+| `POST` | `/locations/notification-email/confirm` | Confirm a stock-alert notification email change |
 | `POST` | `/products` | Create a product |
 | `GET` | `/products` | List products |
 | `GET` | `/products/{id}` | Get a product |
@@ -107,6 +123,7 @@ Bime is a multi-tenant inventory service with tenant data isolated at the data l
 | `GET` | `/products/{productId}/variants/{variantId}` | Get a variant |
 | `PATCH` | `/products/{productId}/variants/{variantId}` | Update a variant |
 | `DELETE` | `/products/{productId}/variants/{variantId}` | Delete a variant |
+| `PATCH` | `/variants/pricing/batch` | Batch-update variant pricing |
 | `POST` | `/metadata` | Create a metadata definition |
 | `GET` | `/metadata` | List metadata definitions |
 | `GET` | `/metadata/{id}` | Get a metadata definition |
@@ -121,10 +138,11 @@ Bime is a multi-tenant inventory service with tenant data isolated at the data l
 | `GET` | `/stock/alerts/thresholds` | List configured alert thresholds |
 | `DELETE` | `/stock/alerts/thresholds` | Remove an alert threshold |
 | `GET` | `/stock/alerts/active` | List currently active (triggered) alerts |
+| `GET` | `/roles` | List Bime's role definitions and their permissions |
 
 **Scheduled jobs:** daily stock-threshold check that emails alerts for any variant/location below its configured threshold.
 
-**Roles:** `BIME_ADMIN`, `BIME_MANAGER`, `BIME_VIEWER`, `BIME_USER`
+**Roles:** `BIME_ADMIN` (full control over products, stock, and locations), `BIME_VIEWER` (view products, stock, and locations), `BIME_CATALOG_VIEWER` (browse the product catalog only, no stock or location visibility).
 
 ---
 
@@ -190,9 +208,10 @@ Rounded nodes (Mailgun, FX rate provider) and the dashed-border style mark third
 - The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, a unified exception hierarchy, and the Mailgun email client (used by Raum, Vassago, and Bime for transactional emails).
 - **nginx** terminates TLS and reverse-proxies `api.<BASE_DOMAIN>` (path-routed to Raum/Vassago/Bime) and `grafana.<BASE_DOMAIN>`. No service publishes its app port directly to the host.
 - **OpenBao runs in production mode**: Raft integrated storage, Shamir secret sharing (5 key shares, 3-share unseal threshold), and per-service AppRole auth (Vassago, Raum, and a Raum-service role). Services fetch and renew their own AppRole tokens at runtime and retry indefinitely rather than failing at boot.
-- **Observability**: Promtail ships container logs to Loki; each service exposes metrics that Prometheus scrapes; Grafana ships with a default "Kenoma overview" dashboard covering both, provisioned automatically.
+- **Observability**: Promtail ships container logs to Loki; each service exposes metrics that Prometheus scrapes; Grafana ships with a default "Kenoma overview" dashboard covering both, plus provisioned alert rules that notify by email through Mailgun's SMTP relay, all set up automatically.
 - **Localization**: transactional emails (password recovery, invoices, stock alerts) and onboarding presets are localized in English and Spanish, shared across services via the `common` module's resource bundles.
-- **Data protection**: Raum runs a nightly `pg_dump`-based disaster-recovery backup per database to S3-compatible storage, and exposes an on-demand per-tenant export (`POST /orgs/{id}/export`) that pulls an organization's own data — excluding platform-internal credentials.
+- **Data protection**: Raum runs a nightly `pg_dump`-based disaster-recovery backup per database to S3-compatible storage (instance-level and org-level backups run on separate, offset schedules), and can restore a backup at either instance or organization level through `POST /dr-backups/{id}/restore`. It also exposes an on-demand per-tenant export (`POST /orgs/{id}/export`) that pulls an organization's own data, excluding platform-internal credentials.
+- **Schema migrations**: Raum applies Flyway migrations to its own database on startup, and sweeps every other database instance it has issued credentials for, applying any pending migration to each. The sweep can be re-triggered manually via `POST /migrations/run`.
 
 > **Database separation note:** The three databases run as separate containers in development to enforce proper tenant isolation at the infrastructure level during testing. In practice, they can all live on the same PostgreSQL instance without issue, although it is not the intended setup.
 
@@ -203,8 +222,9 @@ Rounded nodes (Mailgun, FX rate provider) and the dashed-border style mark third
 | Layer | Technology |
 |---|---|
 | Language | Java 25 |
-| Framework | Spring Boot 4.0.6, Spring WebFlux |
+| Framework | Spring Boot 4.1.0, Spring WebFlux |
 | Database | PostgreSQL 18 (R2DBC) |
+| Schema migrations | Flyway |
 | Secrets | OpenBao 2.5.2 (production mode, Raft storage) |
 | Session cache | Redis 7 |
 | API docs | springdoc-openapi 3.0.2 |
@@ -236,7 +256,7 @@ Copy the example file and fill in your values:
 cp .env.example .env
 ```
 
-The values you **must** set before starting are the Mailgun credentials (required for password recovery emails) and the Grafana admin user/password (compose refuses to start without them — Grafana is reachable at `grafana.<BASE_DOMAIN>`, so there's no silent `admin`/`admin` default). Everything else has working dev defaults. The `.env` file is gitignored and never committed.
+The values you **must** set before starting are the Mailgun credentials (required for password recovery emails), the Grafana admin user/password (compose refuses to start without them, and Grafana is reachable at `grafana.<BASE_DOMAIN>` so there's no silent `admin`/`admin` default), and the Grafana SMTP settings (required for alert emails to send). Everything else has working dev defaults. The `.env` file is gitignored and never committed.
 
 Key variables:
 
@@ -251,12 +271,18 @@ Key variables:
 | `MAILGUN_DOMAIN` | Mailgun sending domain | *(required)* |
 | `APP_BASE_URL` | Frontend base URL for email links | `http://localhost:3000` |
 | `BASE_DOMAIN` | Root domain nginx serves; API at `api.<BASE_DOMAIN>` | `localhost` |
-| `CORS_ALLOWED_ORIGINS` | Allowed CORS origins, shared by all three services | *(empty — CORS disabled)* |
-| `RAUM_JDWP_OPTS` / `VASSAGO_JDWP_OPTS` / `BIME_JDWP_OPTS` | Opt-in JDWP remote-debug agent per service | *(unset — debugging off)* |
+| `CORS_ALLOWED_ORIGINS` | Allowed CORS origins, shared by all three services | *(empty, CORS disabled)* |
+| `RAUM_JDWP_OPTS` / `VASSAGO_JDWP_OPTS` / `BIME_JDWP_OPTS` | Opt-in JDWP remote-debug agent per service | *(unset, debugging off)* |
 | `DR_BACKUP_S3_ENDPOINT` / `_BUCKET` / `_ACCESS_KEY` / `_SECRET_KEY` | S3-compatible storage for DR backups, tenant exports, and generated API docs | *(required for backups)* |
-| `DR_BACKUP_CRON` | Cron schedule for the nightly DR backup job | `0 0 2 * * *` |
+| `DR_BACKUP_CRON` | Cron schedule for the nightly instance-level DR backup job | `0 0 5 * * *` |
+| `DR_ORG_BACKUP_CRON` | Cron schedule for the nightly org-level DR backup job | `0 30 2 * * *` |
 | `MAILGUN_INVOICE_FROM` / `MAILGUN_STOCK_ALERT_FROM` | Sender addresses for invoice and stock-alert emails | *(required)* |
+| `MAILGUN_FROM` | Fallback sender address used where a more specific sender address is not set | *(required)* |
 | `FX_PROVIDER_API_KEY` / `FX_PROVIDER_BASE_URL` | External exchange-rate provider used for multi-currency pricing | *(required for FX refresh)* |
+| `VASSAGO_COOKIE_DOMAIN` | Domain scope for Vassago's refresh-token cookie | *(unset)* |
+| `VASSAGO_RATE_LIMIT_WINDOW_SECONDS` / `VASSAGO_RATE_LIMIT_MAX_REQUESTS` | Per-IP rate limit window and request cap for Vassago's public endpoints | `60` / `20` |
+| `GRAFANA_SMTP_HOST` / `_USER` / `_PASSWORD` / `_FROM_ADDRESS` | SMTP relay Grafana uses to send alert emails | *(required for alerting)* |
+| `GRAFANA_ALERT_EMAIL` | Recipient address for Grafana alert notifications | *(required for alerting)* |
 
 OpenBao itself has no root-token env var to configure: on first boot it initializes with Shamir key shares and auto-unseals using the keys it writes to a Docker volume (see `scripts/init-openbao.sh`); nothing to set in `.env` for it.
 
@@ -294,7 +320,7 @@ Each service's app port is bound to `127.0.0.1` only (not exposed to the network
 
 In a full deployment, nginx instead fronts everything at `https://api.<BASE_DOMAIN>` (path-routed to the three services) and `https://grafana.<BASE_DOMAIN>` for the Grafana dashboards.
 
-To attach a remote debugger, set the relevant `*_JDWP_OPTS` variable in `.env` (see above) before starting — debug agents are off by default. Once enabled, debuggers can attach on ports `5005` (Raum), `5006` (Vassago), and `5007` (Bime).
+To attach a remote debugger, set the relevant `*_JDWP_OPTS` variable in `.env` (see above) before starting; debug agents are off by default. Once enabled, debuggers can attach on ports `5005` (Raum), `5006` (Vassago), and `5007` (Bime).
 
 ### Continuous Deployment
 
@@ -303,7 +329,7 @@ GitHub Actions self-hosted runner installed on the VPS itself (labeled `kenoma-v
 checks out the pushed commit, runs `docker compose up -d --build` (Compose only rebuilds/restarts
 containers whose image or config actually changed), and waits for Raum/Vassago/Bime's
 `/actuator/health` endpoints to report healthy before finishing. `.env` on the VPS is never touched
-by the workflow — it must already exist there, same as any other deployment target.
+by the workflow; it must already exist there, same as any other deployment target.
 
 To register the runner on a new VPS: GitHub → repo Settings → Actions → Runners → New self-hosted
 runner, label it `kenoma-vps`, and install it as a systemd service (`./svc.sh install && ./svc.sh
@@ -317,7 +343,7 @@ npm install
 npm run dev
 ```
 
-Serves the admin UI at http://localhost:5173, calling the services directly — make sure `CORS_ALLOWED_ORIGINS` in `.env` includes `http://127.0.0.1:5173` (or your dev origin) before starting the backend.
+Serves the admin UI at http://localhost:5173, calling the services directly. Make sure `CORS_ALLOWED_ORIGINS` in `.env` includes `http://127.0.0.1:5173` (or your dev origin) before starting the backend.
 
 ---
 

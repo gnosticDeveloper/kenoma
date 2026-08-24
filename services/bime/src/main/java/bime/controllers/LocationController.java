@@ -31,7 +31,7 @@ public class LocationController {
 
     private final LocationService locationService;
 
-    @Operation(summary = "Create a location", description = "Creates a new stock location for the authenticated organisation. Requires BIME_MANAGE.")
+    @Operation(summary = "Create a location", description = "Creates a new stock location for the authenticated organization. Requires BIME_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Location created"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -45,7 +45,7 @@ public class LocationController {
         return locationService.createLocation(dto);
     }
 
-    @Operation(summary = "List all locations", description = "Returns all active and inactive locations for the authenticated organisation. Requires BIME_VIEW.")
+    @Operation(summary = "List all locations", description = "Returns all active and inactive locations for the authenticated organization. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of locations (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

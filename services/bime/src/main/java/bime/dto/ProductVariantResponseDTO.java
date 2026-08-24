@@ -28,7 +28,7 @@ public class ProductVariantResponseDTO {
     private BigDecimal price;
     @Schema(description = "Currency of the price field above - the stored currency, or the requested conversion target if ?currency was passed", example = "USD")
     private String priceCurrency;
-    @Schema(description = "The metadata options that define this variant (e.g. Colour=Red, Size=XL)")
+    @Schema(description = "The metadata options that define this variant (e.g. Color=Red, Size=XL)")
     private List<MetadataOptionResponseDTO> options;
     @Schema(description = "Current stock balances for this variant across all locations")
     private List<VariantStockDTO> stock;

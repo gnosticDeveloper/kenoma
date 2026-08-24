@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-@Schema(description = "An organisation's billing currency, product pricing currency, and how its " +
+@Schema(description = "An organization's billing currency, product pricing currency, and how its " +
         "exchange rates are kept fresh")
 public class OrgCurrencyResponseDTO {
     String currency;

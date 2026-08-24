@@ -31,7 +31,7 @@ public class ProductController {
     private final ProductService productService;
     private final ProductMetadataService productMetadataService;
 
-    @Operation(summary = "Create a product", description = "Creates a new product for the authenticated organisation. Requires BIME_MANAGE.")
+    @Operation(summary = "Create a product", description = "Creates a new product for the authenticated organization. Requires BIME_MANAGE.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Product created"),
             @ApiResponse(responseCode = "400", description = "Invalid request body", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -45,7 +45,7 @@ public class ProductController {
         return productService.createProduct(dto);
     }
 
-    @Operation(summary = "List all products", description = "Returns all products for the authenticated organisation with their variant count. Requires BIME_VIEW.")
+    @Operation(summary = "List all products", description = "Returns all products for the authenticated organization with their variant count. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of products (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
