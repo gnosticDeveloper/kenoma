@@ -7,6 +7,8 @@
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.1--BETA-informational.svg)](pom.xml)
 
+**API docs:** [docs.kenoma.cloud](https://docs.kenoma.cloud)
+
 ---
 
 ## Services
@@ -349,6 +351,7 @@ swagger-ui's live endpoints. It runs `scripts/export-api-docs.sh --upload`, whic
 `/v3/api-docs` JSON from each running service, merges the three specs with `redocly/cli join`, builds
 static HTML with `redocly/cli build-docs`, and uploads it to the same Hetzner S3 bucket used for DR
 backups, under an `api-docs/` prefix. It's also kept as a 30-day GitHub Actions artifact on each run.
+The published result is browsable at [docs.kenoma.cloud](https://docs.kenoma.cloud).
 
 ### 5. Run the frontend (optional)
 
@@ -389,4 +392,4 @@ On every pull request to `main` or `develop`, GitHub Actions runs:
 
 ## License
 
-Licensed under the [Business Source License 1.1](LICENSE). The licensed work will convert to Apache 2.0 on **2030-01-01**.
+Licensed under the [Business Source License 1.1](LICENSE). The licensed work will convert to Apache 2.0 on **2030-09-01**.
