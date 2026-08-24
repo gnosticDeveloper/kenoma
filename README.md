@@ -16,7 +16,7 @@
 | **Raum** | `8080` | Organization registry. Manages tenants, registered services, ephemeral database credentials via OpenBao, and billing/invoicing |
 | **Vassago** | `8081` | Authentication and identity. JWT issuance, session management, user lifecycle, and password recovery |
 | **Bime** | `8082` | Inventory management. Products, variants, metadata, stock ledger, and warehouse locations |
-| **Common** | No port | Shared library: DTOs, exception handling, JWT validation, R2DBC connection pooling, and the Mailgun email client |
+| **Common** | No port | Shared library: DTOs, exception handling, JWT validation, R2DBC connection pooling, the Mailgun email client, and the AppRole self-provisioning client each service uses to set up its own OpenBao policy/role at boot |
 | **Frontend** | `5173` (dev) | React/Vite admin UI. EN/ES i18n |
 
 All backend traffic is fronted by **nginx** (config templated from `gateway/nginx.conf.template`), which terminates TLS, applies per-IP rate limiting in front of Vassago's public endpoints, and reverse-proxies `api.<BASE_DOMAIN>` to the three services by path (including `/dr-backups`, `/export-jobs`, and `/migrations`, which route to Raum, and `/roles/vassago`, `/roles/bime`, `/roles/raum`, which each route to that service's own `/roles`), plus `grafana.<BASE_DOMAIN>` to the observability stack.
@@ -171,6 +171,7 @@ flowchart TB
     BimeDB[("Bime DB")] -- provisioned from Raum --> Bime
     Vassago -- auth --> Bime
     OpenBao -- db credentials --> Raum
+    OpenBao -- own AppRole token --> Bime
     Raum & Vassago & Bime -- logs --> Promtail --> Loki[("Loki")] --> Grafana
     Raum & Vassago & Bime -- metrics --> Prometheus[("Prometheus")] --> Grafana
     Raum & Vassago & Bime -- transactional emails --> Mailgun(["Mailgun"])
@@ -203,15 +204,15 @@ Rounded nodes (Mailgun, FX rate provider) and the dashed-border style mark third
 - All services are **reactive** (Spring WebFlux + R2DBC).
 - JWT signing keys live in **OpenBao**'s transit engine, managed by Vassago. Vassago and Raum read the public key directly from OpenBao; Bime fetches it from Vassago's public key endpoint.
 - Database credentials are short-lived and issued through Raum. Vassago and Bime call Raum to obtain ephemeral credentials, which Raum provisions via OpenBao. No service holds a static database password.
-- **Redis** is shared between Vassago (session tokens) and Raum (onboarding preset config for retry).
+- **Redis** is shared between Vassago (refresh tokens, and a second, application-level per-IP rate limiter on top of nginx's gateway-level one, covering `/auth/login`, `/auth/recover`, `/auth/refresh`, `/auth/public-key`, and `/user/verify`) and Raum (onboarding preset config for retry).
 - During onboarding, Raum calls Vassago and Bime over HTTP to seed the new tenant. A scheduled retry recovers any credential that failed mid-flow using the preset config stored in Redis.
-- The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, a unified exception hierarchy, and the Mailgun email client (used by Raum, Vassago, and Bime for transactional emails).
-- **nginx** terminates TLS and reverse-proxies `api.<BASE_DOMAIN>` (path-routed to Raum/Vassago/Bime) and `grafana.<BASE_DOMAIN>`. No service publishes its app port directly to the host.
-- **OpenBao runs in production mode**: Raft integrated storage, Shamir secret sharing (5 key shares, 3-share unseal threshold), and per-service AppRole auth (Vassago, Raum, and a Raum-service role). Services fetch and renew their own AppRole tokens at runtime and retry indefinitely rather than failing at boot.
+- The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, a unified exception hierarchy, the Mailgun email client (used by Raum, Vassago, and Bime for transactional emails), and the AppRole provisioning client each service's own `OpenBaoProvisioner` uses to self-provision its policy/role at boot.
+- **nginx** terminates TLS and reverse-proxies `api.<BASE_DOMAIN>` (path-routed to Raum/Vassago/Bime) and `grafana.<BASE_DOMAIN>`. No service publishes its app port directly to the host, including in local development: Raum, Vassago, and Bime are reachable only through nginx at `api.<BASE_DOMAIN>`, not on `localhost:8080`/`8081`/`8082`.
+- **OpenBao runs in production mode**: Raft integrated storage, Shamir secret sharing (5 key shares, 3-share unseal threshold), and per-service AppRole auth (Vassago, Raum, a Raum-service role, and Bime). Services fetch and renew their own AppRole tokens at runtime and retry indefinitely rather than failing at boot.
 - **Observability**: Promtail ships container logs to Loki; each service exposes metrics that Prometheus scrapes; Grafana ships with a default "Kenoma overview" dashboard covering both, plus provisioned alert rules that notify by email through Mailgun's SMTP relay, all set up automatically.
 - **Localization**: transactional emails (password recovery, invoices, stock alerts) and onboarding presets are localized in English and Spanish, shared across services via the `common` module's resource bundles.
 - **Data protection**: Raum runs a nightly `pg_dump`-based disaster-recovery backup per database to S3-compatible storage (instance-level and org-level backups run on separate, offset schedules), and can restore a backup at either instance or organization level through `POST /dr-backups/{id}/restore`. It also exposes an on-demand per-tenant export (`POST /orgs/{id}/export`) that pulls an organization's own data, excluding platform-internal credentials.
-- **Schema migrations**: Raum applies Flyway migrations to its own database on startup, and sweeps every other database instance it has issued credentials for, applying any pending migration to each. The sweep can be re-triggered manually via `POST /migrations/run`.
+- **Schema migrations**: two mechanisms. At bootstrap, three dedicated Flyway containers (`raum-db-init`, `vassago-db-init`, `bime-db-init`) apply each service's schema migrations from `services/common/src/main/resources/db/migration/{raum,vassago,bime}` before that service's own container starts. At runtime, Raum also applies Flyway migrations to its own database on startup and sweeps every other database instance it has issued credentials for, applying any pending migration to each; this sweep can be re-triggered manually via `POST /migrations/run`, and is the mechanism that reconciles instances discovered after initial bootstrap.
 
 > **Database separation note:** The three databases run as separate containers in development to enforce proper tenant isolation at the infrastructure level during testing. In practice, they can all live on the same PostgreSQL instance without issue, although it is not the intended setup.
 
@@ -224,13 +225,13 @@ Rounded nodes (Mailgun, FX rate provider) and the dashed-border style mark third
 | Language | Java 25 |
 | Framework | Spring Boot 4.1.0, Spring WebFlux |
 | Database | PostgreSQL 18 (R2DBC) |
-| Schema migrations | Flyway |
+| Schema migrations | Flyway 12.4.0 |
 | Secrets | OpenBao 2.5.2 (production mode, Raft storage) |
 | Session cache | Redis 7 |
-| API docs | springdoc-openapi 3.0.2 |
+| API docs | springdoc-openapi 3.1.0 |
 | Testing | JUnit 5, Testcontainers 2.0.5 |
 | Build | Maven (multi-module) |
-| Frontend | React 18, TypeScript, Vite |
+| Frontend | React 19, TypeScript, Vite |
 | Reverse proxy / TLS | nginx |
 | Observability | Grafana, Loki, Promtail, Prometheus |
 | CI | GitHub Actions |
@@ -256,7 +257,7 @@ Copy the example file and fill in your values:
 cp .env.example .env
 ```
 
-The values you **must** set before starting are the Mailgun credentials (required for password recovery emails), the Grafana admin user/password (compose refuses to start without them, and Grafana is reachable at `grafana.<BASE_DOMAIN>` so there's no silent `admin`/`admin` default), and the Grafana SMTP settings (required for alert emails to send). Everything else has working dev defaults. The `.env` file is gitignored and never committed.
+The values you **must** set before starting are the Mailgun credentials (required for password recovery emails) and the Grafana settings: `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_SMTP_USER`, `GRAFANA_SMTP_PASSWORD`, and `GRAFANA_ALERT_EMAIL` all fail the compose startup outright if left unset (there's no silent `admin`/`admin` default, and no alerting without a real SMTP account). Everything else has working dev defaults. The `.env` file is gitignored and never committed.
 
 Key variables:
 
@@ -281,8 +282,9 @@ Key variables:
 | `FX_PROVIDER_API_KEY` / `FX_PROVIDER_BASE_URL` | External exchange-rate provider used for multi-currency pricing | *(required for FX refresh)* |
 | `VASSAGO_COOKIE_DOMAIN` | Domain scope for Vassago's refresh-token cookie | *(unset)* |
 | `VASSAGO_RATE_LIMIT_WINDOW_SECONDS` / `VASSAGO_RATE_LIMIT_MAX_REQUESTS` | Per-IP rate limit window and request cap for Vassago's public endpoints | `60` / `20` |
-| `GRAFANA_SMTP_HOST` / `_USER` / `_PASSWORD` / `_FROM_ADDRESS` | SMTP relay Grafana uses to send alert emails | *(required for alerting)* |
-| `GRAFANA_ALERT_EMAIL` | Recipient address for Grafana alert notifications | *(required for alerting)* |
+| `GRAFANA_SMTP_HOST` / `_USER` / `_PASSWORD` | SMTP relay Grafana uses to send alert emails; compose refuses to start if any is unset | `smtp.mailgun.org:587` / *(required, no default)* / *(required, no default)* |
+| `GRAFANA_SMTP_FROM_ADDRESS` | Sender address for Grafana alert emails | `alerts@${MAILGUN_DOMAIN}` |
+| `GRAFANA_ALERT_EMAIL` | Recipient address for Grafana alert notifications; compose refuses to start if unset | *(required, no default)* |
 
 OpenBao itself has no root-token env var to configure: on first boot it initializes with Shamir key shares and auto-unseals using the keys it writes to a Docker volume (see `scripts/init-openbao.sh`); nothing to set in `.env` for it.
 
@@ -297,8 +299,8 @@ docker compose up --build
 This brings up OpenBao, all PostgreSQL instances, Redis, and all three services. An init sequence runs automatically:
 
 1. **OpenBao** is configured. KV, database, and transit secrets engines are enabled; AppRole auth is set up for each service; the JWT signing key is generated.
-2. **Raum and Bime database schemas** are initialized from their respective `init.sql` files.
-3. **`kenoma-pre-init`** runs after the above complete. It provisions the Vassago database schema, seeds the platform operator account, registers both database connections in OpenBao, and writes dynamic runtime values (service IDs, AppRole tokens) to `.env-out/.env` for the services to consume on startup.
+2. **`raum-db-init`, `vassago-db-init`, `bime-db-init`** each run `flyway migrate` against their respective database, applying that service's schema migrations from `services/common/src/main/resources/db/migration/{raum,vassago,bime}`.
+3. **`kenoma-pre-init`** runs after all three of the above complete. It registers the database connections and roles in OpenBao, seeds the platform operator account, and writes dynamic runtime values (service IDs, AppRole tokens) to `.env-out/.env` for the services to consume on startup. It does not touch schema DDL.
 
 ### 3. Seed a demo user (optional)
 
@@ -310,15 +312,16 @@ Creates the user defined by `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` in your `.e
 
 ### 4. Access the services
 
-Each service's app port is bound to `127.0.0.1` only (not exposed to the network) and is reachable directly for local development:
+None of Raum, Vassago, or Bime publish their app port to the host, even in local development; nginx is the only path in. The stack (including a fresh `docker compose up`) is reachable at:
 
-| Service | Base URL | OpenAPI UI |
-|---|---|---|
-| Raum | http://localhost:8080 | http://localhost:8080/swagger-ui.html |
-| Vassago | http://localhost:8081 | http://localhost:8081/swagger-ui.html |
-| Bime | http://localhost:8082 | http://localhost:8082/swagger-ui.html |
+| | URL |
+|---|---|
+| API (Raum/Vassago/Bime, path-routed) | https://api.\<BASE_DOMAIN\> |
+| Grafana | https://grafana.\<BASE_DOMAIN\> |
 
-In a full deployment, nginx instead fronts everything at `https://api.<BASE_DOMAIN>` (path-routed to the three services) and `https://grafana.<BASE_DOMAIN>` for the Grafana dashboards.
+`BASE_DOMAIN` defaults to `localhost`, so a default local setup is at `https://api.localhost` and `https://grafana.localhost`.
+
+Swagger UI and `/v3/api-docs` are not currently routed through nginx (`gateway/nginx.conf.template` has no `location` block for them), so they are not reachable at `api.<BASE_DOMAIN>/swagger-ui.html`. To browse a service's live OpenAPI docs during development, either publish that service's port temporarily in your local compose override, or use `docker compose exec <service> curl -s http://localhost:<port>/v3/api-docs` to pull the raw spec. For a stable, no-workaround way to browse the docs, use the static Redoc export described under API docs export below.
 
 To attach a remote debugger, set the relevant `*_JDWP_OPTS` variable in `.env` (see above) before starting; debug agents are off by default. Once enabled, debuggers can attach on ports `5005` (Raum), `5006` (Vassago), and `5007` (Bime).
 
@@ -326,14 +329,26 @@ To attach a remote debugger, set the relevant `*_JDWP_OPTS` variable in `.env` (
 
 Merges to `main` auto-deploy to the test VPS via `.github/workflows/cd.yml`, which runs on a
 GitHub Actions self-hosted runner installed on the VPS itself (labeled `kenoma-vps`). The workflow
-checks out the pushed commit, runs `docker compose up -d --build` (Compose only rebuilds/restarts
-containers whose image or config actually changed), and waits for Raum/Vassago/Bime's
-`/actuator/health` endpoints to report healthy before finishing. `.env` on the VPS is never touched
-by the workflow; it must already exist there, same as any other deployment target.
+checks out the pushed commit, runs `docker compose up -d --build`, and waits for Raum/Vassago/Bime's
+`/actuator/health` endpoints to report healthy before finishing. Compose only rebuilds a container
+whose image or config actually changed, but it always restarts a container that isn't currently
+running, which includes one-shot init/migration containers like `openbao-init` and the `*-db-init`
+Flyway containers: they exit after their first run, so a plain `up -d` starts (and therefore reruns)
+them on every deploy regardless of whether their own image or config changed. `.env` on the VPS is
+never touched by the workflow; it must already exist there, same as any other deployment target.
 
 To register the runner on a new VPS: GitHub → repo Settings → Actions → Runners → New self-hosted
 runner, label it `kenoma-vps`, and install it as a systemd service (`./svc.sh install && ./svc.sh
 start`) running as a non-root user that's a member of the `docker` group.
+
+### API docs export
+
+`.github/workflows/api-docs.yml` is a manually-triggered (`workflow_dispatch`) workflow, also run on
+the `kenoma-vps` runner, that produces a static, browsable copy of the OpenAPI docs without needing
+swagger-ui's live endpoints. It runs `scripts/export-api-docs.sh --upload`, which pulls the current
+`/v3/api-docs` JSON from each running service, merges the three specs with `redocly/cli join`, builds
+static HTML with `redocly/cli build-docs`, and uploads it to the same Hetzner S3 bucket used for DR
+backups, under an `api-docs/` prefix. It's also kept as a 30-day GitHub Actions artifact on each run.
 
 ### 5. Run the frontend (optional)
 
@@ -343,7 +358,7 @@ npm install
 npm run dev
 ```
 
-Serves the admin UI at http://localhost:5173, calling the services directly. Make sure `CORS_ALLOWED_ORIGINS` in `.env` includes `http://127.0.0.1:5173` (or your dev origin) before starting the backend.
+Serves the admin UI at http://localhost:5173, calling the API through nginx at `https://api.<BASE_DOMAIN>` (`frontend/src/api/base.ts`), the same as a production frontend build. Make sure `CORS_ALLOWED_ORIGINS` in `.env` includes `http://127.0.0.1:5173` (or your dev origin) before starting the backend.
 
 ---
 
@@ -363,11 +378,12 @@ Integration tests use Testcontainers and spin up real PostgreSQL, OpenBao, and R
 
 ## CI
 
-GitHub Actions runs on every pull request to `main` or `develop`:
+On every pull request to `main` or `develop`, GitHub Actions runs:
 
 - **Unit Tests**: fast feedback; no Docker required
 - **Integration Tests**: full Testcontainers suite against real dependencies
-- **CodeQL**: static security analysis
+
+**CodeQL** static security analysis runs on the same pull requests, on every push to `main` or `develop`, and on a weekly schedule, not only on pull requests.
 
 ---
 
