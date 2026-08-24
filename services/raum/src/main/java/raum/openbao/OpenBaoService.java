@@ -184,6 +184,36 @@ public class OpenBaoService {
     }
 
     /**
+     * Revokes every outstanding lease issued under both tiers of a credentials row's Vault role, in
+     * one shot each - no need to track individual lease IDs, {@code revoke-prefix} kills anything
+     * under that role's {@code database/creds/<role>} path regardless of how many leases (or renewals)
+     * are currently live. Used when an org is deactivated ({@link raum.services.OrganizationService})
+     * so already-issued ephemeral DB connections stop working immediately, rather than just running
+     * out their TTL (default 1h, max 24h).
+     */
+    public Mono<Void> revokeAllLeasesForCredential(UUID credentialId) {
+        return revokeLeasesForRole(CredentialTier.ADMIN.roleName(credentialId.toString()))
+                .then(revokeLeasesForRole(CredentialTier.MEMBER.roleName(credentialId.toString())));
+    }
+
+    private Mono<Void> revokeLeasesForRole(String roleName) {
+        return webClient.post()
+                .uri("/v1/sys/leases/revoke-prefix/database/creds/{role}", roleName)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body -> {
+                            log.error("revokeLeasesForRole FAILED [{}]: {}", response.statusCode(), body);
+                            return Mono.error(new RuntimeException("revokeLeasesForRole failed: " + body));
+                        })
+                )
+                .bodyToMono(Void.class)
+                .onErrorResume(e -> {
+                    log.warn("revokeAllLeasesForCredential: continuing past revoke failure for role {}", roleName, e);
+                    return Mono.empty();
+                });
+    }
+
+    /**
      * Ensures a read-only DR-backup role exists for an already-registered database connection
      * (see {@link #registerDatabaseConnection}). Reuses that connection rather than registering a
      * new one, since the physical instance behind it is shared across every org/service credential
