@@ -94,6 +94,15 @@ public class OrganizationService {
         return repository.findAllByStoppedAtIsNull().map(Organization::getId);
     }
 
+    /** For machine-to-machine callers that need a single org's active status without pulling the
+     * full active-ids list (e.g. Vassago's login flow, see {@link raum.controllers.OrganizationsController#isOrgActive}) -
+     * true for an org that exists and isn't deactivated, false both for a deactivated org and for
+     * one that doesn't exist at all (deliberately not distinguished, so this can't be used to probe
+     * org-id existence). */
+    public Mono<Boolean> isOrgActive(UUID orgId) {
+        return repository.existsByIdAndStoppedAtIsNull(orgId);
+    }
+
     public Mono<OrgResponseDTO> getOrgDataById(UUID id) {
         return repository.findById(id).map(this::toResponseDTO);
     }
