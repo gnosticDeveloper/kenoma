@@ -28,6 +28,7 @@ import raum.dto.OrgResponseDTO;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -474,6 +475,84 @@ class EphemeralCredentialsIT {
         assertThat(result).isNotNull();
         assertThat(result.getOrgId()).isEqualTo(newOrg.getId());
         assertThat(result.getServiceId()).isEqualTo(serviceId);
+    }
+
+    /**
+     * Regression test for the org-deactivation lease-revocation gap: {@code OrganizationService.
+     * deleteOrg} calls {@code OpenBaoService.revokeAllLeasesForCredential}, which needs
+     * {@code sys/leases/revoke-prefix/database/creds/*} on raum's own OpenBao AppRole policy
+     * ({@code raum-service-policy.hcl}). That capability was missing entirely at first - the code
+     * compiled and ran without error (the revoke call's failure is swallowed via onErrorResume, by
+     * design, so deactivation itself never fails), but Vault silently 403'd every revoke attempt and
+     * the underlying Postgres role never actually got dropped.
+     *
+     * <p>This is deliberately NOT a unit test with a mocked OpenBaoService - a mock can't catch a
+     * missing real-world Vault ACL grant. This class is the one IT suite where raum's own
+     * OpenBaoService authenticates as the real, policy-restricted {@code raum-service} AppRole
+     * (not the root token {@code OnboardingIT} uses via a mocked {@code OpenBaoProvisioner}), so a
+     * regression here - re-missing the policy stanza, or Vault's sudo-path rules changing - would
+     * make this test fail with a real 403 surfacing as the org's DB role staying alive after
+     * deactivation, exactly like the bug that prompted this test.
+     */
+    @Test
+    void deleteOrg_revokesLeaseUsingRaumsOwnRestrictedOpenBaoToken() throws Exception {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        OrgResponseDTO newOrg = client.post().uri("/orgs")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new OrgRequestDTO("Deactivate Cascade Org", "cascade@test.com", "Test Admin"))
+                .retrieve()
+                .bodyToMono(OrgResponseDTO.class)
+                .block();
+        assertThat(newOrg).isNotNull();
+
+        BasicCredentialDTO registered = client.post().uri("/credentials")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(CredentialsDTO.builder()
+                        .orgId(newOrg.getId())
+                        .serviceId(serviceId)
+                        .userName("admin")
+                        .password("adminpass")
+                        .dbHost("vassago-postgres")
+                        .dbPort(5432)
+                        .dbName("vassago")
+                        .dbEngine("postgres")
+                        .build())
+                .retrieve()
+                .bodyToMono(BasicCredentialDTO.class)
+                .block();
+        assertThat(registered).isNotNull();
+
+        CredentialsDTO ephemeral = client.post().uri("/credentials/ephemeral")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Vault-Token", vassagoToken)
+                .bodyValue(BasicCredentialDTO.builder()
+                        .orgId(newOrg.getId())
+                        .serviceId(serviceId)
+                        .build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block();
+        assertThat(ephemeral).isNotNull();
+
+        String jdbcUrl = "jdbc:postgresql://localhost:%d/vassago".formatted(operationalDb.getMappedPort(5432));
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, ephemeral.getUserName(), ephemeral.getPassword())) {
+            assertThat(conn.isValid(2)).isTrue();
+        }
+
+        client.delete().uri("/orgs/{id}", newOrg.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .retrieve()
+                .bodyToMono(Void.class)
+                .block();
+
+        assertThatThrownBy(() -> DriverManager.getConnection(jdbcUrl, ephemeral.getUserName(), ephemeral.getPassword()))
+                .isInstanceOf(SQLException.class);
     }
 
     @Test
