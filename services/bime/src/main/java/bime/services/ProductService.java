@@ -63,7 +63,7 @@ public class ProductService {
         );
     }
 
-    public Flux<ProductResponseDTO> getProducts(List<UUID> optionIds) {
+    public Flux<ProductResponseDTO> getProducts(List<UUID> optionIds, boolean matchAll) {
         boolean hasFilter = optionIds != null && !optionIds.isEmpty();
         return ctx.withHandleMany((caller, handle) -> handle.client().sql("""
                 SELECT p.id, p.org_id, p.sku, p.name, p.description, p.is_active, p.created_at, p.modified_at,
@@ -71,16 +71,17 @@ public class ProductService {
                 FROM products p
                 LEFT JOIN product_variants pv ON pv.product_id = p.id
                 WHERE p.org_id = :orgId
-                  AND (:hasFilter = false OR EXISTS (
-                      SELECT 1 FROM product_metadata_assignments pma
+                  AND (:hasFilter = false OR (
+                      SELECT COUNT(DISTINCT pos.option_id) FROM product_metadata_assignments pma
                       JOIN product_option_selections pos ON pos.assignment_id = pma.id
                       WHERE pma.product_id = p.id AND pos.option_id = ANY(:optionIds)
-                  ))
+                  ) >= CASE WHEN :matchAll THEN cardinality(:optionIds) ELSE 1 END)
                 GROUP BY p.id
                 ORDER BY p.name
                 """)
                 .bind("orgId", caller.getOrgId())
                 .bind("hasFilter", hasFilter)
+                .bind("matchAll", matchAll)
                 .bind("optionIds", (hasFilter ? optionIds : List.<UUID>of()).toArray(new UUID[0]))
                 .fetch()
                 .all()

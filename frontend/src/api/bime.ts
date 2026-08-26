@@ -58,8 +58,8 @@ export const bime = {
   products: {
     create: (dto: ProductRequest, token: string) =>
       req<ProductResponse>('/products', { method: 'POST', ...payload(dto) }, token),
-    list: (token: string, optionIds?: string[]) =>
-      req<ProductResponse[]>(`/products${query({ optionIds })}`, { method: 'GET' }, token),
+    list: (token: string, optionIds?: string[], matchAll?: boolean) =>
+      req<ProductResponse[]>(`/products${query({ optionIds, matchAll: matchAll ? 'true' : undefined })}`, { method: 'GET' }, token),
     get: (id: string, token: string) =>
       req<ProductResponse>(`/products/${id}`, { method: 'GET' }, token),
     update: (id: string, dto: ProductRequest, token: string) =>
@@ -74,10 +74,10 @@ export const bime = {
   variants: {
     create: (productId: string, dto: ProductVariantRequest, token: string) =>
       req<ProductVariantResponse>(`/products/${productId}/variants`, { method: 'POST', ...payload(dto) }, token),
-    list: (productId: string, token: string, currency?: string, optionIds?: string[]) =>
-      req<ProductVariantResponse[]>(`/products/${productId}/variants${query({ currency, optionIds })}`, { method: 'GET' }, token),
-    search: (optionIds: string[], token: string, currency?: string) =>
-      req<ProductVariantResponse[]>(`/products/variants/search${query({ optionIds, currency })}`, { method: 'GET' }, token),
+    list: (productId: string, token: string, currency?: string, optionIds?: string[], matchAll?: boolean) =>
+      req<ProductVariantResponse[]>(`/products/${productId}/variants${query({ currency, optionIds, matchAll: matchAll ? 'true' : undefined })}`, { method: 'GET' }, token),
+    search: (optionIds: string[], token: string, currency?: string, matchAll?: boolean) =>
+      req<ProductVariantResponse[]>(`/products/variants/search${query({ optionIds, currency, matchAll: matchAll ? 'true' : undefined })}`, { method: 'GET' }, token),
     get: (productId: string, variantId: string, token: string, currency?: string) =>
       req<ProductVariantResponse>(`/products/${productId}/variants/${variantId}${query({ currency })}`, { method: 'GET' }, token),
     patch: (productId: string, variantId: string, dto: ProductVariantRequest, token: string) =>

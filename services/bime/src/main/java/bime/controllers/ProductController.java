@@ -48,7 +48,8 @@ public class ProductController {
     }
 
     @Operation(summary = "List all products", description = "Returns all products for the authenticated organization with their variant count. " +
-            "If optionIds is passed, only products with at least one metadata option selection matching one of the given IDs are returned. Requires BIME_VIEW.")
+            "If optionIds is passed, only products with a metadata option selection matching the given IDs are returned - " +
+            "matching at least one of them by default, or all of them when matchAll=true. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of products (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -56,12 +57,15 @@ public class ProductController {
     })
     @GetMapping
     @PreAuthorize("hasAuthority('BIME_VIEW')")
-    public Flux<ProductResponseDTO> getProducts(@RequestParam(required = false) List<UUID> optionIds) {
-        return productService.getProducts(optionIds);
+    public Flux<ProductResponseDTO> getProducts(
+            @RequestParam(required = false) List<UUID> optionIds,
+            @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
+        return productService.getProducts(optionIds, matchAll);
     }
 
     @Operation(summary = "Search variants across all products by shared option values",
-            description = "Returns variants from any product in the org that match at least one of the given metadata option IDs. " +
+            description = "Returns variants from any product in the org matching the given metadata option IDs - " +
+                    "matching at least one of them by default, or all of them when matchAll=true. " +
                     "Useful for finding every variant sharing a characteristic (e.g. all Red variants across every product). " +
                     "If currency is passed, each variant's price is converted from its stored priceCurrency to it. Requires BIME_VIEW.")
     @ApiResponses({
@@ -74,8 +78,9 @@ public class ProductController {
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<ProductVariantResponseDTO> searchVariants(
             @RequestParam List<UUID> optionIds,
-            @RequestParam(required = false) String currency) {
-        return productVariantService.searchVariantsByOptions(optionIds, currency);
+            @RequestParam(required = false) String currency,
+            @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
+        return productVariantService.searchVariantsByOptions(optionIds, currency, matchAll);
     }
 
     @Operation(summary = "Get a product by ID", description = "Returns a single product with its metadata and variants. Requires BIME_VIEW.")

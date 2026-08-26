@@ -11,6 +11,7 @@ import { RowActionsMenu } from '../components/RowActionsMenu'
 import { Combobox, MultiCombobox } from '../components/Combobox'
 import { CopyButton } from '../components/CopyButton'
 import { Feedback } from '../components/Feedback'
+import { FilterChips, FilterDisclosure, toggleOptionId } from '../components/OptionFilter'
 import type { Permissions } from '../auth'
 import type {
   LocationResponse,
@@ -44,10 +45,11 @@ function buildAssignments(rows: AssignmentRow[]): ProductMetadataAssignmentItem[
   return rows.filter(r => r.metadataId).map(r => ({ metadataId: r.metadataId, optionIds: r.optionIds }))
 }
 
-function AssignmentsInput({ value, onChange, metadataDefs }: {
+function AssignmentsInput({ value, onChange, metadataDefs, addLabel }: {
   value: AssignmentRow[]
   onChange: (rows: AssignmentRow[]) => void
   metadataDefs: ProductMetadataResponse[]
+  addLabel?: string
 }) {
   const { t } = useTranslation()
   const metadataItems = metadataDefs.map(m => ({ id: m.id, label: m.name }))
@@ -76,7 +78,7 @@ function AssignmentsInput({ value, onChange, metadataDefs }: {
         )
       })}
       <button className="btn btn-outline btn-sm" type="button" onClick={() => onChange([...value, { key: newAssignmentRowKey(), metadataId: '', optionIds: [] }])}>
-        {t('bimeProductsPage.addAssignment')}
+        {addLabel ?? t('bimeProductsPage.addAssignment')}
       </button>
     </div>
   )
@@ -98,19 +100,20 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   useEffect(() => { metadataDefs.call(() => bime.metadata.list(token)) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
   const metadataDefsList = metadataDefs.state.status === 'success' ? metadataDefs.state.data : []
 
-  const allOptionItems = metadataDefsList.flatMap(m =>
-    m.options.map(o => ({ id: o.id, label: `${o.value} (${m.name})` })))
-
   const allProducts = useApiCall<ProductResponse[]>()
   const allProductsList = allProducts.state.status === 'success' ? allProducts.state.data : []
 
   const [productOptionFilter, setProductOptionFilter] = useState<string[]>([])
+  const [productMatchAll, setProductMatchAll] = useState(false)
+  function toggleProductOptionFilter(optionId: string) {
+    setProductOptionFilter(prev => toggleOptionId(prev, optionId))
+  }
   const list = useApiCall<ProductResponse[]>()
   function reload() {
-    list.call(() => bime.products.list(token, productOptionFilter.length ? productOptionFilter : undefined))
+    list.call(() => bime.products.list(token, productOptionFilter.length ? productOptionFilter : undefined, productMatchAll))
     allProducts.call(() => bime.products.list(token))
   }
-  useEffect(reload, [token, productOptionFilter])
+  useEffect(reload, [token, productOptionFilter, productMatchAll])
   const products = list.state.status === 'success' ? list.state.data : []
 
   // ── Create / Edit product ──
@@ -132,6 +135,11 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     setEditing(null)
     setForm(EMPTY_PRODUCT_FORM)
     setModalOpen(true)
+  }
+
+  function openVariants(product: ProductResponse) {
+    setSelectedProductId(product.id)
+    setActiveTab('variants')
   }
 
   function openEdit(product: ProductResponse) {
@@ -188,18 +196,22 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     if (viewCurrency.length === 0 || viewCurrency.length === 3) setAppliedViewCurrency(viewCurrency)
   }, [viewCurrency])
   const [variantOptionFilter, setVariantOptionFilter] = useState<string[]>([])
+  const [variantMatchAll, setVariantMatchAll] = useState(false)
+  function toggleVariantOptionFilter(optionId: string) {
+    setVariantOptionFilter(prev => toggleOptionId(prev, optionId))
+  }
   const variants = useApiCall<ProductVariantResponse[]>()
   function reloadVariants() {
     if (selectedProductId) {
       variants.call(() => bime.variants.list(
         selectedProductId, token, appliedViewCurrency || undefined,
-        variantOptionFilter.length ? variantOptionFilter : undefined,
+        variantOptionFilter.length ? variantOptionFilter : undefined, variantMatchAll,
       ))
     } else if (variantOptionFilter.length > 0) {
-      variants.call(() => bime.variants.search(variantOptionFilter, token, appliedViewCurrency || undefined))
+      variants.call(() => bime.variants.search(variantOptionFilter, token, appliedViewCurrency || undefined, variantMatchAll))
     }
   }
-  useEffect(reloadVariants, [selectedProductId, appliedViewCurrency, variantOptionFilter])
+  useEffect(reloadVariants, [selectedProductId, appliedViewCurrency, variantOptionFilter, variantMatchAll])
   const variantList = variants.state.status === 'success' ? variants.state.data : []
   const searchingAcrossProducts = !selectedProductId && variantOptionFilter.length > 0
 
@@ -321,7 +333,7 @@ export default function BimeProductsPage({ token, permissions }: Props) {
         <RowActionsMenu actions={[
           { label: t('common.actions.edit'), onClick: () => openEdit(p) },
           { label: t('bimeProductsPage.assignMetadata'), onClick: () => openAssign(p) },
-          { label: t('bimeProductsPage.manageVariants'), onClick: () => { setSelectedProductId(p.id); setActiveTab('variants') } },
+          { label: t('bimeProductsPage.manageVariants'), onClick: () => openVariants(p) },
           { label: t('common.actions.deactivate'), onClick: () => remove(p), danger: true },
         ]} />
       ),
@@ -424,15 +436,16 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       >
         {activeTab === 'products' && (
           <div className="panel">
-            <div className="field" style={{ marginBottom: '16px', maxWidth: '420px' }}>
-              <label>{t('bimeProductsPage.filterByOptions')}</label>
-              <MultiCombobox
-                items={allOptionItems}
-                value={productOptionFilter}
-                onChange={setProductOptionFilter}
-                placeholder={t('bimeProductsPage.optionsPlaceholder')}
+            <FilterDisclosure activeCount={productOptionFilter.length}>
+              <FilterChips
+                metadataDefs={metadataDefsList}
+                selectedOptionIds={productOptionFilter}
+                onToggle={toggleProductOptionFilter}
+                onClear={() => setProductOptionFilter([])}
+                matchAll={productMatchAll}
+                onMatchAllChange={setProductMatchAll}
               />
-            </div>
+            </FilterDisclosure>
             {list.state.status === 'error' && <Feedback state={list.state} />}
             <DataTable
               columns={productColumns}
@@ -440,7 +453,7 @@ export default function BimeProductsPage({ token, permissions }: Props) {
               rowKey={p => p.id}
               searchable
               searchText={p => `${p.sku} ${p.name}`}
-              onRowClick={permissions.canManageBime ? openEdit : undefined}
+              onRowClick={openVariants}
               emptyLabel={t('bimeProductsPage.emptyState')}
               headerAction={permissions.canManageBime
                 ? <button className="btn btn-primary" onClick={openCreate} type="button">{t('bimeProductsPage.createAction')}</button>
@@ -451,26 +464,25 @@ export default function BimeProductsPage({ token, permissions }: Props) {
 
         {activeTab === 'variants' && (
           <div className="panel">
-            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '16px' }}>
-              <div className="field" style={{ maxWidth: '320px', flex: 1 }}>
-                <label>{t('bimeProductsPage.name')}</label>
-                <Combobox
-                  items={productItems}
-                  value={selectedProductId}
-                  onChange={id => { setSelectedProductId(id); setSelectedVariantIds(new Set()) }}
-                  placeholder={t('bimeProductsPage.productPlaceholder')}
-                />
-              </div>
-              <div className="field" style={{ maxWidth: '420px', flex: 1 }}>
-                <label>{t('bimeProductsPage.filterByOptions')}</label>
-                <MultiCombobox
-                  items={allOptionItems}
-                  value={variantOptionFilter}
-                  onChange={setVariantOptionFilter}
-                  placeholder={t('bimeProductsPage.optionsPlaceholder')}
-                />
-              </div>
+            <div className="field" style={{ marginBottom: '16px', maxWidth: '320px' }}>
+              <label>{t('bimeProductsPage.name')}</label>
+              <Combobox
+                items={productItems}
+                value={selectedProductId}
+                onChange={id => { setSelectedProductId(id); setSelectedVariantIds(new Set()) }}
+                placeholder={t('bimeProductsPage.productPlaceholder')}
+              />
             </div>
+            <FilterDisclosure activeCount={variantOptionFilter.length}>
+              <FilterChips
+                metadataDefs={metadataDefsList}
+                selectedOptionIds={variantOptionFilter}
+                onToggle={toggleVariantOptionFilter}
+                onClear={() => setVariantOptionFilter([])}
+                matchAll={variantMatchAll}
+                onMatchAllChange={setVariantMatchAll}
+              />
+            </FilterDisclosure>
             {!selectedProductId && !searchingAcrossProducts ? (
               <div className="empty-state">{t('bimeProductsPage.selectProductHint')}</div>
             ) : (
