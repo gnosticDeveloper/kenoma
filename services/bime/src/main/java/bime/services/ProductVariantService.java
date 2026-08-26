@@ -13,8 +13,10 @@ import bime.dto.VariantPriceUpdateDTO;
 import bime.dto.VariantStockDTO;
 import bime.security.BimeAuthentication;
 import common.exception.BadRequestException;
+import common.exception.ConflictException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -45,19 +47,33 @@ public class ProductVariantService {
                         .flatMap(palette -> validateOptions(palette, dto.getOptionIds()))
                         .flatMap(validatedOptionIds ->
                                 checkDuplicateOptionCombination(handle, productId, caller.getOrgId(), validatedOptionIds)
-                                        .then(insertVariant(handle, productId, caller.getOrgId(), dto))
+                                        .then(generateVariantSku(handle, productId, caller.getOrgId(), validatedOptionIds))
+                                        .flatMap(sku -> insertVariant(handle, productId, caller.getOrgId(), dto, sku))
                                         .flatMap(variantId ->
                                                 insertVariantOptions(handle, variantId, validatedOptionIds)
                                                         .thenReturn(variantId))
                         )
                         .flatMap(variantId -> fetchVariantById(handle, variantId, productId, caller.getOrgId()))
-        )));
+        ))).onErrorMap(DataIntegrityViolationException.class, e ->
+                new ConflictException("A variant with the generated SKU already exists"));
     }
 
-    public Flux<ProductVariantResponseDTO> getVariantsForProduct(UUID productId, String targetCurrency) {
+    public Flux<ProductVariantResponseDTO> getVariantsForProduct(UUID productId, String targetCurrency, List<UUID> optionIds) {
         return ctx.withHandleMany((caller, handle) ->
                 verifyProductExists(handle, productId, caller.getOrgId())
-                        .thenMany(loadVariantsForProduct(handle, productId, caller.getOrgId()))
+                        .thenMany(loadVariantsForProduct(handle, productId, caller.getOrgId(), optionIds))
+                        .collectList()
+                        .flatMapMany(variants -> applyCurrencyConversion(variants, targetCurrency))
+        );
+    }
+
+    /** Finds variants across every product in the org sharing at least one of the given option values. */
+    public Flux<ProductVariantResponseDTO> searchVariantsByOptions(List<UUID> optionIds, String targetCurrency) {
+        if (optionIds == null || optionIds.isEmpty()) {
+            return Flux.error(new BadRequestException("optionIds must not be empty"));
+        }
+        return ctx.withHandleMany((caller, handle) ->
+                loadVariantsByOptions(handle, caller.getOrgId(), optionIds)
                         .collectList()
                         .flatMapMany(variants -> applyCurrencyConversion(variants, targetCurrency))
         );
@@ -126,18 +142,12 @@ public class ProductVariantService {
         return ctx.withHandle((caller, handle) -> {
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     UPDATE product_variants
-                    SET sku            = COALESCE(:sku, sku),
-                        is_active      = COALESCE(:isActive, is_active),
+                    SET is_active      = COALESCE(:isActive, is_active),
                         price          = COALESCE(:price, price),
                         price_currency = COALESCE(:priceCurrency, price_currency)
                     WHERE id = :variantId AND product_id = :productId AND org_id = :orgId
                     RETURNING id
                     """);
-            if (dto.getSku() != null) {
-                spec = spec.bind("sku", dto.getSku());
-            } else {
-                spec = spec.bindNull("sku", String.class);
-            }
             if (dto.getIsActive() != null) {
                 spec = spec.bind("isActive", dto.getIsActive());
             } else {
@@ -280,7 +290,11 @@ public class ProductVariantService {
 
     // Called by ProductService to embed variants in the product detail response
     public Flux<ProductVariantResponseDTO> loadVariantsForProduct(BimeDbHandle handle, UUID productId, UUID orgId) {
-        return loadVariantRows(handle, productId, orgId)
+        return loadVariantsForProduct(handle, productId, orgId, null);
+    }
+
+    public Flux<ProductVariantResponseDTO> loadVariantsForProduct(BimeDbHandle handle, UUID productId, UUID orgId, List<UUID> optionIds) {
+        return loadVariantRows(handle, productId, orgId, optionIds)
                 .collectList()
                 .flatMapMany(variants -> {
                     if (variants.isEmpty()) return Flux.empty();
@@ -293,25 +307,33 @@ public class ProductVariantService {
                                         .map(stockRows -> mergeVariantData(variants, optionRows, stockRows));
                             })
                             .flatMapMany(Flux::fromIterable);
-                })
-                .collectList()
-                .flatMapMany(variants -> applyProductSkuFallback(handle, productId, orgId, variants));
+                });
     }
 
-    /** Variants without their own sku display the parent product's sku instead of null. */
-    private Flux<ProductVariantResponseDTO> applyProductSkuFallback(
-            BimeDbHandle handle, UUID productId, UUID orgId, List<ProductVariantResponseDTO> variants) {
-        if (variants.stream().allMatch(v -> v.getSku() != null)) {
-            return Flux.fromIterable(variants);
-        }
-        return fetchProductSku(handle, productId, orgId)
-                .map(productSku -> {
-                    for (ProductVariantResponseDTO variant : variants) {
-                        if (variant.getSku() == null) variant.setSku(productSku);
-                    }
-                    return variants;
-                })
-                .flatMapMany(Flux::fromIterable);
+    private Flux<ProductVariantResponseDTO> loadVariantsByOptions(BimeDbHandle handle, UUID orgId, List<UUID> optionIds) {
+        return handle.client().sql("""
+                SELECT DISTINCT pv.id, pv.product_id, pv.org_id, pv.sku, pv.is_active, pv.created_at, pv.price, pv.price_currency
+                FROM product_variants pv
+                JOIN product_variant_options pvo ON pvo.variant_id = pv.id
+                WHERE pv.org_id = :orgId AND pvo.option_id = ANY(:optionIds)
+                ORDER BY pv.created_at
+                """)
+                .bind("orgId", orgId)
+                .bind("optionIds", optionIds.toArray(new UUID[0]))
+                .fetch()
+                .all()
+                .map(this::toVariantResponseDTO)
+                .collectList()
+                .flatMapMany(variants -> {
+                    if (variants.isEmpty()) return Flux.empty();
+                    List<UUID> variantIds = variants.stream().map(ProductVariantResponseDTO::getId).toList();
+                    return loadOptionsForVariantIds(handle, variantIds)
+                            .collectList()
+                            .flatMap(optionRows -> loadStockForVariants(handle, orgId, variantIds)
+                                    .collectList()
+                                    .map(stockRows -> mergeVariantData(variants, optionRows, stockRows)))
+                            .flatMapMany(Flux::fromIterable);
+                });
     }
 
     private Mono<String> fetchProductSku(BimeDbHandle handle, UUID productId, UUID orgId) {
@@ -325,44 +347,68 @@ public class ProductVariantService {
                 .map(row -> (String) row.get("sku"));
     }
 
-    private Flux<ProductVariantResponseDTO> loadVariantRows(BimeDbHandle handle, UUID productId, UUID orgId) {
+    private Flux<ProductVariantResponseDTO> loadVariantRows(BimeDbHandle handle, UUID productId, UUID orgId, List<UUID> optionIds) {
+        boolean hasFilter = optionIds != null && !optionIds.isEmpty();
         return handle.client().sql("""
                 SELECT id, product_id, org_id, sku, is_active, created_at, price, price_currency
                 FROM product_variants
                 WHERE product_id = :productId AND org_id = :orgId
+                  AND (:hasFilter = false OR id IN (
+                      SELECT variant_id FROM product_variant_options WHERE option_id = ANY(:optionIds)
+                  ))
                 ORDER BY created_at
                 """)
                 .bind("productId", productId)
                 .bind("orgId", orgId)
+                .bind("hasFilter", hasFilter)
+                .bind("optionIds", (hasFilter ? optionIds : List.<UUID>of()).toArray(new UUID[0]))
                 .fetch()
                 .all()
-                .map(row -> ProductVariantResponseDTO.builder()
-                        .id((UUID) row.get("id"))
-                        .productId((UUID) row.get("product_id"))
-                        .orgId((UUID) row.get("org_id"))
-                        .sku((String) row.get("sku"))
-                        .isActive((Boolean) row.get("is_active"))
-                        .createdAt((LocalDateTime) row.get("created_at"))
-                        .price((BigDecimal) row.get("price"))
-                        .priceCurrency((String) row.get("price_currency"))
-                        .options(new ArrayList<>())
-                        .stock(new ArrayList<>())
-                        .build()
-                );
+                .map(this::toVariantResponseDTO);
+    }
+
+    private ProductVariantResponseDTO toVariantResponseDTO(Map<String, Object> row) {
+        return ProductVariantResponseDTO.builder()
+                .id((UUID) row.get("id"))
+                .productId((UUID) row.get("product_id"))
+                .orgId((UUID) row.get("org_id"))
+                .sku((String) row.get("sku"))
+                .isActive((Boolean) row.get("is_active"))
+                .createdAt((LocalDateTime) row.get("created_at"))
+                .price((BigDecimal) row.get("price"))
+                .priceCurrency((String) row.get("price_currency"))
+                .options(new ArrayList<>())
+                .stock(new ArrayList<>())
+                .build();
     }
 
     private Flux<Map<String, Object>> loadOptionsForVariants(BimeDbHandle handle, UUID productId, UUID orgId) {
         return handle.client().sql("""
-                SELECT pvo.variant_id, pmo.id AS option_id, pmo.metadata_id, pmo.value, pmo.created_at
+                SELECT pvo.variant_id, pmo.id AS option_id, pmo.metadata_id, pmo.value, pmo.code, pmo.created_at
                 FROM product_variant_options pvo
                 JOIN product_metadata_option pmo ON pmo.id = pvo.option_id
+                JOIN product_metadata pm ON pm.id = pmo.metadata_id
                 WHERE pvo.variant_id IN (
                     SELECT id FROM product_variants WHERE product_id = :productId AND org_id = :orgId
                 )
-                ORDER BY pmo.value
+                ORDER BY pm.name, pmo.code
                 """)
                 .bind("productId", productId)
                 .bind("orgId", orgId)
+                .fetch()
+                .all();
+    }
+
+    private Flux<Map<String, Object>> loadOptionsForVariantIds(BimeDbHandle handle, List<UUID> variantIds) {
+        return handle.client().sql("""
+                SELECT pvo.variant_id, pmo.id AS option_id, pmo.metadata_id, pmo.value, pmo.code, pmo.created_at
+                FROM product_variant_options pvo
+                JOIN product_metadata_option pmo ON pmo.id = pvo.option_id
+                JOIN product_metadata pm ON pm.id = pmo.metadata_id
+                WHERE pvo.variant_id = ANY(:variantIds)
+                ORDER BY pm.name, pmo.code
+                """)
+                .bind("variantIds", variantIds.toArray(new UUID[0]))
                 .fetch()
                 .all();
     }
@@ -394,6 +440,7 @@ public class ProductVariantService {
                         .id((UUID) row.get("option_id"))
                         .metadataId((UUID) row.get("metadata_id"))
                         .value((String) row.get("value"))
+                        .code((String) row.get("code"))
                         .createdAt((LocalDateTime) row.get("created_at"))
                         .build()
                 );
@@ -427,19 +474,7 @@ public class ProductVariantService {
                 .fetch()
                 .one()
                 .switchIfEmpty(Mono.error(new NotFoundException("Variant not found")))
-                .map(row -> ProductVariantResponseDTO.builder()
-                        .id((UUID) row.get("id"))
-                        .productId((UUID) row.get("product_id"))
-                        .orgId((UUID) row.get("org_id"))
-                        .sku((String) row.get("sku"))
-                        .isActive((Boolean) row.get("is_active"))
-                        .createdAt((LocalDateTime) row.get("created_at"))
-                        .price((BigDecimal) row.get("price"))
-                        .priceCurrency((String) row.get("price_currency"))
-                        .options(new ArrayList<>())
-                        .stock(new ArrayList<>())
-                        .build()
-                )
+                .map(this::toVariantResponseDTO)
                 .flatMap(variant ->
                         loadVariantOptions(handle, variantId)
                                 .doOnNext(opt -> variant.getOptions().add(opt))
@@ -449,21 +484,17 @@ public class ProductVariantService {
                                         .then()
                                 )
                                 .thenReturn(variant)
-                )
-                .flatMap(variant -> {
-                    if (variant.getSku() != null) return Mono.just(variant);
-                    return fetchProductSku(handle, productId, orgId)
-                            .map(productSku -> { variant.setSku(productSku); return variant; });
-                });
+                );
     }
 
     private Flux<MetadataOptionResponseDTO> loadVariantOptions(BimeDbHandle handle, UUID variantId) {
         return handle.client().sql("""
-                SELECT pmo.id, pmo.metadata_id, pmo.value, pmo.created_at
+                SELECT pmo.id, pmo.metadata_id, pmo.value, pmo.code, pmo.created_at
                 FROM product_variant_options pvo
                 JOIN product_metadata_option pmo ON pmo.id = pvo.option_id
+                JOIN product_metadata pm ON pm.id = pmo.metadata_id
                 WHERE pvo.variant_id = :variantId
-                ORDER BY pmo.value
+                ORDER BY pm.name, pmo.code
                 """)
                 .bind("variantId", variantId)
                 .fetch()
@@ -472,6 +503,7 @@ public class ProductVariantService {
                         .id((UUID) row.get("id"))
                         .metadataId((UUID) row.get("metadata_id"))
                         .value((String) row.get("value"))
+                        .code((String) row.get("code"))
                         .createdAt((LocalDateTime) row.get("created_at"))
                         .build()
                 );
@@ -599,20 +631,37 @@ public class ProductVariantService {
         return Mono.just(new ArrayList<>(optionIds));
     }
 
-    private Mono<UUID> insertVariant(BimeDbHandle handle, UUID productId, UUID orgId, ProductVariantRequestDTO dto) {
+    private Mono<String> generateVariantSku(BimeDbHandle handle, UUID productId, UUID orgId, List<UUID> optionIds) {
+        Mono<String> productSku = fetchProductSku(handle, productId, orgId);
+        if (optionIds.isEmpty()) {
+            return productSku;
+        }
+        Mono<List<String>> codes = handle.client().sql("""
+                SELECT pmo.code
+                FROM product_metadata_option pmo
+                JOIN product_metadata pm ON pm.id = pmo.metadata_id
+                WHERE pmo.id = ANY(:optionIds)
+                ORDER BY pm.name, pmo.code
+                """)
+                .bind("optionIds", optionIds.toArray(new UUID[0]))
+                .fetch()
+                .all()
+                .map(row -> (String) row.get("code"))
+                .collectList();
+        return Mono.zip(productSku, codes)
+                .map(tuple -> tuple.getT1() + "-" + String.join("-", tuple.getT2()));
+    }
+
+    private Mono<UUID> insertVariant(BimeDbHandle handle, UUID productId, UUID orgId, ProductVariantRequestDTO dto, String sku) {
         DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                 INSERT INTO product_variants (product_id, org_id, sku, price, price_currency)
                 VALUES (:productId, :orgId, :sku, :price, :priceCurrency)
                 RETURNING id
                 """)
                 .bind("productId", productId)
-                .bind("orgId", orgId);
+                .bind("orgId", orgId)
+                .bind("sku", sku);
 
-        if (dto.getSku() != null) {
-            spec = spec.bind("sku", dto.getSku());
-        } else {
-            spec = spec.bindNull("sku", String.class);
-        }
         if (dto.getPrice() != null) {
             spec = spec.bind("price", dto.getPrice()).bind("priceCurrency", dto.getPriceCurrency().toUpperCase());
         } else {

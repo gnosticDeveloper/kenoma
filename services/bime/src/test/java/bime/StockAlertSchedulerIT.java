@@ -289,7 +289,6 @@ class StockAlertSchedulerIT extends BaseIT {
 
         ProductVariantRequestDTO varDto = new ProductVariantRequestDTO();
         varDto.setOptionIds(List.of(option.getId()));
-        varDto.setSku("ALERT-VAR-" + UUID.randomUUID());
         ProductVariantResponseDTO variant = client.post()
                 .uri("/products/{productId}/variants", product.getId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")

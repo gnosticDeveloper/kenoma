@@ -63,17 +63,25 @@ public class ProductService {
         );
     }
 
-    public Flux<ProductResponseDTO> getProducts() {
+    public Flux<ProductResponseDTO> getProducts(List<UUID> optionIds) {
+        boolean hasFilter = optionIds != null && !optionIds.isEmpty();
         return ctx.withHandleMany((caller, handle) -> handle.client().sql("""
                 SELECT p.id, p.org_id, p.sku, p.name, p.description, p.is_active, p.created_at, p.modified_at,
                        COUNT(pv.id) AS variant_count
                 FROM products p
                 LEFT JOIN product_variants pv ON pv.product_id = p.id
                 WHERE p.org_id = :orgId
+                  AND (:hasFilter = false OR EXISTS (
+                      SELECT 1 FROM product_metadata_assignments pma
+                      JOIN product_option_selections pos ON pos.assignment_id = pma.id
+                      WHERE pma.product_id = p.id AND pos.option_id = ANY(:optionIds)
+                  ))
                 GROUP BY p.id
                 ORDER BY p.name
                 """)
                 .bind("orgId", caller.getOrgId())
+                .bind("hasFilter", hasFilter)
+                .bind("optionIds", (hasFilter ? optionIds : List.<UUID>of()).toArray(new UUID[0]))
                 .fetch()
                 .all()
                 .map(row -> ProductResponseDTO.builder()
@@ -147,13 +155,13 @@ public class ProductService {
     private Mono<List<AssignedMetadataDTO>> loadProductMetadata(BimeDbHandle handle, UUID productId) {
         return handle.client().sql("""
                 SELECT pm.id AS metadata_id, pm.name AS metadata_name,
-                       pmo.id AS option_id, pmo.value AS option_value
+                       pmo.id AS option_id, pmo.value AS option_value, pmo.code AS option_code
                 FROM product_metadata_assignments pma
                 JOIN product_metadata pm ON pm.id = pma.metadata_id
                 LEFT JOIN product_option_selections pos ON pos.assignment_id = pma.id
                 LEFT JOIN product_metadata_option pmo ON pmo.id = pos.option_id
                 WHERE pma.product_id = :productId
-                ORDER BY pm.name, pmo.value
+                ORDER BY pm.name, pmo.code
                 """)
                 .bind("productId", productId)
                 .fetch()
@@ -178,6 +186,7 @@ public class ProductService {
                         .id(optionId)
                         .metadataId(metaId)
                         .value((String) row.get("option_value"))
+                        .code((String) row.get("option_code"))
                         .build()
                 );
             }

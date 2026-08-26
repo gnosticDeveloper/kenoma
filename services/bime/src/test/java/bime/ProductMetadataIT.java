@@ -85,6 +85,88 @@ class ProductMetadataIT extends BaseIT {
     }
 
     @Test
+    void addOption_derivesCodeWhenOmitted() {
+        ProductMetadataResponseDTO meta = createMetadata("Color-" + UUID.randomUUID());
+
+        MetadataOptionResponseDTO option = addOption(meta.getId(), "Extra Large");
+
+        assertThat(option.getCode()).isEqualTo("EXTRALARGE");
+    }
+
+    @Test
+    void addOption_honorsExplicitCode() {
+        ProductMetadataResponseDTO meta = createMetadata("Size-" + UUID.randomUUID());
+
+        MetadataOptionRequestDTO dto = new MetadataOptionRequestDTO();
+        dto.setValue("Extra Large");
+        dto.setCode("XL");
+        MetadataOptionResponseDTO option = client.post().uri("/metadata/{id}/options", meta.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(MetadataOptionResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(option).isNotNull();
+        assertThat(option.getCode()).isEqualTo("XL");
+    }
+
+    @Test
+    void addOption_nonAsciiValueWithoutExplicitCode_returns400() {
+        ProductMetadataResponseDTO meta = createMetadata("Size-" + UUID.randomUUID());
+
+        MetadataOptionRequestDTO dto = new MetadataOptionRequestDTO();
+        dto.setValue("Größe");
+
+        client.post().uri("/metadata/{id}/options", meta.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void addOption_nonAsciiValueWithExplicitCode_succeeds() {
+        ProductMetadataResponseDTO meta = createMetadata("Size-" + UUID.randomUUID());
+
+        MetadataOptionRequestDTO dto = new MetadataOptionRequestDTO();
+        dto.setValue("Größe");
+        dto.setCode("XL-DE");
+
+        MetadataOptionResponseDTO option = client.post().uri("/metadata/{id}/options", meta.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(MetadataOptionResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(option).isNotNull();
+        assertThat(option.getValue()).isEqualTo("Größe");
+        assertThat(option.getCode()).isEqualTo("XL-DE");
+    }
+
+    @Test
+    void addOption_duplicateDerivedCode_returns409() {
+        ProductMetadataResponseDTO meta = createMetadata("Duplicates-" + UUID.randomUUID());
+        addOption(meta.getId(), "Red!");
+
+        MetadataOptionRequestDTO dto = new MetadataOptionRequestDTO();
+        dto.setValue("Red?");
+
+        client.post().uri("/metadata/{id}/options", meta.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isEqualTo(409);
+    }
+
+    @Test
     void removeOption_deletesFromMetadata() {
         ProductMetadataResponseDTO meta = createMetadata("Finish");
         MetadataOptionResponseDTO option = addOption(meta.getId(), "Matte");

@@ -7,10 +7,10 @@ public class StringUtils {
     public static boolean isValidPassword(String password) {
         if (password == null) return false;
         if (password.length() < 12 || password.length() > 72) return false;
-        boolean hasUpper = password.chars().anyMatch(Character::isUpperCase);
-        boolean hasLower = password.chars().anyMatch(Character::isLowerCase);
-        boolean hasDigit = password.chars().anyMatch(Character::isDigit);
-        boolean hasSpecial = password.chars().anyMatch(c -> !Character.isLetterOrDigit(c));
+        boolean hasUpper = password.codePoints().anyMatch(Character::isUpperCase);
+        boolean hasLower = password.codePoints().anyMatch(Character::isLowerCase);
+        boolean hasDigit = password.codePoints().anyMatch(Character::isDigit);
+        boolean hasSpecial = password.codePoints().anyMatch(cp -> !Character.isLetterOrDigit(cp));
         return hasUpper && hasLower && hasDigit && hasSpecial;
     }
 }
