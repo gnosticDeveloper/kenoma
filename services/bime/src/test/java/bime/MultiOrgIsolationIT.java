@@ -289,9 +289,63 @@ class MultiOrgIsolationIT extends BaseIT {
                 .hasSize(0);
     }
 
+    // --- SKU generation / filtering isolation (adversarial: cross-org option IDs) ---
+
+    @Test
+    void orgB_cannotUseOrgA_optionId_toFilterProducts() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        // Org B guesses/reuses Org A's real option ID as a filter value. Even though the ID is
+        // valid and resolves to a real row, it must not leak Org A's product into Org B's results,
+        // nor let Org B use it to find its own (non-existent) matches by ID collision.
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products")
+                        .queryParam("optionIds", fixture.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void orgB_cannotUseOrgA_optionId_toFilterVariants() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/{productId}/variants")
+                        .queryParam("optionIds", fixture.optionId())
+                        .build(fixture.productId()))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void orgB_cannotUseOrgA_optionId_toSearchVariantsAcrossProducts() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/variants/search")
+                        .queryParam("optionIds", fixture.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .hasSize(0);
+    }
+
     // --- Helpers ---
 
-    private record VariantFixture(UUID variantId, UUID locationId) {}
+    private record VariantFixture(UUID variantId, UUID locationId, UUID productId, UUID optionId) {}
 
     private VariantFixture buildVariantFixture() {
         LocationResponseDTO location = postLocation("Org A Loc", "OA-FIX-" + UUID.randomUUID().toString().substring(0, 6));
@@ -322,7 +376,6 @@ class MultiOrgIsolationIT extends BaseIT {
 
         ProductVariantRequestDTO varDto = new ProductVariantRequestDTO();
         varDto.setOptionIds(List.of(option.getId()));
-        varDto.setSku("OA-VAR-" + UUID.randomUUID());
         ProductVariantResponseDTO variant = client.post()
                 .uri("/products/{productId}/variants", product.getId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -334,7 +387,7 @@ class MultiOrgIsolationIT extends BaseIT {
                 .returnResult().getResponseBody();
         assertThat(variant).isNotNull();
 
-        return new VariantFixture(variant.getId(), location.getId());
+        return new VariantFixture(variant.getId(), location.getId(), product.getId(), option.getId());
     }
 
     private LocationResponseDTO postLocation(String name, String code) {

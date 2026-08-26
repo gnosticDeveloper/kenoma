@@ -1,5 +1,10 @@
 package bime;
 
+import bime.dto.MetadataOptionRequestDTO;
+import bime.dto.MetadataOptionResponseDTO;
+import bime.dto.ProductMetadataAssignmentItemDTO;
+import bime.dto.ProductMetadataRequestDTO;
+import bime.dto.ProductMetadataResponseDTO;
 import bime.dto.ProductRequestDTO;
 import bime.dto.ProductResponseDTO;
 import bime.dto.ProductVariantRequestDTO;
@@ -100,7 +105,6 @@ class ProductIT extends BaseIT {
         // variant.
         ProductVariantRequestDTO variantDto = new ProductVariantRequestDTO();
         variantDto.setOptionIds(List.of());
-        variantDto.setSku("WITHVAR-STD");
         ProductVariantResponseDTO variant = client.post().uri("/products/{id}/variants", withVariant.getId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -205,6 +209,69 @@ class ProductIT extends BaseIT {
                 .bodyValue(productRequest("DUPE-SKU", "Second"))
                 .exchange()
                 .expectStatus().isEqualTo(409);
+    }
+
+    @Test
+    void getProducts_filterByOptionIds_returnsOnlyMatching() {
+        ProductMetadataResponseDTO meta = createMetadata("Color-" + UUID.randomUUID());
+        MetadataOptionResponseDTO option = addOption(meta.getId(), "Red");
+
+        ProductResponseDTO matching = createProduct("SKU-FILT-MATCH-" + UUID.randomUUID(), "Matching Product");
+        ProductResponseDTO nonMatching = createProduct("SKU-FILT-NOMATCH-" + UUID.randomUUID(), "Non-matching Product");
+
+        ProductMetadataAssignmentItemDTO item = new ProductMetadataAssignmentItemDTO();
+        item.setMetadataId(meta.getId());
+        item.setOptionIds(List.of(option.getId()));
+        client.put().uri("/products/{id}/metadata", matching.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(List.of(item))
+                .exchange()
+                .expectStatus().isNoContent();
+
+        List<ProductResponseDTO> filtered = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products")
+                        .queryParam("optionIds", option.getId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(filtered).isNotNull();
+        assertThat(filtered).extracting(ProductResponseDTO::getId).contains(matching.getId());
+        assertThat(filtered).extracting(ProductResponseDTO::getId).doesNotContain(nonMatching.getId());
+    }
+
+    private ProductMetadataResponseDTO createMetadata(String name) {
+        ProductMetadataRequestDTO dto = new ProductMetadataRequestDTO();
+        dto.setName(name);
+        ProductMetadataResponseDTO response = client.post().uri("/metadata")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductMetadataResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response;
+    }
+
+    private MetadataOptionResponseDTO addOption(UUID metadataId, String value) {
+        MetadataOptionRequestDTO dto = new MetadataOptionRequestDTO();
+        dto.setValue(value);
+        MetadataOptionResponseDTO response = client.post().uri("/metadata/{id}/options", metadataId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(MetadataOptionResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response;
     }
 
     ProductResponseDTO createProduct(String sku, String name) {

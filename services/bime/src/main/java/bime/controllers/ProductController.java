@@ -3,6 +3,7 @@ package bime.controllers;
 import bime.dto.*;
 import bime.services.ProductMetadataService;
 import bime.services.ProductService;
+import bime.services.ProductVariantService;
 import common.exception.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -30,6 +31,7 @@ public class ProductController {
 
     private final ProductService productService;
     private final ProductMetadataService productMetadataService;
+    private final ProductVariantService productVariantService;
 
     @Operation(summary = "Create a product", description = "Creates a new product for the authenticated organization. Requires BIME_MANAGE.")
     @ApiResponses({
@@ -45,7 +47,8 @@ public class ProductController {
         return productService.createProduct(dto);
     }
 
-    @Operation(summary = "List all products", description = "Returns all products for the authenticated organization with their variant count. Requires BIME_VIEW.")
+    @Operation(summary = "List all products", description = "Returns all products for the authenticated organization with their variant count. " +
+            "If optionIds is passed, only products with at least one metadata option selection matching one of the given IDs are returned. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of products (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -53,8 +56,26 @@ public class ProductController {
     })
     @GetMapping
     @PreAuthorize("hasAuthority('BIME_VIEW')")
-    public Flux<ProductResponseDTO> getProducts() {
-        return productService.getProducts();
+    public Flux<ProductResponseDTO> getProducts(@RequestParam(required = false) List<UUID> optionIds) {
+        return productService.getProducts(optionIds);
+    }
+
+    @Operation(summary = "Search variants across all products by shared option values",
+            description = "Returns variants from any product in the org that match at least one of the given metadata option IDs. " +
+                    "Useful for finding every variant sharing a characteristic (e.g. all Red variants across every product). " +
+                    "If currency is passed, each variant's price is converted from its stored priceCurrency to it. Requires BIME_VIEW.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "List of matching variants (may be empty)"),
+            @ApiResponse(responseCode = "400", description = "optionIds not provided", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/variants/search")
+    @PreAuthorize("hasAuthority('BIME_VIEW')")
+    public Flux<ProductVariantResponseDTO> searchVariants(
+            @RequestParam List<UUID> optionIds,
+            @RequestParam(required = false) String currency) {
+        return productVariantService.searchVariantsByOptions(optionIds, currency);
     }
 
     @Operation(summary = "Get a product by ID", description = "Returns a single product with its metadata and variants. Requires BIME_VIEW.")

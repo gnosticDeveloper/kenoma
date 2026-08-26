@@ -20,7 +20,7 @@ public class ProductVariantResponseDTO {
     private UUID id;
     private UUID productId;
     private UUID orgId;
-    @Schema(description = "Variant-specific SKU, or the parent product's SKU if none was set for this variant", example = "WIDGET-001-RED-XL")
+    @Schema(description = "Server-generated SKU: the product's SKU followed by a code fragment for each defining option", example = "WIDGET-001-RED-XL")
     private String sku;
     private Boolean isActive;
     private LocalDateTime createdAt;

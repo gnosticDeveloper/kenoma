@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -32,7 +33,8 @@ public class ProductVariantController {
     @Operation(
             summary = "Create a variant",
             description = "Creates a new variant for the given product, defined by a combination of metadata option IDs. " +
-                    "The combination must be unique within the product. Requires BIME_MANAGE."
+                    "The combination must be unique within the product. The variant's SKU is generated automatically " +
+                    "from the product SKU and each selected option's code and cannot be set directly. Requires BIME_MANAGE."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Variant created"),
@@ -51,7 +53,8 @@ public class ProductVariantController {
     }
 
     @Operation(summary = "List variants for a product", description = "Returns all variants for the given product, each including its defining options and per-location stock balances. " +
-            "If currency is passed, each variant's price is converted from its stored priceCurrency to it. Requires BIME_VIEW.")
+            "If currency is passed, each variant's price is converted from its stored priceCurrency to it. " +
+            "If optionIds is passed, only variants matching at least one of the given option IDs are returned. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of variants (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -62,8 +65,9 @@ public class ProductVariantController {
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<ProductVariantResponseDTO> getVariants(
             @PathVariable UUID productId,
-            @RequestParam(required = false) String currency) {
-        return productVariantService.getVariantsForProduct(productId, currency);
+            @RequestParam(required = false) String currency,
+            @RequestParam(required = false) List<UUID> optionIds) {
+        return productVariantService.getVariantsForProduct(productId, currency, optionIds);
     }
 
     @Operation(summary = "Get a variant by ID", description = "Returns a single variant with its options and stock balances. " +
