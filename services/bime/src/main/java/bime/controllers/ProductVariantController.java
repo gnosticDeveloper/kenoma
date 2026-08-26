@@ -54,7 +54,8 @@ public class ProductVariantController {
 
     @Operation(summary = "List variants for a product", description = "Returns all variants for the given product, each including its defining options and per-location stock balances. " +
             "If currency is passed, each variant's price is converted from its stored priceCurrency to it. " +
-            "If optionIds is passed, only variants matching at least one of the given option IDs are returned. Requires BIME_VIEW.")
+            "If optionIds is passed, only variants matching the given option IDs are returned - matching at least " +
+            "one of them by default, or all of them when matchAll=true. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of variants (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -66,8 +67,9 @@ public class ProductVariantController {
     public Flux<ProductVariantResponseDTO> getVariants(
             @PathVariable UUID productId,
             @RequestParam(required = false) String currency,
-            @RequestParam(required = false) List<UUID> optionIds) {
-        return productVariantService.getVariantsForProduct(productId, currency, optionIds);
+            @RequestParam(required = false) List<UUID> optionIds,
+            @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
+        return productVariantService.getVariantsForProduct(productId, currency, optionIds, matchAll);
     }
 
     @Operation(summary = "Get a variant by ID", description = "Returns a single variant with its options and stock balances. " +

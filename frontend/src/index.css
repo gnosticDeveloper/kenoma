@@ -596,6 +596,102 @@ button, input, select {
 .role-row { display: flex; align-items: center; gap: 8px; }
 .role-row .combobox { flex: 1; min-width: 0; }
 
+/* ── Filter chips (toggleable option filter, grouped by metadata attribute) ── */
+.filter-disclosure { margin-bottom: 16px; }
+.filter-disclosure summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.filter-disclosure summary::-webkit-details-marker { color: var(--color-text-muted); }
+.filter-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.filter-disclosure-body { margin-top: 10px; }
+.filter-chips-panel { display: flex; flex-direction: column; gap: 10px; }
+.filter-chip-group { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.filter-chip-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+.filter-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.filter-chip:hover { border-color: var(--color-accent); color: var(--color-text); }
+.filter-chip-active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.filter-chip-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.filter-chip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.filter-match-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.filter-match-option {
+  background: transparent;
+  border: none;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.filter-match-option:not(:last-child) { border-right: 1px solid var(--color-border); }
+.filter-match-option-active { background: var(--color-accent-soft); color: var(--color-accent); }
+.filter-chip-clear:hover { color: var(--color-accent); }
+
 /* ── DR backup restore checklist (grouped by scope+org+day) ── */
 .backup-group { margin-bottom: 14px; }
 .backup-group:last-child { margin-bottom: 0; }

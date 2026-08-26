@@ -58,22 +58,22 @@ public class ProductVariantService {
                 new ConflictException("A variant with the generated SKU already exists"));
     }
 
-    public Flux<ProductVariantResponseDTO> getVariantsForProduct(UUID productId, String targetCurrency, List<UUID> optionIds) {
+    public Flux<ProductVariantResponseDTO> getVariantsForProduct(UUID productId, String targetCurrency, List<UUID> optionIds, boolean matchAll) {
         return ctx.withHandleMany((caller, handle) ->
                 verifyProductExists(handle, productId, caller.getOrgId())
-                        .thenMany(loadVariantsForProduct(handle, productId, caller.getOrgId(), optionIds))
+                        .thenMany(loadVariantsForProduct(handle, productId, caller.getOrgId(), optionIds, matchAll))
                         .collectList()
                         .flatMapMany(variants -> applyCurrencyConversion(variants, targetCurrency))
         );
     }
 
-    /** Finds variants across every product in the org sharing at least one of the given option values. */
-    public Flux<ProductVariantResponseDTO> searchVariantsByOptions(List<UUID> optionIds, String targetCurrency) {
+    /** Finds variants across every product in the org matching the given option values - at least one by default, or all when matchAll. */
+    public Flux<ProductVariantResponseDTO> searchVariantsByOptions(List<UUID> optionIds, String targetCurrency, boolean matchAll) {
         if (optionIds == null || optionIds.isEmpty()) {
             return Flux.error(new BadRequestException("optionIds must not be empty"));
         }
         return ctx.withHandleMany((caller, handle) ->
-                loadVariantsByOptions(handle, caller.getOrgId(), optionIds)
+                loadVariantsByOptions(handle, caller.getOrgId(), optionIds, matchAll)
                         .collectList()
                         .flatMapMany(variants -> applyCurrencyConversion(variants, targetCurrency))
         );
@@ -290,11 +290,11 @@ public class ProductVariantService {
 
     // Called by ProductService to embed variants in the product detail response
     public Flux<ProductVariantResponseDTO> loadVariantsForProduct(BimeDbHandle handle, UUID productId, UUID orgId) {
-        return loadVariantsForProduct(handle, productId, orgId, null);
+        return loadVariantsForProduct(handle, productId, orgId, null, false);
     }
 
-    public Flux<ProductVariantResponseDTO> loadVariantsForProduct(BimeDbHandle handle, UUID productId, UUID orgId, List<UUID> optionIds) {
-        return loadVariantRows(handle, productId, orgId, optionIds)
+    public Flux<ProductVariantResponseDTO> loadVariantsForProduct(BimeDbHandle handle, UUID productId, UUID orgId, List<UUID> optionIds, boolean matchAll) {
+        return loadVariantRows(handle, productId, orgId, optionIds, matchAll)
                 .collectList()
                 .flatMapMany(variants -> {
                     if (variants.isEmpty()) return Flux.empty();
@@ -310,15 +310,20 @@ public class ProductVariantService {
                 });
     }
 
-    private Flux<ProductVariantResponseDTO> loadVariantsByOptions(BimeDbHandle handle, UUID orgId, List<UUID> optionIds) {
+    private Flux<ProductVariantResponseDTO> loadVariantsByOptions(BimeDbHandle handle, UUID orgId, List<UUID> optionIds, boolean matchAll) {
         return handle.client().sql("""
-                SELECT DISTINCT pv.id, pv.product_id, pv.org_id, pv.sku, pv.is_active, pv.created_at, pv.price, pv.price_currency
+                SELECT pv.id, pv.product_id, pv.org_id, pv.sku, pv.is_active, pv.created_at, pv.price, pv.price_currency
                 FROM product_variants pv
-                JOIN product_variant_options pvo ON pvo.variant_id = pv.id
-                WHERE pv.org_id = :orgId AND pvo.option_id = ANY(:optionIds)
+                WHERE pv.org_id = :orgId AND pv.id IN (
+                    SELECT variant_id FROM product_variant_options
+                    WHERE option_id = ANY(:optionIds)
+                    GROUP BY variant_id
+                    HAVING COUNT(DISTINCT option_id) >= CASE WHEN :matchAll THEN cardinality(:optionIds) ELSE 1 END
+                )
                 ORDER BY pv.created_at
                 """)
                 .bind("orgId", orgId)
+                .bind("matchAll", matchAll)
                 .bind("optionIds", optionIds.toArray(new UUID[0]))
                 .fetch()
                 .all()
@@ -347,20 +352,24 @@ public class ProductVariantService {
                 .map(row -> (String) row.get("sku"));
     }
 
-    private Flux<ProductVariantResponseDTO> loadVariantRows(BimeDbHandle handle, UUID productId, UUID orgId, List<UUID> optionIds) {
+    private Flux<ProductVariantResponseDTO> loadVariantRows(BimeDbHandle handle, UUID productId, UUID orgId, List<UUID> optionIds, boolean matchAll) {
         boolean hasFilter = optionIds != null && !optionIds.isEmpty();
         return handle.client().sql("""
                 SELECT id, product_id, org_id, sku, is_active, created_at, price, price_currency
                 FROM product_variants
                 WHERE product_id = :productId AND org_id = :orgId
                   AND (:hasFilter = false OR id IN (
-                      SELECT variant_id FROM product_variant_options WHERE option_id = ANY(:optionIds)
+                      SELECT variant_id FROM product_variant_options
+                      WHERE option_id = ANY(:optionIds)
+                      GROUP BY variant_id
+                      HAVING COUNT(DISTINCT option_id) >= CASE WHEN :matchAll THEN cardinality(:optionIds) ELSE 1 END
                   ))
                 ORDER BY created_at
                 """)
                 .bind("productId", productId)
                 .bind("orgId", orgId)
                 .bind("hasFilter", hasFilter)
+                .bind("matchAll", matchAll)
                 .bind("optionIds", (hasFilter ? optionIds : List.<UUID>of()).toArray(new UUID[0]))
                 .fetch()
                 .all()
