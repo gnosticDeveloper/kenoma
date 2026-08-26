@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -61,7 +62,9 @@ public class StockController {
         return stockLedgerService.getMovementById(id);
     }
 
-    @Operation(summary = "List stock movements", description = "Returns stock movement records for the organization, optionally filtered by variant and/or location. Requires BIME_VIEW.")
+    @Operation(summary = "List stock movements", description = "Returns stock movement records for the organization, optionally filtered by variant and/or location. " +
+            "If optionIds is passed, only movements for variants matching the given option IDs are returned - " +
+            "matching at least one of them by default, or all of them when matchAll=true. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of movements (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -71,11 +74,15 @@ public class StockController {
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<StockMovementResponseDTO> getMovements(
             @Parameter(description = "Filter to movements for this variant") @RequestParam(required = false) UUID variantId,
-            @Parameter(description = "Filter to movements at this location") @RequestParam(required = false) UUID locationId) {
-        return stockLedgerService.getMovements(variantId, locationId);
+            @Parameter(description = "Filter to movements at this location") @RequestParam(required = false) UUID locationId,
+            @RequestParam(required = false) List<UUID> optionIds,
+            @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
+        return stockLedgerService.getMovements(variantId, locationId, optionIds, matchAll);
     }
 
-    @Operation(summary = "List stock balances", description = "Returns current on-hand stock balances for the organization, optionally filtered by variant and/or location. Requires BIME_VIEW.")
+    @Operation(summary = "List stock balances", description = "Returns current on-hand stock balances for the organization, optionally filtered by variant and/or location. " +
+            "If optionIds is passed, only balances for variants matching the given option IDs are returned - " +
+            "matching at least one of them by default, or all of them when matchAll=true. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of balances (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -85,7 +92,9 @@ public class StockController {
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<StockBalanceResponseDTO> getBalances(
             @Parameter(description = "Filter to balances for this variant") @RequestParam(required = false) UUID variantId,
-            @Parameter(description = "Filter to balances at this location") @RequestParam(required = false) UUID locationId) {
-        return stockLedgerService.getBalances(variantId, locationId);
+            @Parameter(description = "Filter to balances at this location") @RequestParam(required = false) UUID locationId,
+            @RequestParam(required = false) List<UUID> optionIds,
+            @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
+        return stockLedgerService.getBalances(variantId, locationId, optionIds, matchAll);
     }
 }

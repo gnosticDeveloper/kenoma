@@ -72,6 +72,33 @@ class StockAlertSchedulerIT extends BaseIT {
     }
 
     @Test
+    void getActiveAlerts_filtersByOptionIds() {
+        Fixture f1 = buildFixture("alerts-opt1@example.com");
+        setThreshold(f1.variantId(), f1.locationId(), 10);
+        recordMovement(f1.variantId(), f1.locationId(), 5);
+
+        Fixture f2 = buildFixture("alerts-opt2@example.com");
+        setThreshold(f2.variantId(), f2.locationId(), 10);
+        recordMovement(f2.variantId(), f2.locationId(), 3);
+
+        checkService.checkOrg(ORG_ID, testHandle).block();
+        assertThat(getActiveAlerts()).hasSize(2);
+
+        List<StockAlertResponseDTO> filtered = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/alerts/active")
+                        .queryParam("optionIds", f1.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockAlertResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(filtered).isNotNull();
+        assertThat(filtered).extracting(StockAlertResponseDTO::getVariantId).containsExactly(f1.variantId());
+    }
+
+    @Test
     void dipStayingBelowThreshold_doesNotResendEmailOnSubsequentTicks() {
         Fixture f = buildFixture("alerts-dedupe@example.com");
         setThreshold(f.variantId(), f.locationId(), 10);
@@ -205,7 +232,7 @@ class StockAlertSchedulerIT extends BaseIT {
 
     // --- Helpers ---
 
-    private record Fixture(UUID variantId, UUID locationId) {}
+    private record Fixture(UUID variantId, UUID locationId, UUID optionId) {}
 
     private Fixture buildFixture(String notificationEmail) {
         LocationRequestDTO locDto = new LocationRequestDTO();
@@ -300,7 +327,7 @@ class StockAlertSchedulerIT extends BaseIT {
                 .returnResult().getResponseBody();
         assertThat(variant).isNotNull();
 
-        return new Fixture(variant.getId(), location.getId());
+        return new Fixture(variant.getId(), location.getId(), option.getId());
     }
 
     private void setThreshold(UUID variantId, UUID locationId, int threshold) {

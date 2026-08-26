@@ -18,6 +18,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -242,6 +243,84 @@ class ProductIT extends BaseIT {
         assertThat(filtered).isNotNull();
         assertThat(filtered).extracting(ProductResponseDTO::getId).contains(matching.getId());
         assertThat(filtered).extracting(ProductResponseDTO::getId).doesNotContain(nonMatching.getId());
+    }
+
+    @Test
+    void getProducts_matchAllTrue_requiresEveryOption_matchAllFalseMatchesAny() {
+        ProductMetadataResponseDTO colorMeta = createMetadata("Color-" + UUID.randomUUID());
+        MetadataOptionResponseDTO red = addOption(colorMeta.getId(), "Red");
+        ProductMetadataResponseDTO sizeMeta = createMetadata("Size-" + UUID.randomUUID());
+        MetadataOptionResponseDTO large = addOption(sizeMeta.getId(), "Large");
+
+        // Has both Red and Large selected.
+        ProductResponseDTO both = createProduct("SKU-BOTH-" + UUID.randomUUID(), "Both");
+        assignMetadata(both.getId(), Map.of(colorMeta.getId(), red.getId(), sizeMeta.getId(), large.getId()));
+
+        // Has only Red selected (no Size assignment at all).
+        ProductResponseDTO redOnly = createProduct("SKU-REDONLY-" + UUID.randomUUID(), "Red only");
+        assignMetadata(redOnly.getId(), Map.of(colorMeta.getId(), red.getId()));
+
+        // Default (matchAll=false / OR): both products match since each has at least one of the options.
+        List<ProductResponseDTO> anyMatch = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products")
+                        .queryParam("optionIds", red.getId())
+                        .queryParam("optionIds", large.getId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(anyMatch).isNotNull();
+        assertThat(anyMatch).extracting(ProductResponseDTO::getId).contains(both.getId(), redOnly.getId());
+
+        // matchAll=true: only the product with both options selected qualifies.
+        List<ProductResponseDTO> allMatch = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products")
+                        .queryParam("optionIds", red.getId())
+                        .queryParam("optionIds", large.getId())
+                        .queryParam("matchAll", "true")
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(allMatch).isNotNull();
+        assertThat(allMatch).extracting(ProductResponseDTO::getId).contains(both.getId());
+        assertThat(allMatch).extracting(ProductResponseDTO::getId).doesNotContain(redOnly.getId());
+    }
+
+    @Test
+    void getProducts_filterByUnknownOptionId_returnsEmptyNotError() {
+        createProduct("SKU-UNKNOWNOPT-" + UUID.randomUUID(), "Unrelated Product");
+
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products")
+                        .queryParam("optionIds", UUID.randomUUID())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductResponseDTO.class)
+                .hasSize(0);
+    }
+
+    private void assignMetadata(UUID productId, Map<UUID, UUID> metadataIdToOptionId) {
+        List<ProductMetadataAssignmentItemDTO> items = metadataIdToOptionId.entrySet().stream()
+                .map(e -> {
+                    ProductMetadataAssignmentItemDTO item = new ProductMetadataAssignmentItemDTO();
+                    item.setMetadataId(e.getKey());
+                    item.setOptionIds(List.of(e.getValue()));
+                    return item;
+                })
+                .toList();
+        client.put().uri("/products/{id}/metadata", productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(items)
+                .exchange()
+                .expectStatus().isNoContent();
     }
 
     private ProductMetadataResponseDTO createMetadata(String name) {

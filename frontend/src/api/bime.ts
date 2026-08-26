@@ -23,6 +23,22 @@ import type {
 } from '../types'
 import { payload, query, req } from './client'
 
+interface StockListFilters {
+  variantId?: string
+  locationId?: string
+  optionIds?: string[]
+  matchAll?: boolean
+}
+
+function stockQuery(filters: StockListFilters): string {
+  return query({
+    variantId: filters.variantId,
+    locationId: filters.locationId,
+    optionIds: filters.optionIds,
+    matchAll: filters.matchAll ? 'true' : undefined,
+  })
+}
+
 export const bime = {
   roles: (token: string) =>
     req<RoleResponse[]>('/roles/bime', { method: 'GET' }, token),
@@ -74,10 +90,10 @@ export const bime = {
   variants: {
     create: (productId: string, dto: ProductVariantRequest, token: string) =>
       req<ProductVariantResponse>(`/products/${productId}/variants`, { method: 'POST', ...payload(dto) }, token),
-    list: (productId: string, token: string, currency?: string, optionIds?: string[], matchAll?: boolean) =>
-      req<ProductVariantResponse[]>(`/products/${productId}/variants${query({ currency, optionIds, matchAll: matchAll ? 'true' : undefined })}`, { method: 'GET' }, token),
-    search: (optionIds: string[], token: string, currency?: string, matchAll?: boolean) =>
-      req<ProductVariantResponse[]>(`/products/variants/search${query({ optionIds, currency, matchAll: matchAll ? 'true' : undefined })}`, { method: 'GET' }, token),
+    list: (productId: string, token: string, currency?: string, optionIds?: string[], matchAll?: boolean, sku?: string) =>
+      req<ProductVariantResponse[]>(`/products/${productId}/variants${query({ currency, optionIds, matchAll: matchAll ? 'true' : undefined, sku })}`, { method: 'GET' }, token),
+    search: (optionIds: string[] | undefined, token: string, currency?: string, matchAll?: boolean, sku?: string) =>
+      req<ProductVariantResponse[]>(`/products/variants/search${query({ optionIds, currency, matchAll: matchAll ? 'true' : undefined, sku })}`, { method: 'GET' }, token),
     get: (productId: string, variantId: string, token: string, currency?: string) =>
       req<ProductVariantResponse>(`/products/${productId}/variants/${variantId}${query({ currency })}`, { method: 'GET' }, token),
     patch: (productId: string, variantId: string, dto: ProductVariantRequest, token: string) =>
@@ -92,17 +108,17 @@ export const bime = {
       req<StockMovementResponse>('/stock/movements', { method: 'POST', ...payload(dto) }, token),
     getMovement: (id: string, token: string) =>
       req<StockMovementResponse>(`/stock/movements/${id}`, { method: 'GET' }, token),
-    listMovements: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
-      req<StockMovementResponse[]>(`/stock/movements${query(filters)}`, { method: 'GET' }, token),
-    listBalances: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
-      req<StockBalanceResponse[]>(`/stock/balances${query(filters)}`, { method: 'GET' }, token),
+    listMovements: (token: string, filters: StockListFilters = {}) =>
+      req<StockMovementResponse[]>(`/stock/movements${stockQuery(filters)}`, { method: 'GET' }, token),
+    listBalances: (token: string, filters: StockListFilters = {}) =>
+      req<StockBalanceResponse[]>(`/stock/balances${stockQuery(filters)}`, { method: 'GET' }, token),
     setAlertThreshold: (dto: StockAlertThresholdRequest, token: string) =>
       req<StockAlertThresholdResponse>('/stock/alerts/thresholds', { method: 'PUT', ...payload(dto) }, token),
-    listAlertThresholds: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
-      req<StockAlertThresholdResponse[]>(`/stock/alerts/thresholds${query(filters)}`, { method: 'GET' }, token),
+    listAlertThresholds: (token: string, filters: StockListFilters = {}) =>
+      req<StockAlertThresholdResponse[]>(`/stock/alerts/thresholds${stockQuery(filters)}`, { method: 'GET' }, token),
     deleteAlertThreshold: (variantId: string, locationId: string, token: string) =>
       req<void>(`/stock/alerts/thresholds${query({ variantId, locationId })}`, { method: 'DELETE' }, token),
-    listActiveAlerts: (token: string, filters: { variantId?: string; locationId?: string } = {}) =>
-      req<StockAlertResponse[]>(`/stock/alerts/active${query(filters)}`, { method: 'GET' }, token),
+    listActiveAlerts: (token: string, filters: StockListFilters = {}) =>
+      req<StockAlertResponse[]>(`/stock/alerts/active${stockQuery(filters)}`, { method: 'GET' }, token),
   },
 }

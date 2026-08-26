@@ -63,24 +63,27 @@ public class ProductController {
         return productService.getProducts(optionIds, matchAll);
     }
 
-    @Operation(summary = "Search variants across all products by shared option values",
+    @Operation(summary = "Search variants across all products by shared option values and/or SKU",
             description = "Returns variants from any product in the org matching the given metadata option IDs - " +
                     "matching at least one of them by default, or all of them when matchAll=true. " +
                     "Useful for finding every variant sharing a characteristic (e.g. all Red variants across every product). " +
+                    "If sku is passed, only variants whose SKU contains every whitespace-separated token (in any order) " +
+                    "are returned - can be combined with optionIds, or used on its own. " +
                     "If currency is passed, each variant's price is converted from its stored priceCurrency to it. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of matching variants (may be empty)"),
-            @ApiResponse(responseCode = "400", description = "optionIds not provided", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Neither optionIds nor sku provided", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @GetMapping("/variants/search")
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<ProductVariantResponseDTO> searchVariants(
-            @RequestParam List<UUID> optionIds,
+            @RequestParam(required = false) List<UUID> optionIds,
             @RequestParam(required = false) String currency,
-            @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
-        return productVariantService.searchVariantsByOptions(optionIds, currency, matchAll);
+            @RequestParam(required = false, defaultValue = "false") boolean matchAll,
+            @RequestParam(required = false) String sku) {
+        return productVariantService.searchVariantsByOptions(optionIds, currency, matchAll, sku);
     }
 
     @Operation(summary = "Get a product by ID", description = "Returns a single product with its metadata and variants. Requires BIME_VIEW.")
