@@ -125,6 +125,43 @@ class StockAlertIT extends BaseIT {
     }
 
     @Test
+    void getThresholds_filtersByOptionIds() {
+        VariantFixture f1 = buildVariantFixture();
+        VariantFixture f2 = buildVariantFixture();
+        putThreshold(f1.variantId(), f1.locationId(), 5);
+        putThreshold(f2.variantId(), f2.locationId(), 10);
+
+        List<StockAlertThresholdResponseDTO> thresholds = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/alerts/thresholds")
+                        .queryParam("optionIds", f1.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockAlertThresholdResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(thresholds).isNotNull();
+        assertThat(thresholds).extracting(StockAlertThresholdResponseDTO::getVariantId).containsExactly(f1.variantId());
+    }
+
+    @Test
+    void getThresholds_unknownOptionId_returnsEmptyNotError() {
+        VariantFixture fixture = buildVariantFixture();
+        putThreshold(fixture.variantId(), fixture.locationId(), 5);
+
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/alerts/thresholds")
+                        .queryParam("optionIds", UUID.randomUUID())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockAlertThresholdResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
     void deactivateVariant_clearsItsStockAlertThreshold() {
         VariantFixture fixture = buildVariantFixture();
         putThreshold(fixture.variantId(), fixture.locationId(), 5);
@@ -320,7 +357,7 @@ class StockAlertIT extends BaseIT {
         return response;
     }
 
-    private record VariantFixture(UUID variantId, UUID locationId, UUID productId) {}
+    private record VariantFixture(UUID variantId, UUID locationId, UUID productId, UUID optionId) {}
 
     private VariantFixture buildVariantFixture() {
         LocationResponseDTO location = postLocation("Loc-" + UUID.randomUUID().toString().substring(0, 6), "LOC-" + UUID.randomUUID().toString().substring(0, 6));
@@ -362,7 +399,7 @@ class StockAlertIT extends BaseIT {
                 .returnResult().getResponseBody();
         assertThat(variant).isNotNull();
 
-        return new VariantFixture(variant.getId(), location.getId(), product.getId());
+        return new VariantFixture(variant.getId(), location.getId(), product.getId(), option.getId());
     }
 
     private LocationResponseDTO postLocation(String name, String code) {

@@ -116,6 +116,168 @@ class ProductVariantIT extends BaseIT {
     }
 
     @Test
+    void getVariants_matchAllTrue_requiresEveryOption_matchAllFalseMatchesAny() {
+        // One product, Color[Black,Navy] x Size[S,M] both assigned (every variant must cover both
+        // dimensions - a variant can never partially cover a product's assigned metadata).
+        ColorSizeGrid grid = buildColorSizeGrid();
+        UUID blackS = createVariant(grid.productId(), List.of(grid.black(), grid.s())).getId();
+        UUID blackM = createVariant(grid.productId(), List.of(grid.black(), grid.m())).getId();
+        UUID navyM = createVariant(grid.productId(), List.of(grid.navy(), grid.m())).getId();
+
+        List<ProductVariantResponseDTO> anyMatch = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/{productId}/variants")
+                        .queryParam("optionIds", grid.black())
+                        .queryParam("optionIds", grid.m())
+                        .build(grid.productId()))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(anyMatch).isNotNull();
+        assertThat(anyMatch).extracting(ProductVariantResponseDTO::getId).contains(blackS, blackM, navyM);
+
+        List<ProductVariantResponseDTO> allMatch = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/{productId}/variants")
+                        .queryParam("optionIds", grid.black())
+                        .queryParam("optionIds", grid.m())
+                        .queryParam("matchAll", "true")
+                        .build(grid.productId()))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(allMatch).isNotNull();
+        assertThat(allMatch).extracting(ProductVariantResponseDTO::getId).containsExactly(blackM);
+    }
+
+    @Test
+    void getVariants_matchAll_withUnknownOptionId_returnsEmptyNotError() {
+        Setup s = buildProductWithMetadata();
+        createVariant(s.productId, s.optionId);
+
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/{productId}/variants")
+                        .queryParam("optionIds", UUID.randomUUID())
+                        .queryParam("matchAll", "true")
+                        .build(s.productId))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void getVariantsForProduct_filterBySku_matchesTokensInAnyOrder() {
+        TwoMeta two = buildProductWithTwoMetadata();
+        ProductVariantResponseDTO variant = createVariant(two.productId(), List.of(two.colorOption(), two.sizeOption()));
+        // SKU is "<product sku>-<color code>-<size code>" - search with the tokens reversed
+        // relative to how they actually appear in the generated SKU.
+        String[] parts = variant.getSku().split("-");
+        String reversedQuery = parts[parts.length - 1] + " " + parts[parts.length - 2];
+
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/{productId}/variants")
+                        .queryParam("sku", reversedQuery)
+                        .build(two.productId()))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .value(list -> assertThat(list).extracting(ProductVariantResponseDTO::getId).containsExactly(variant.getId()));
+    }
+
+    @Test
+    void getVariantsForProduct_filterBySku_noMatch_returnsEmpty() {
+        Setup s = buildProductWithMetadata();
+        createVariant(s.productId, s.optionId);
+
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/{productId}/variants")
+                        .queryParam("sku", "totally-unrelated-token")
+                        .build(s.productId))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void searchVariants_bySkuOnly_noOptionIds_matchesAcrossProducts() {
+        Setup s1 = buildProductWithMetadata();
+        Setup s2 = buildProductWithMetadata();
+        ProductVariantResponseDTO variant1 = createVariant(s1.productId, s1.optionId);
+        createVariant(s2.productId, s2.optionId);
+
+        // Search using only the first variant's own product SKU fragment - should not require
+        // optionIds at all, and shouldn't pull in the unrelated second product's variant.
+        List<ProductVariantResponseDTO> results = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/variants/search")
+                        .queryParam("sku", s1.productSku)
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(results).isNotNull();
+        assertThat(results).extracting(ProductVariantResponseDTO::getId).containsExactly(variant1.getId());
+    }
+
+    @Test
+    void searchVariants_combinesSkuAndOptionIds() {
+        ColorSizeGrid grid = buildColorSizeGrid();
+        createVariant(grid.productId(), List.of(grid.black(), grid.s()));
+        UUID blackM = createVariant(grid.productId(), List.of(grid.black(), grid.m())).getId();
+
+        // Filtering by the Black option alone would match both variants; adding the "M" size
+        // code as a further sku constraint narrows it down to just the Black+M variant.
+        List<ProductVariantResponseDTO> results = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/variants/search")
+                        .queryParam("optionIds", grid.black())
+                        .queryParam("sku", grid.mCode())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(results).isNotNull();
+        assertThat(results).extracting(ProductVariantResponseDTO::getId).containsExactly(blackM);
+    }
+
+    @Test
+    void searchVariants_sku_withSqlMetacharacters_doesNotErrorAndIsBoundSafely() {
+        Setup s = buildProductWithMetadata();
+        createVariant(s.productId, s.optionId);
+
+        // Bind-parameterized ILIKE ALL - a quote/semicolon in the search term must never reach the
+        // database as literal SQL text, so this should return a clean (empty) result, not a 500.
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/variants/search")
+                        .queryParam("sku", "o'brien; DROP TABLE product_variants;--")
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .hasSize(0);
+
+        // The table must still be there and queryable afterwards.
+        client.get().uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .hasSize(1);
+    }
+
+    @Test
     void searchVariants_acrossProducts_returnsMatchesFromEachProduct() {
         Setup s1 = buildProductWithMetadata();
         Setup s2 = buildProductWithMetadata();
@@ -652,9 +814,73 @@ class ProductVariantIT extends BaseIT {
         return new Setup(product.getId(), productSku, option.getId(), option.getCode());
     }
 
+    private record TwoMeta(UUID productId, UUID colorOption, UUID sizeOption, String colorCode, String sizeCode) {}
+
+    private record ColorSizeGrid(UUID productId, UUID black, UUID navy, UUID s, UUID m, String mCode) {}
+
+    // One product with Color[Black,Navy] and Size[S,M] both assigned. Every variant must cover
+    // both dimensions (a variant can never partially cover a product's assigned metadata), so
+    // OR-vs-AND (matchAll) has to be distinguished by *which* options a variant has, not how many
+    // dimensions it covers - e.g. Black+S and Black+M both "have Black", only Black+M "has M" too.
+    private ColorSizeGrid buildColorSizeGrid() {
+        ProductResponseDTO product = createProduct("SKU-GRID-" + UUID.randomUUID(), "Color Size Grid Product");
+        ProductMetadataResponseDTO colorMeta = createMetadata("Color-" + UUID.randomUUID());
+        MetadataOptionResponseDTO black = addOption(colorMeta.getId(), "Black");
+        MetadataOptionResponseDTO navy = addOption(colorMeta.getId(), "Navy");
+        ProductMetadataResponseDTO sizeMeta = createMetadata("Size-" + UUID.randomUUID());
+        MetadataOptionResponseDTO s = addOption(sizeMeta.getId(), "S");
+        MetadataOptionResponseDTO m = addOption(sizeMeta.getId(), "M");
+
+        ProductMetadataAssignmentItemDTO colorItem = new ProductMetadataAssignmentItemDTO();
+        colorItem.setMetadataId(colorMeta.getId());
+        colorItem.setOptionIds(List.of(black.getId(), navy.getId()));
+        ProductMetadataAssignmentItemDTO sizeItem = new ProductMetadataAssignmentItemDTO();
+        sizeItem.setMetadataId(sizeMeta.getId());
+        sizeItem.setOptionIds(List.of(s.getId(), m.getId()));
+
+        client.put().uri("/products/{id}/metadata", product.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(List.of(colorItem, sizeItem))
+                .exchange()
+                .expectStatus().isNoContent();
+
+        return new ColorSizeGrid(product.getId(), black.getId(), navy.getId(), s.getId(), m.getId(), m.getCode());
+    }
+
+    // One product with two independent metadata dimensions (Color, Size), each with a single
+    // option, both assigned - used where a test just needs one variant covering both dimensions.
+    private TwoMeta buildProductWithTwoMetadata() {
+        ProductResponseDTO product = createProduct("SKU-TWOMETA-" + UUID.randomUUID(), "Two Metadata Product");
+        ProductMetadataResponseDTO colorMeta = createMetadata("Color-" + UUID.randomUUID());
+        MetadataOptionResponseDTO colorOption = addOption(colorMeta.getId(), "Red");
+        ProductMetadataResponseDTO sizeMeta = createMetadata("Size-" + UUID.randomUUID());
+        MetadataOptionResponseDTO sizeOption = addOption(sizeMeta.getId(), "Large");
+
+        ProductMetadataAssignmentItemDTO colorItem = new ProductMetadataAssignmentItemDTO();
+        colorItem.setMetadataId(colorMeta.getId());
+        colorItem.setOptionIds(List.of(colorOption.getId()));
+        ProductMetadataAssignmentItemDTO sizeItem = new ProductMetadataAssignmentItemDTO();
+        sizeItem.setMetadataId(sizeMeta.getId());
+        sizeItem.setOptionIds(List.of(sizeOption.getId()));
+
+        client.put().uri("/products/{id}/metadata", product.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(List.of(colorItem, sizeItem))
+                .exchange()
+                .expectStatus().isNoContent();
+
+        return new TwoMeta(product.getId(), colorOption.getId(), sizeOption.getId(), colorOption.getCode(), sizeOption.getCode());
+    }
+
     private ProductVariantResponseDTO createVariant(UUID productId, UUID optionId) {
+        return createVariant(productId, List.of(optionId));
+    }
+
+    private ProductVariantResponseDTO createVariant(UUID productId, List<UUID> optionIds) {
         ProductVariantRequestDTO dto = new ProductVariantRequestDTO();
-        dto.setOptionIds(List.of(optionId));
+        dto.setOptionIds(optionIds);
         ProductVariantResponseDTO response = client.post()
                 .uri("/products/{productId}/variants", productId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")

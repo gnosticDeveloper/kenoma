@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SearchIcon } from './icons'
+import { tokenizedMatch } from '../lib/search'
 
 export interface Column<T> {
   key: string
@@ -27,8 +28,7 @@ export function DataTable<T>({ columns, rows, rowKey, searchable, searchText, on
 
   const filtered = useMemo(() => {
     if (!search.trim() || !searchText) return rows
-    const q = search.trim().toLowerCase()
-    return rows.filter(r => searchText(r).toLowerCase().includes(q))
+    return rows.filter(r => tokenizedMatch(search, searchText(r)))
   }, [rows, search, searchText])
 
   const sorted = useMemo(() => {

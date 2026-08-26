@@ -1,6 +1,7 @@
 package bime.services;
 
 import bime.db.BimeContextService;
+import bime.db.OptionFilterSql;
 import bime.dto.StockAlertResponseDTO;
 import bime.dto.StockAlertThresholdRequestDTO;
 import bime.dto.StockAlertThresholdResponseDTO;
@@ -14,6 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -48,12 +50,13 @@ public class StockAlertThresholdService {
         );
     }
 
-    public Flux<StockAlertThresholdResponseDTO> getThresholds(UUID variantId, UUID locationId) {
+    public Flux<StockAlertThresholdResponseDTO> getThresholds(UUID variantId, UUID locationId, List<UUID> optionIds, boolean matchAll) {
         return ctx.withHandleMany((caller, handle) -> {
             WhereClause where = WhereClause.of()
                     .eq("org_id", "orgId", caller.getOrgId())
                     .eqIfPresent("variant_id", "variantId", variantId)
-                    .eqIfPresent("location_id", "locationId", locationId);
+                    .eqIfPresent("location_id", "locationId", locationId)
+                    .raw(OptionFilterSql.fragment("variant_id"));
 
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     SELECT org_id, variant_id, location_id, threshold, created_at, modified_at
@@ -63,6 +66,7 @@ public class StockAlertThresholdService {
             for (WhereClause.Binding b : where.bindings()) {
                 spec = spec.bind(b.name(), b.value());
             }
+            spec = OptionFilterSql.bind(spec, optionIds, matchAll);
             return spec.fetch().all().map(this::toThresholdResponseDTO);
         });
     }
@@ -83,12 +87,13 @@ public class StockAlertThresholdService {
         ).then();
     }
 
-    public Flux<StockAlertResponseDTO> getActiveAlerts(UUID variantId, UUID locationId) {
+    public Flux<StockAlertResponseDTO> getActiveAlerts(UUID variantId, UUID locationId, List<UUID> optionIds, boolean matchAll) {
         return ctx.withHandleMany((caller, handle) -> {
             WhereClause where = WhereClause.of()
                     .eq("org_id", "orgId", caller.getOrgId())
                     .eqIfPresent("variant_id", "variantId", variantId)
-                    .eqIfPresent("location_id", "locationId", locationId);
+                    .eqIfPresent("location_id", "locationId", locationId)
+                    .raw(OptionFilterSql.fragment("variant_id"));
 
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     SELECT org_id, variant_id, location_id, threshold, quantity, triggered_at
@@ -99,6 +104,7 @@ public class StockAlertThresholdService {
             for (WhereClause.Binding b : where.bindings()) {
                 spec = spec.bind(b.name(), b.value());
             }
+            spec = OptionFilterSql.bind(spec, optionIds, matchAll);
             return spec.fetch().all().map(this::toAlertResponseDTO);
         });
     }

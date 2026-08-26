@@ -383,7 +383,7 @@ button, input, select {
 }
 .btn-outline:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
 
-.btn-full { width: 100%; }
+.btn-full { width: 100%; justify-content: center; }
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 
 /* ── Feedback ── */

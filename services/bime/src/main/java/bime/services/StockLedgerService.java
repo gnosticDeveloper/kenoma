@@ -2,6 +2,7 @@ package bime.services;
 
 import bime.db.BimeContextService;
 import bime.db.BimeDbHandle;
+import bime.db.OptionFilterSql;
 import bime.dto.MovementType;
 import bime.dto.StockBalanceResponseDTO;
 import bime.dto.StockMovementRequestDTO;
@@ -17,6 +18,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -56,12 +58,13 @@ public class StockLedgerService {
         );
     }
 
-    public Flux<StockMovementResponseDTO> getMovements(UUID variantId, UUID locationId) {
+    public Flux<StockMovementResponseDTO> getMovements(UUID variantId, UUID locationId, List<UUID> optionIds, boolean matchAll) {
         return ctx.withHandleMany((caller, handle) -> {
             WhereClause where = WhereClause.of()
                     .eq("org_id", "orgId", caller.getOrgId())
                     .eqIfPresent("variant_id", "variantId", variantId)
-                    .eqIfPresent("location_id", "locationId", locationId);
+                    .eqIfPresent("location_id", "locationId", locationId)
+                    .raw(OptionFilterSql.fragment("variant_id"));
 
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     SELECT id, org_id, product_id, variant_id, location_id, movement_type,
@@ -73,16 +76,18 @@ public class StockLedgerService {
             for (WhereClause.Binding b : where.bindings()) {
                 spec = spec.bind(b.name(), b.value());
             }
+            spec = OptionFilterSql.bind(spec, optionIds, matchAll);
             return spec.fetch().all().map(this::toMovementResponseDTO);
         });
     }
 
-    public Flux<StockBalanceResponseDTO> getBalances(UUID variantId, UUID locationId) {
+    public Flux<StockBalanceResponseDTO> getBalances(UUID variantId, UUID locationId, List<UUID> optionIds, boolean matchAll) {
         return ctx.withHandleMany((caller, handle) -> {
             WhereClause where = WhereClause.of()
                     .eq("org_id", "orgId", caller.getOrgId())
                     .eqIfPresent("variant_id", "variantId", variantId)
-                    .eqIfPresent("location_id", "locationId", locationId);
+                    .eqIfPresent("location_id", "locationId", locationId)
+                    .raw(OptionFilterSql.fragment("variant_id"));
 
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     SELECT org_id, variant_id, location_id, quantity, modified_at
@@ -92,6 +97,7 @@ public class StockLedgerService {
             for (WhereClause.Binding b : where.bindings()) {
                 spec = spec.bind(b.name(), b.value());
             }
+            spec = OptionFilterSql.bind(spec, optionIds, matchAll);
             return spec.fetch().all().map(this::toBalanceResponseDTO);
         });
     }

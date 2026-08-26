@@ -10,7 +10,7 @@ import { Tabs } from '../components/Tabs'
 import { DataTable, type Column } from '../components/DataTable'
 import { Combobox } from '../components/Combobox'
 import { Feedback } from '../components/Feedback'
-import { FilterChips, FilterDisclosure, matchesOptionFilter, toggleOptionId } from '../components/OptionFilter'
+import { FilterChips, FilterDisclosure, toggleOptionId } from '../components/OptionFilter'
 import type { Permissions } from '../auth'
 import { RowActionsMenu } from '../components/RowActionsMenu'
 import type {
@@ -40,11 +40,11 @@ const balancesCache = createCache<StockBalanceResponse[]>(CACHE_TTL_MS)
 const thresholdsCache = createCache<StockAlertThresholdResponse[]>(CACHE_TTL_MS)
 const alertsCache = createCache<StockAlertResponse[]>(CACHE_TTL_MS)
 
-function filterCacheKey(variantId: string | null, locationId: string | null): string {
-  return `${variantId ?? ''}|${locationId ?? ''}`
+function filterCacheKey(variantId: string | null, locationId: string | null, optionIds: string[], matchAll: boolean): string {
+  return `${variantId ?? ''}|${locationId ?? ''}|${[...optionIds].sort().join(',')}|${matchAll}`
 }
 
-type VariantInfo = { productId: string; sku: string | null; productName: string; optionsLabel: string; optionIds: string[] }
+type VariantInfo = { productId: string; sku: string | null; productName: string; optionsLabel: string }
 
 export default function BimeStockPage({ token, permissions }: Props) {
   const { t } = useTranslation()
@@ -81,7 +81,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
       full.forEach(p => {
         const vs = p.variants ?? []
         byProduct[p.id] = vs
-        vs.forEach(v => { lookup[v.id] = { productId: p.id, sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', '), optionIds: v.options.map(o => o.id) } })
+        vs.forEach(v => { lookup[v.id] = { productId: p.id, sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', ') } })
       })
       setVariantsByProduct(byProduct)
       setVariantLookup(lookup)
@@ -99,13 +99,6 @@ export default function BimeStockPage({ token, permissions }: Props) {
     if (!productId) return rows
     const variantIds = new Set((variantsByProduct[productId] ?? []).map(v => v.id))
     return rows.filter(r => variantIds.has(r.variantId))
-  }
-
-  // Client-side, same as filterByProduct above - stock endpoints only accept variantId/locationId,
-  // so narrowing by metadata option happens here against the already-fetched rows.
-  function filterByOptionSelection<T extends { variantId: string }>(rows: T[]): T[] {
-    if (optionFilter.length === 0) return rows
-    return rows.filter(r => matchesOptionFilter(variantLookup[r.variantId]?.optionIds ?? [], optionFilter, optionMatchAll))
   }
 
   function variantItemsFor(productId: string) {
@@ -143,12 +136,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [movFilterLocation, setMovFilterLocation] = useState<string | null>(null)
 
   function loadMovements() {
-    movements.call(() => movementsCache.get(filterCacheKey(movFilterVariant, movFilterLocation), () => bime.stock.listMovements(token, {
+    movements.call(() => movementsCache.get(filterCacheKey(movFilterVariant, movFilterLocation, optionFilter, optionMatchAll), () => bime.stock.listMovements(token, {
       variantId: movFilterVariant ?? undefined,
       locationId: movFilterLocation ?? undefined,
+      optionIds: optionFilter.length ? optionFilter : undefined,
+      matchAll: optionMatchAll,
     })))
   }
-  useDebouncedEffect(loadMovements, [movFilterVariant, movFilterLocation], FILTER_DEBOUNCE_MS)
+  useDebouncedEffect(loadMovements, [movFilterVariant, movFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
 
   useEffect(() => {
     if (record.state.status !== 'success') return
@@ -174,12 +169,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [balFilterLocation, setBalFilterLocation] = useState<string | null>(null)
 
   function loadBalances() {
-    balances.call(() => balancesCache.get(filterCacheKey(balFilterVariant, balFilterLocation), () => bime.stock.listBalances(token, {
+    balances.call(() => balancesCache.get(filterCacheKey(balFilterVariant, balFilterLocation, optionFilter, optionMatchAll), () => bime.stock.listBalances(token, {
       variantId: balFilterVariant ?? undefined,
       locationId: balFilterLocation ?? undefined,
+      optionIds: optionFilter.length ? optionFilter : undefined,
+      matchAll: optionMatchAll,
     })))
   }
-  useDebouncedEffect(loadBalances, [balFilterVariant, balFilterLocation], FILTER_DEBOUNCE_MS)
+  useDebouncedEffect(loadBalances, [balFilterVariant, balFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
 
   // ── Alert thresholds ──
   const thresholds = useApiCall<StockAlertThresholdResponse[]>()
@@ -188,12 +185,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [thrFilterLocation, setThrFilterLocation] = useState<string | null>(null)
 
   function loadThresholds() {
-    thresholds.call(() => thresholdsCache.get(filterCacheKey(thrFilterVariant, thrFilterLocation), () => bime.stock.listAlertThresholds(token, {
+    thresholds.call(() => thresholdsCache.get(filterCacheKey(thrFilterVariant, thrFilterLocation, optionFilter, optionMatchAll), () => bime.stock.listAlertThresholds(token, {
       variantId: thrFilterVariant ?? undefined,
       locationId: thrFilterLocation ?? undefined,
+      optionIds: optionFilter.length ? optionFilter : undefined,
+      matchAll: optionMatchAll,
     })))
   }
-  useDebouncedEffect(loadThresholds, [thrFilterVariant, thrFilterLocation], FILTER_DEBOUNCE_MS)
+  useDebouncedEffect(loadThresholds, [thrFilterVariant, thrFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
 
   const [thresholdModalOpen, setThresholdModalOpen] = useState(false)
   const [editingThreshold, setEditingThreshold] = useState<StockAlertThresholdResponse | null>(null)
@@ -246,12 +245,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [alertFilterLocation, setAlertFilterLocation] = useState<string | null>(null)
 
   function loadActiveAlerts() {
-    activeAlerts.call(() => alertsCache.get(filterCacheKey(alertFilterVariant, alertFilterLocation), () => bime.stock.listActiveAlerts(token, {
+    activeAlerts.call(() => alertsCache.get(filterCacheKey(alertFilterVariant, alertFilterLocation, optionFilter, optionMatchAll), () => bime.stock.listActiveAlerts(token, {
       variantId: alertFilterVariant ?? undefined,
       locationId: alertFilterLocation ?? undefined,
+      optionIds: optionFilter.length ? optionFilter : undefined,
+      matchAll: optionMatchAll,
     })))
   }
-  useDebouncedEffect(loadActiveAlerts, [alertFilterVariant, alertFilterLocation], FILTER_DEBOUNCE_MS)
+  useDebouncedEffect(loadActiveAlerts, [alertFilterVariant, alertFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
 
   const movementColumns: Column<StockMovementResponse>[] = [
     { key: 'type', header: t('bimeStockPage.type'), render: m => <span className="role-badge">{t(`bimeStockPage.movementTypes.${m.movementType}`)}</span> },
@@ -343,7 +344,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {movements.state.status === 'error' && <Feedback state={movements.state} />}
             <DataTable
               columns={movementColumns}
-              rows={filterByOptionSelection(filterByProduct(movements.state.status === 'success' ? movements.state.data : [], movFilterProduct))}
+              rows={filterByProduct(movements.state.status === 'success' ? movements.state.data : [], movFilterProduct)}
               rowKey={m => m.id}
               emptyLabel={t('bimeStockPage.movementsEmptyState')}
               headerAction={
@@ -377,7 +378,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {balances.state.status === 'error' && <Feedback state={balances.state} />}
             <DataTable
               columns={balanceColumns}
-              rows={filterByOptionSelection(filterByProduct(balances.state.status === 'success' ? balances.state.data : [], balFilterProduct))}
+              rows={filterByProduct(balances.state.status === 'success' ? balances.state.data : [], balFilterProduct)}
               rowKey={b => `${b.variantId}-${b.locationId}`}
               emptyLabel={t('bimeStockPage.balancesEmptyState')}
               headerAction={<button className="btn btn-outline" onClick={loadBalances} type="button">{t('common.actions.refresh')}</button>}
@@ -405,7 +406,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {thresholds.state.status === 'error' && <Feedback state={thresholds.state} />}
             <DataTable
               columns={thresholdColumns}
-              rows={filterByOptionSelection(filterByProduct(thresholds.state.status === 'success' ? thresholds.state.data : [], thrFilterProduct))}
+              rows={filterByProduct(thresholds.state.status === 'success' ? thresholds.state.data : [], thrFilterProduct)}
               rowKey={th => `${th.variantId}-${th.locationId}`}
               emptyLabel={t('bimeStockPage.thresholdsEmptyState')}
               headerAction={
@@ -440,7 +441,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             {activeAlerts.state.status === 'error' && <Feedback state={activeAlerts.state} />}
             <DataTable
               columns={activeAlertColumns}
-              rows={filterByOptionSelection(filterByProduct(activeAlerts.state.status === 'success' ? activeAlerts.state.data : [], alertFilterProduct))}
+              rows={filterByProduct(activeAlerts.state.status === 'success' ? activeAlerts.state.data : [], alertFilterProduct)}
               rowKey={a => `${a.variantId}-${a.locationId}`}
               emptyLabel={t('bimeStockPage.alertsEmptyState')}
               headerAction={<button className="btn btn-outline" onClick={loadActiveAlerts} type="button">{t('common.actions.refresh')}</button>}

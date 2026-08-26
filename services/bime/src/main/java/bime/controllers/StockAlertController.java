@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -49,7 +50,9 @@ public class StockAlertController {
         return stockAlertThresholdService.setThreshold(dto);
     }
 
-    @Operation(summary = "List stock alert thresholds", description = "Returns configured thresholds for the organization, optionally filtered by variant and/or location. Requires BIME_VIEW.")
+    @Operation(summary = "List stock alert thresholds", description = "Returns configured thresholds for the organization, optionally filtered by variant and/or location. " +
+            "If optionIds is passed, only thresholds for variants matching the given option IDs are returned - " +
+            "matching at least one of them by default, or all of them when matchAll=true. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of thresholds (may be empty)"),
             @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -59,8 +62,10 @@ public class StockAlertController {
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<StockAlertThresholdResponseDTO> getThresholds(
             @Parameter(description = "Filter to the threshold for this variant") @RequestParam(required = false) UUID variantId,
-            @Parameter(description = "Filter to thresholds at this location") @RequestParam(required = false) UUID locationId) {
-        return stockAlertThresholdService.getThresholds(variantId, locationId);
+            @Parameter(description = "Filter to thresholds at this location") @RequestParam(required = false) UUID locationId,
+            @RequestParam(required = false) List<UUID> optionIds,
+            @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
+        return stockAlertThresholdService.getThresholds(variantId, locationId, optionIds, matchAll);
     }
 
     @Operation(summary = "Remove a stock alert threshold", description = "Deletes the threshold for a variant at a location; stops future alerts for that pair. Requires BIME_MANAGE.")
@@ -80,7 +85,9 @@ public class StockAlertController {
     @Operation(
             summary = "List active low-stock alerts",
             description = "Returns variants currently at or below their configured threshold at a location, for the organization. " +
-                    "A row disappears once stock recovers above threshold. Requires BIME_VIEW."
+                    "A row disappears once stock recovers above threshold. If optionIds is passed, only alerts for variants " +
+                    "matching the given option IDs are returned - matching at least one of them by default, or all of them " +
+                    "when matchAll=true. Requires BIME_VIEW."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "List of active alerts (may be empty)"),
@@ -91,7 +98,9 @@ public class StockAlertController {
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Flux<StockAlertResponseDTO> getActiveAlerts(
             @Parameter(description = "Filter to alerts for this variant") @RequestParam(required = false) UUID variantId,
-            @Parameter(description = "Filter to alerts at this location") @RequestParam(required = false) UUID locationId) {
-        return stockAlertThresholdService.getActiveAlerts(variantId, locationId);
+            @Parameter(description = "Filter to alerts at this location") @RequestParam(required = false) UUID locationId,
+            @RequestParam(required = false) List<UUID> optionIds,
+            @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
+        return stockAlertThresholdService.getActiveAlerts(variantId, locationId, optionIds, matchAll);
     }
 }
