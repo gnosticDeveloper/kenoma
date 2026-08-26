@@ -98,9 +98,19 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   useEffect(() => { metadataDefs.call(() => bime.metadata.list(token)) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
   const metadataDefsList = metadataDefs.state.status === 'success' ? metadataDefs.state.data : []
 
+  const allOptionItems = metadataDefsList.flatMap(m =>
+    m.options.map(o => ({ id: o.id, label: `${o.value} (${m.name})` })))
+
+  const allProducts = useApiCall<ProductResponse[]>()
+  const allProductsList = allProducts.state.status === 'success' ? allProducts.state.data : []
+
+  const [productOptionFilter, setProductOptionFilter] = useState<string[]>([])
   const list = useApiCall<ProductResponse[]>()
-  function reload() { list.call(() => bime.products.list(token)) }
-  useEffect(reload, [token])
+  function reload() {
+    list.call(() => bime.products.list(token, productOptionFilter.length ? productOptionFilter : undefined))
+    allProducts.call(() => bime.products.list(token))
+  }
+  useEffect(reload, [token, productOptionFilter])
   const products = list.state.status === 'success' ? list.state.data : []
 
   // ── Create / Edit product ──
@@ -177,15 +187,23 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   useEffect(() => {
     if (viewCurrency.length === 0 || viewCurrency.length === 3) setAppliedViewCurrency(viewCurrency)
   }, [viewCurrency])
+  const [variantOptionFilter, setVariantOptionFilter] = useState<string[]>([])
   const variants = useApiCall<ProductVariantResponse[]>()
   function reloadVariants() {
-    if (selectedProductId) variants.call(() => bime.variants.list(selectedProductId, token, appliedViewCurrency || undefined))
+    if (selectedProductId) {
+      variants.call(() => bime.variants.list(
+        selectedProductId, token, appliedViewCurrency || undefined,
+        variantOptionFilter.length ? variantOptionFilter : undefined,
+      ))
+    } else if (variantOptionFilter.length > 0) {
+      variants.call(() => bime.variants.search(variantOptionFilter, token, appliedViewCurrency || undefined))
+    }
   }
-  useEffect(reloadVariants, [selectedProductId, appliedViewCurrency])
+  useEffect(reloadVariants, [selectedProductId, appliedViewCurrency, variantOptionFilter])
   const variantList = variants.state.status === 'success' ? variants.state.data : []
+  const searchingAcrossProducts = !selectedProductId && variantOptionFilter.length > 0
 
   const [variantModalOpen, setVariantModalOpen] = useState(false)
-  const [variantSku, setVariantSku] = useState('')
   const [variantPrice, setVariantPrice] = useState('')
   const [variantPriceCurrency, setVariantPriceCurrency] = useState('')
   const [variantRows, setVariantRows] = useState<AssignmentRow[]>([])
@@ -195,7 +213,6 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   useEffect(() => {
     if (createVariant.state.status !== 'success') return
     setVariantModalOpen(false)
-    setVariantSku('')
     setVariantPrice('')
     setVariantPriceCurrency('')
     setVariantRows([])
@@ -209,7 +226,6 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     const optionIds = buildAssignments(variantRows).flatMap(a => a.optionIds)
     const dto: ProductVariantRequest = {
       optionIds,
-      sku: variantSku.trim() || undefined,
       price: variantPrice.trim() ? Number(variantPrice) : undefined,
       priceCurrency: variantPrice.trim() ? (variantPriceCurrency.trim() || undefined) : undefined,
     }
@@ -217,18 +233,16 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   }
 
   function removeVariant(v: ProductVariantResponse) {
-    if (!selectedProductId) return
     if (!window.confirm(t('bimeProductsPage.deactivateVariantConfirm'))) return
-    deactivateVariant.call(() => bime.variants.deactivate(selectedProductId, v.id, token)).then(result => {
+    deactivateVariant.call(() => bime.variants.deactivate(v.productId, v.id, token)).then(result => {
       if (!result.ok) { toast.show(result.message, 'error'); return }
       reloadVariants()
       toast.show(t('bimeProductsPage.variantDeactivated'))
     })
   }
 
-  // ── Edit variant (SKU / price) ──
+  // ── Edit variant (price) ──
   const [editingVariant, setEditingVariant] = useState<ProductVariantResponse | null>(null)
-  const [editVariantSku, setEditVariantSku] = useState('')
   const [editVariantPrice, setEditVariantPrice] = useState('')
   const [editVariantPriceCurrency, setEditVariantPriceCurrency] = useState('')
   const updateVariant = useApiCall<ProductVariantResponse>()
@@ -243,21 +257,19 @@ export default function BimeProductsPage({ token, permissions }: Props) {
 
   function openEditVariant(v: ProductVariantResponse) {
     setEditingVariant(v)
-    setEditVariantSku(v.sku ?? '')
     setEditVariantPrice(v.price != null ? String(v.price) : '')
     setEditVariantPriceCurrency(v.priceCurrency ?? '')
   }
 
   function submitEditVariant() {
-    if (!selectedProductId || !editingVariant) return
+    if (!editingVariant) return
     // optionIds isn't read by PATCH on the backend - only create uses it - so it's omitted here.
     const dto: ProductVariantRequest = {
       optionIds: [],
-      sku: editVariantSku.trim() || undefined,
       price: editVariantPrice.trim() ? Number(editVariantPrice) : undefined,
       priceCurrency: editVariantPrice.trim() ? (editVariantPriceCurrency.trim() || undefined) : undefined,
     }
-    updateVariant.call(() => bime.variants.patch(selectedProductId, editingVariant.id, dto, token))
+    updateVariant.call(() => bime.variants.patch(editingVariant.productId, editingVariant.id, dto, token))
   }
 
   // ── Batch reprice selected variants ──
@@ -380,7 +392,18 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     }] : []),
   ]
 
-  const productItems = products.map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))
+  const variantColumnsCrossProduct: Column<ProductVariantResponse>[] = [
+    {
+      key: 'product',
+      header: t('bimeProductsPage.name'),
+      render: v => <span>{productLookup[v.productId]?.name ?? '—'}</span>,
+    },
+    ...variantColumns,
+  ]
+
+  const productItems = allProductsList.map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))
+  const productLookup: Record<string, ProductResponse> = {}
+  allProductsList.forEach(p => { productLookup[p.id] = p })
 
   return (
     <div className="page">
@@ -401,6 +424,15 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       >
         {activeTab === 'products' && (
           <div className="panel">
+            <div className="field" style={{ marginBottom: '16px', maxWidth: '420px' }}>
+              <label>{t('bimeProductsPage.filterByOptions')}</label>
+              <MultiCombobox
+                items={allOptionItems}
+                value={productOptionFilter}
+                onChange={setProductOptionFilter}
+                placeholder={t('bimeProductsPage.optionsPlaceholder')}
+              />
+            </div>
             {list.state.status === 'error' && <Feedback state={list.state} />}
             <DataTable
               columns={productColumns}
@@ -419,19 +451,31 @@ export default function BimeProductsPage({ token, permissions }: Props) {
 
         {activeTab === 'variants' && (
           <div className="panel">
-            <div className="field" style={{ marginBottom: '16px', maxWidth: '320px' }}>
-              <label>{t('bimeProductsPage.name')}</label>
-              <Combobox
-                items={productItems}
-                value={selectedProductId}
-                onChange={id => { setSelectedProductId(id); setSelectedVariantIds(new Set()) }}
-                placeholder={t('bimeProductsPage.productPlaceholder')}
-              />
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '16px' }}>
+              <div className="field" style={{ maxWidth: '320px', flex: 1 }}>
+                <label>{t('bimeProductsPage.name')}</label>
+                <Combobox
+                  items={productItems}
+                  value={selectedProductId}
+                  onChange={id => { setSelectedProductId(id); setSelectedVariantIds(new Set()) }}
+                  placeholder={t('bimeProductsPage.productPlaceholder')}
+                />
+              </div>
+              <div className="field" style={{ maxWidth: '420px', flex: 1 }}>
+                <label>{t('bimeProductsPage.filterByOptions')}</label>
+                <MultiCombobox
+                  items={allOptionItems}
+                  value={variantOptionFilter}
+                  onChange={setVariantOptionFilter}
+                  placeholder={t('bimeProductsPage.optionsPlaceholder')}
+                />
+              </div>
             </div>
-            {!selectedProductId ? (
+            {!selectedProductId && !searchingAcrossProducts ? (
               <div className="empty-state">{t('bimeProductsPage.selectProductHint')}</div>
             ) : (
               <>
+              {searchingAcrossProducts && <p className="panel-hint">{t('bimeProductsPage.crossProductSearchHint')}</p>}
               <div className="field" style={{ marginBottom: '16px', maxWidth: '200px' }}>
                 <label>{t('bimeProductsPage.viewInCurrency')}</label>
                 <input
@@ -443,7 +487,7 @@ export default function BimeProductsPage({ token, permissions }: Props) {
               </div>
               {variants.state.status === 'error' && <Feedback state={variants.state} />}
               <DataTable
-                columns={variantColumns}
+                columns={searchingAcrossProducts ? variantColumnsCrossProduct : variantColumns}
                 rows={variantList}
                 rowKey={v => v.id}
                 emptyLabel={t('bimeProductsPage.variantsEmptyState')}
@@ -461,10 +505,10 @@ export default function BimeProductsPage({ token, permissions }: Props) {
                         </button>
                       </>
                     )}
-                    {permissions.canManageBime && (
+                    {permissions.canManageBime && selectedProductId && (
                       <button
                         className="btn btn-primary"
-                        onClick={() => { setVariantSku(''); setVariantPrice(''); setVariantPriceCurrency(''); setVariantRows([]); setVariantModalOpen(true) }}
+                        onClick={() => { setVariantPrice(''); setVariantPriceCurrency(''); setVariantRows([]); setVariantModalOpen(true) }}
                         type="button"
                       >
                         {t('bimeProductsPage.createVariantAction')}
@@ -537,11 +581,8 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       </Modal>
 
       <Modal open={variantModalOpen} onClose={() => setVariantModalOpen(false)} title={t('bimeProductsPage.createVariantTitle')}>
+        <p className="panel-hint">{t('bimeProductsPage.skuAutoGeneratedHint')}</p>
         <div className="fields">
-          <div className="field">
-            <label>{t('bimeProductsPage.sku')}</label>
-            <input value={variantSku} onChange={e => setVariantSku(e.target.value)} placeholder="WIDGET-001-RED-XL" />
-          </div>
           <div className="field">
             <label>{t('bimeProductsPage.price')}</label>
             <input type="number" step="0.01" min="0" value={variantPrice} onChange={e => setVariantPrice(e.target.value)} />
@@ -574,11 +615,8 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       </Modal>
 
       <Modal open={editingVariant !== null} onClose={() => setEditingVariant(null)} title={t('bimeProductsPage.editVariantTitle')}>
+        {editingVariant && <p className="panel-hint">{t('bimeProductsPage.editVariantSkuHint', { sku: editingVariant.sku ?? '—' })}</p>}
         <div className="fields">
-          <div className="field">
-            <label>{t('bimeProductsPage.sku')}</label>
-            <input value={editVariantSku} onChange={e => setEditVariantSku(e.target.value)} />
-          </div>
           <div className="field">
             <label>{t('bimeProductsPage.price')}</label>
             <input type="number" step="0.01" min="0" value={editVariantPrice} onChange={e => setEditVariantPrice(e.target.value)} />

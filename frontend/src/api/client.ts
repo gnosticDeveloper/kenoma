@@ -25,8 +25,15 @@ export function payload(data: unknown): Pick<RequestInit, 'body'> {
   return { body: JSON.stringify(data) }
 }
 
-export function query(params: Record<string, string | undefined>): string {
-  const entries = Object.entries(params).filter(([, v]) => v)
-  if (entries.length === 0) return ''
-  return '?' + new URLSearchParams(entries as [string, string][]).toString()
+export function query(params: Record<string, string | string[] | undefined>): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) {
+      value.forEach(v => v && search.append(key, v))
+    } else if (value) {
+      search.append(key, value)
+    }
+  }
+  const qs = search.toString()
+  return qs ? '?' + qs : ''
 }

@@ -270,12 +270,14 @@ export interface StockAlertResponse {
 
 export interface MetadataOptionRequest {
   value: string
+  code?: string
 }
 
 export interface MetadataOptionResponse {
   id: string
   metadataId: string
   value: string
+  code: string
   createdAt: string
 }
 
@@ -317,7 +319,6 @@ export interface VariantStock {
 
 export interface ProductVariantRequest {
   optionIds: string[]
-  sku?: string
   isActive?: boolean
   price?: number
   priceCurrency?: string
