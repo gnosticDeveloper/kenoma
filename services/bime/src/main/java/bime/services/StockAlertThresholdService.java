@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -26,8 +27,8 @@ public class StockAlertThresholdService {
     private final BimeContextService ctx;
 
     public Mono<StockAlertThresholdResponseDTO> setThreshold(StockAlertThresholdRequestDTO dto) {
-        if (dto.getThreshold() < 0) {
-            return Mono.error(new BadRequestException("threshold must be zero or a positive integer"));
+        if (dto.getThreshold().compareTo(BigDecimal.ZERO) < 0) {
+            return Mono.error(new BadRequestException("threshold must be zero or a positive number"));
         }
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
                 INSERT INTO variant_stock_alert_thresholds (org_id, variant_id, location_id, threshold)
@@ -114,7 +115,7 @@ public class StockAlertThresholdService {
                 .orgId((UUID) row.get("org_id"))
                 .variantId((UUID) row.get("variant_id"))
                 .locationId((UUID) row.get("location_id"))
-                .threshold((Integer) row.get("threshold"))
+                .threshold((BigDecimal) row.get("threshold"))
                 .createdAt((LocalDateTime) row.get("created_at"))
                 .modifiedAt((LocalDateTime) row.get("modified_at"))
                 .build();
@@ -125,8 +126,8 @@ public class StockAlertThresholdService {
                 .orgId((UUID) row.get("org_id"))
                 .variantId((UUID) row.get("variant_id"))
                 .locationId((UUID) row.get("location_id"))
-                .threshold((Integer) row.get("threshold"))
-                .quantity((Integer) row.get("quantity"))
+                .threshold((BigDecimal) row.get("threshold"))
+                .quantity((BigDecimal) row.get("quantity"))
                 .triggeredAt((LocalDateTime) row.get("triggered_at"))
                 .build();
     }

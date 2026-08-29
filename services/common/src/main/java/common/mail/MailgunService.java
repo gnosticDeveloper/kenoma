@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.text.MessageFormat;
 import java.util.Locale;
 import java.util.MissingResourceException;
@@ -86,7 +87,7 @@ public class MailgunService {
     }
 
     public Mono<Void> sendStockAlertEmail(String toEmail, String productLabel, String locationName,
-                                           int quantity, int threshold, String locale) {
+                                           BigDecimal quantity, BigDecimal threshold, String locale) {
         ResourceBundle messages = messagesFor(locale);
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
