@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -19,7 +20,7 @@ public class StockBalanceResponseDTO {
     private UUID variantId;
     private UUID locationId;
     @Schema(description = "Net on-hand quantity — the running sum of all recorded movement deltas for this variant and location", example = "42")
-    private int quantity;
+    private BigDecimal quantity;
     @Schema(description = "Timestamp of the last movement that affected this balance")
     private LocalDateTime modifiedAt;
 }

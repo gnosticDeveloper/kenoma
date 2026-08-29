@@ -14,13 +14,13 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -44,69 +44,69 @@ class StockAlertCheckServiceTest {
 
     @Test
     void checkOrg_sendsEmailWithVariantSkuLabelWhenPresent() {
-        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", "alerts@example.com", true, 10, 3);
+        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", "alerts@example.com", true, BigDecimal.valueOf(10), BigDecimal.valueOf(3));
         stubClient(0L, List.of(row));
-        when(mailgunService.sendStockAlertEmail(anyString(), anyString(), anyString(), anyInt(), anyInt(), any()))
+        when(mailgunService.sendStockAlertEmail(anyString(), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), any()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(service.checkOrg(ORG_ID, mockHandle())).verifyComplete();
 
         verify(mailgunService).sendStockAlertEmail(
-                eq("alerts@example.com"), eq("Widget (VAR-SKU)"), eq("Main WH"), eq(3), eq(10), any());
+                eq("alerts@example.com"), eq("Widget (VAR-SKU)"), eq("Main WH"), eq(BigDecimal.valueOf(3)), eq(BigDecimal.valueOf(10)), any());
     }
 
     @Test
     void checkOrg_fallsBackToProductSku_whenVariantHasNoOwnSku() {
-        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", null, "Main WH", "alerts@example.com", true, 10, 3);
+        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", null, "Main WH", "alerts@example.com", true, BigDecimal.valueOf(10), BigDecimal.valueOf(3));
         stubClient(0L, List.of(row));
-        when(mailgunService.sendStockAlertEmail(anyString(), anyString(), anyString(), anyInt(), anyInt(), any()))
+        when(mailgunService.sendStockAlertEmail(anyString(), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), any()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(service.checkOrg(ORG_ID, mockHandle())).verifyComplete();
 
         verify(mailgunService).sendStockAlertEmail(
-                anyString(), eq("Widget (PROD-SKU)"), anyString(), anyInt(), anyInt(), any());
+                anyString(), eq("Widget (PROD-SKU)"), anyString(), any(BigDecimal.class), any(BigDecimal.class), any());
     }
 
     // Adversarial: a location with no notification_email must not crash the whole check,
     // and must not attempt to email a null/blank address.
     @Test
     void checkOrg_skipsEmail_whenLocationHasNoNotificationEmail() {
-        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", null, true, 10, 3);
+        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", null, true, BigDecimal.valueOf(10), BigDecimal.valueOf(3));
         stubClient(0L, List.of(row));
 
         StepVerifier.create(service.checkOrg(ORG_ID, mockHandle())).verifyComplete();
 
-        verify(mailgunService, never()).sendStockAlertEmail(any(), any(), any(), anyInt(), anyInt(), any());
+        verify(mailgunService, never()).sendStockAlertEmail(any(), any(), any(), any(BigDecimal.class), any(BigDecimal.class), any());
     }
 
     // Adversarial: an unverified notification_email must not receive stock alert emails, even if
     // it's otherwise present - the location owner never confirmed they control that address.
     @Test
     void checkOrg_skipsEmail_whenNotificationEmailNotVerified() {
-        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", "unverified@example.com", false, 10, 3);
+        Map<String, Object> row = triggeredRow("Widget", "PROD-SKU", "VAR-SKU", "Main WH", "unverified@example.com", false, BigDecimal.valueOf(10), BigDecimal.valueOf(3));
         stubClient(0L, List.of(row));
 
         StepVerifier.create(service.checkOrg(ORG_ID, mockHandle())).verifyComplete();
 
-        verify(mailgunService, never()).sendStockAlertEmail(any(), any(), any(), anyInt(), anyInt(), any());
+        verify(mailgunService, never()).sendStockAlertEmail(any(), any(), any(), any(BigDecimal.class), any(BigDecimal.class), any());
     }
 
     // Adversarial: one row's email send failing must not prevent the next row's email from
     // being attempted — a single Mailgun outage/rejection shouldn't blank out the whole tick.
     @Test
     void checkOrg_isolatesEmailFailureToOneRow() {
-        Map<String, Object> failingRow = triggeredRow("Failing", "F-SKU", null, "WH-1", "fails@example.com", true, 10, 1);
-        Map<String, Object> healthyRow = triggeredRow("Healthy", "H-SKU", null, "WH-2", "ok@example.com", true, 10, 1);
+        Map<String, Object> failingRow = triggeredRow("Failing", "F-SKU", null, "WH-1", "fails@example.com", true, BigDecimal.valueOf(10), BigDecimal.valueOf(1));
+        Map<String, Object> healthyRow = triggeredRow("Healthy", "H-SKU", null, "WH-2", "ok@example.com", true, BigDecimal.valueOf(10), BigDecimal.valueOf(1));
         stubClient(0L, List.of(failingRow, healthyRow));
-        when(mailgunService.sendStockAlertEmail(eq("fails@example.com"), anyString(), anyString(), anyInt(), anyInt(), any()))
+        when(mailgunService.sendStockAlertEmail(eq("fails@example.com"), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), any()))
                 .thenReturn(Mono.error(new RuntimeException("mailgun down")));
-        when(mailgunService.sendStockAlertEmail(eq("ok@example.com"), anyString(), anyString(), anyInt(), anyInt(), any()))
+        when(mailgunService.sendStockAlertEmail(eq("ok@example.com"), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), any()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(service.checkOrg(ORG_ID, mockHandle())).verifyComplete();
 
-        verify(mailgunService).sendStockAlertEmail(eq("ok@example.com"), anyString(), anyString(), anyInt(), anyInt(), any());
+        verify(mailgunService).sendStockAlertEmail(eq("ok@example.com"), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), any());
     }
 
     @Test
@@ -120,7 +120,7 @@ class StockAlertCheckServiceTest {
 
     private Map<String, Object> triggeredRow(String productName, String productSku, String variantSku,
                                               String locationName, String notificationEmail, boolean notificationEmailVerified,
-                                              int threshold, int quantity) {
+                                              BigDecimal threshold, BigDecimal quantity) {
         Map<String, Object> row = new HashMap<>();
         row.put("product_name", productName);
         row.put("product_sku", productSku);

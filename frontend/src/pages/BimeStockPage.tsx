@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { createCache } from '../lib/cache'
+import { formatQuantity } from '../lib/uom'
 import { useApiCall } from '../hooks/useApiCall'
 import { useDebouncedEffect } from '../hooks/useDebouncedEffect'
 import { useToast } from '../components/Toast'
@@ -24,6 +25,7 @@ import type {
   StockAlertThresholdResponse,
   StockBalanceResponse,
   StockMovementResponse,
+  UomConversionResponse,
 } from '../types'
 
 interface Props {
@@ -44,7 +46,14 @@ function filterCacheKey(variantId: string | null, locationId: string | null, opt
   return `${variantId ?? ''}|${locationId ?? ''}|${[...optionIds].sort().join(',')}|${matchAll}`
 }
 
-type VariantInfo = { productId: string; sku: string | null; productName: string; optionsLabel: string }
+type VariantInfo = {
+  productId: string
+  sku: string | null
+  productName: string
+  optionsLabel: string
+  baseUom: string
+  uomConversions: UomConversionResponse[]
+}
 
 export default function BimeStockPage({ token, permissions }: Props) {
   const { t } = useTranslation()
@@ -81,7 +90,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
       full.forEach(p => {
         const vs = p.variants ?? []
         byProduct[p.id] = vs
-        vs.forEach(v => { lookup[v.id] = { productId: p.id, sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', ') } })
+        vs.forEach(v => { lookup[v.id] = { productId: p.id, sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', '), baseUom: v.baseUom, uomConversions: v.uomConversions } })
       })
       setVariantsByProduct(byProduct)
       setVariantLookup(lookup)
@@ -120,6 +129,12 @@ export default function BimeStockPage({ token, permissions }: Props) {
     return loc ? `${loc.name} (${loc.code})` : locationId.slice(0, 8) + '…'
   }
 
+  function variantQuantityLabel(variantId: string, quantity: number): string {
+    const info = variantLookup[variantId]
+    if (!info) return String(quantity)
+    return formatQuantity(quantity, info.baseUom, info.uomConversions)
+  }
+
   // ── Record movement ──
   const [recordOpen, setRecordOpen] = useState(false)
   const [recordProductId, setRecordProductId] = useState<string | null>(null)
@@ -127,8 +142,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [locationId, setLocationId] = useState<string | null>(null)
   const [movementType, setMovementType] = useState<MovementType>('INBOUND')
   const [delta, setDelta] = useState(0)
+  const [movementUom, setMovementUom] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const record = useApiCall<StockMovementResponse>()
+  const movementUomConversions = variantId ? (variantLookup[variantId]?.uomConversions ?? []) : []
+
+  useEffect(() => {
+    setMovementUom(null)
+  }, [variantId])
 
   const movements = useApiCall<StockMovementResponse[]>()
   const [movFilterProduct, setMovFilterProduct] = useState<string | null>(null)
@@ -256,7 +277,18 @@ export default function BimeStockPage({ token, permissions }: Props) {
 
   const movementColumns: Column<StockMovementResponse>[] = [
     { key: 'type', header: t('bimeStockPage.type'), render: m => <span className="role-badge">{t(`bimeStockPage.movementTypes.${m.movementType}`)}</span> },
-    { key: 'delta', header: t('bimeStockPage.delta'), render: m => <span className={m.delta < 0 ? 'feedback-error' : 'feedback-success'}>{m.delta > 0 ? `+${m.delta}` : m.delta}</span> },
+    {
+      key: 'delta',
+      header: t('bimeStockPage.delta'),
+      render: m => (
+        <span className={m.delta < 0 ? 'feedback-error' : 'feedback-success'}>
+          {m.uom
+            ? `${m.uomQuantity! > 0 ? '+' : ''}${m.uomQuantity} ${m.uom}`
+            : `${m.delta > 0 ? '+' : ''}${variantQuantityLabel(m.variantId, m.delta)}`}
+          {m.uom && <span className="td-muted"> ({variantQuantityLabel(m.variantId, m.delta)})</span>}
+        </span>
+      ),
+    },
     { key: 'variant', header: t('bimeStockPage.variant'), render: m => variantLabel(m.variantId) },
     { key: 'location', header: t('bimeStockPage.location'), render: m => locationLabel(m.locationId) },
     { key: 'note', header: t('bimeStockPage.note'), render: m => <span className="td-muted">{m.note ?? '—'}</span> },
@@ -266,14 +298,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const balanceColumns: Column<StockBalanceResponse>[] = [
     { key: 'variant', header: t('bimeStockPage.variant'), render: b => variantLabel(b.variantId) },
     { key: 'location', header: t('bimeStockPage.location'), render: b => locationLabel(b.locationId) },
-    { key: 'quantity', header: t('bimeStockPage.quantity'), render: b => b.quantity },
+    { key: 'quantity', header: t('bimeStockPage.quantity'), render: b => variantQuantityLabel(b.variantId, b.quantity) },
     { key: 'modified', header: t('bimeStockPage.modified'), render: b => <span className="td-muted">{new Date(b.modifiedAt).toLocaleString()}</span> },
   ]
 
   const thresholdColumns: Column<StockAlertThresholdResponse>[] = [
     { key: 'variant', header: t('bimeStockPage.variant'), render: th => variantLabel(th.variantId) },
     { key: 'location', header: t('bimeStockPage.location'), render: th => locationLabel(th.locationId) },
-    { key: 'threshold', header: t('bimeStockPage.threshold'), render: th => th.threshold },
+    { key: 'threshold', header: t('bimeStockPage.threshold'), render: th => variantQuantityLabel(th.variantId, th.threshold) },
     { key: 'modified', header: t('bimeStockPage.modified'), render: th => <span className="td-muted">{new Date(th.modifiedAt).toLocaleString()}</span> },
     ...(permissions.canManageBime ? [{
       key: 'actions',
@@ -290,8 +322,8 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const activeAlertColumns: Column<StockAlertResponse>[] = [
     { key: 'variant', header: t('bimeStockPage.variant'), render: a => variantLabel(a.variantId) },
     { key: 'location', header: t('bimeStockPage.location'), render: a => locationLabel(a.locationId) },
-    { key: 'quantity', header: t('bimeStockPage.quantity'), render: a => <span className="feedback-error">{a.quantity}</span> },
-    { key: 'threshold', header: t('bimeStockPage.threshold'), render: a => a.threshold },
+    { key: 'quantity', header: t('bimeStockPage.quantity'), render: a => <span className="feedback-error">{variantQuantityLabel(a.variantId, a.quantity)}</span> },
+    { key: 'threshold', header: t('bimeStockPage.threshold'), render: a => variantQuantityLabel(a.variantId, a.threshold) },
     { key: 'triggeredAt', header: t('bimeStockPage.triggeredAt'), render: a => <span className="td-muted">{new Date(a.triggeredAt).toLocaleString()}</span> },
   ]
 
@@ -473,8 +505,17 @@ export default function BimeStockPage({ token, permissions }: Props) {
           </div>
           <div className="field">
             <label>{t('bimeStockPage.delta')}</label>
-            <input type="number" value={delta} onChange={e => setDelta(parseInt(e.target.value, 10) || 0)} />
+            <input type="number" step="any" value={delta} onChange={e => setDelta(parseFloat(e.target.value) || 0)} />
           </div>
+          {movementUomConversions.length > 0 && (
+            <div className="field">
+              <label>{t('bimeStockPage.unit')}</label>
+              <select value={movementUom ?? ''} onChange={e => setMovementUom(e.target.value || null)}>
+                <option value="">{variantId ? variantLookup[variantId]?.baseUom : t('bimeStockPage.unit')}</option>
+                {movementUomConversions.map(c => <option key={c.uomName} value={c.uomName}>{c.uomName}</option>)}
+              </select>
+            </div>
+          )}
           <div className="field">
             <label>{t('bimeStockPage.note')}</label>
             <input value={note} onChange={e => setNote(e.target.value)} placeholder={t('bimeStockPage.notePlaceholder')} />
@@ -485,7 +526,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
             className="btn btn-primary"
             disabled={record.state.status === 'loading' || !variantId || !locationId || delta === 0}
             onClick={() => variantId && locationId && record.call(() => bime.stock.recordMovement(
-              { variantId, locationId, movementType, delta, note: note.trim() || undefined }, token,
+              { variantId, locationId, movementType, delta, uom: movementUom ?? undefined, note: note.trim() || undefined }, token,
             ))}
           >
             {record.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.create')}
@@ -532,8 +573,9 @@ export default function BimeStockPage({ token, permissions }: Props) {
             <input
               type="number"
               min={0}
+              step="any"
               value={thresholdForm.threshold}
-              onChange={e => setThresholdForm(f => ({ ...f, threshold: parseInt(e.target.value, 10) || 0 }))}
+              onChange={e => setThresholdForm(f => ({ ...f, threshold: parseFloat(e.target.value) || 0 }))}
             />
           </div>
         </div>

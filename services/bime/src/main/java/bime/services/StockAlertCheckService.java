@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 
@@ -111,8 +112,8 @@ public class StockAlertCheckService {
                 notificationEmail,
                 productLabel,
                 (String) row.get("location_name"),
-                (Integer) row.get("quantity"),
-                (Integer) row.get("threshold"),
+                (BigDecimal) row.get("quantity"),
+                (BigDecimal) row.get("threshold"),
                 null
         );
     }

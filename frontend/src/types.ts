@@ -322,6 +322,10 @@ export interface ProductVariantRequest {
   isActive?: boolean
   price?: number
   priceCurrency?: string
+  cost?: number
+  costCurrency?: string
+  baseUom?: string
+  uomConversions?: UomConversionRequest[]
 }
 
 export interface ProductVariantResponse {
@@ -336,6 +340,48 @@ export interface ProductVariantResponse {
   // Canonical price as stored (in priceCurrency), or already converted if ?currency was requested
   price?: number | null
   priceCurrency?: string | null
+  // Purchase cost (COGS), independent of price - not affected by ?currency conversion
+  cost?: number | null
+  costCurrency?: string | null
+  // The unit stock is tracked in for this variant (e.g. "units", "kg")
+  baseUom: string
+  // Alternate units this variant can be bought/sold in, and their conversion factor to baseUom
+  uomConversions: UomConversionResponse[]
+}
+
+export interface OrgUnitRequest {
+  name: string
+}
+
+export interface OrgUnitResponse {
+  id: string
+  orgId: string
+  name: string
+  // Built-in standard metric unit (kg, g, m, cm, l, ml) or the generic count unit (units), with
+  // automatic conversions between them - as opposed to a custom org-defined unit (e.g. "case")
+  standard: boolean
+  createdAt: string
+}
+
+export interface UomConversionRequest {
+  uomName: string
+  factor: number
+  // Optional flat price for one of this unit (bulk discount); falls back to factor * variant price
+  price?: number
+}
+
+export interface UomConversionResponse {
+  id: string
+  orgId: string
+  variantId: string
+  uomName: string
+  factor: number
+  // Explicit override, if set; null when falling back to factor * variant price
+  price: number | null
+  // The explicit price above if set, otherwise factor * the variant's price; null if the variant has no price
+  effectivePrice: number | null
+  createdAt: string
+  modifiedAt: string
 }
 
 export interface VariantPriceUpdate {
@@ -345,6 +391,15 @@ export interface VariantPriceUpdate {
 
 export interface VariantBatchPriceRequest {
   items: VariantPriceUpdate[]
+}
+
+export interface VariantCostUpdate {
+  variantId: string
+  cost: number
+}
+
+export interface VariantBatchCostRequest {
+  items: VariantCostUpdate[]
 }
 
 export interface ProductRequest {
@@ -375,6 +430,9 @@ export interface StockMovementRequest {
   locationId: string
   movementType: MovementType
   delta: number
+  // Optional unit the delta above is expressed in (e.g. "case"), if different from the
+  // variant's base unit. Must be a unit configured via the uom-conversions endpoints
+  uom?: string
   referenceId?: string
   note?: string
 }
@@ -386,7 +444,10 @@ export interface StockMovementResponse {
   variantId: string
   locationId: string
   movementType: MovementType
+  // Always in the variant's base unit
   delta: number
+  uom: string | null
+  uomQuantity: number | null
   referenceId: string | null
   note: string | null
   createdAt: string

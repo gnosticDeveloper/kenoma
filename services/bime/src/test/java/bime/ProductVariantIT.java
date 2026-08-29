@@ -635,6 +635,99 @@ class ProductVariantIT extends BaseIT {
     }
 
     @Test
+    void createVariant_withCost_persistsIndependentlyOfPrice() {
+        Setup s = buildProductWithMetadata();
+
+        ProductVariantRequestDTO dto = new ProductVariantRequestDTO();
+        dto.setOptionIds(List.of(s.optionId));
+        dto.setPrice(new BigDecimal("19.99"));
+        dto.setPriceCurrency("USD");
+        dto.setCost(new BigDecimal("8.50"));
+        dto.setCostCurrency("USD");
+
+        ProductVariantResponseDTO variant = client.post().uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(variant).isNotNull();
+        assertThat(variant.getPrice()).isEqualByComparingTo(new BigDecimal("19.99"));
+        assertThat(variant.getCost()).isEqualByComparingTo(new BigDecimal("8.50"));
+        assertThat(variant.getCostCurrency()).isEqualTo("USD");
+    }
+
+    @Test
+    void createVariant_rejectsCostWithoutCurrency() {
+        Setup s = buildProductWithMetadata();
+
+        ProductVariantRequestDTO dto = new ProductVariantRequestDTO();
+        dto.setOptionIds(List.of(s.optionId));
+        dto.setCost(new BigDecimal("8.50"));
+
+        client.post().uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void createVariant_rejectsNegativeOrZeroCost() {
+        Setup s = buildProductWithMetadata();
+
+        ProductVariantRequestDTO dto = new ProductVariantRequestDTO();
+        dto.setOptionIds(List.of(s.optionId));
+        dto.setCost(BigDecimal.ZERO);
+        dto.setCostCurrency("USD");
+
+        client.post().uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void patchVariant_updatesCost() {
+        Setup s = buildProductWithMetadata();
+        ProductVariantRequestDTO createDto = new ProductVariantRequestDTO();
+        createDto.setOptionIds(List.of(s.optionId));
+        ProductVariantResponseDTO created = client.post().uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(createDto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(created).isNotNull();
+
+        ProductVariantRequestDTO patchDto = new ProductVariantRequestDTO();
+        patchDto.setOptionIds(List.of());
+        patchDto.setCost(new BigDecimal("3.25"));
+        patchDto.setCostCurrency("USD");
+
+        ProductVariantResponseDTO patched = client.patch().uri("/products/{productId}/variants/{variantId}", s.productId, created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(patchDto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(patched).isNotNull();
+        assertThat(patched.getCost()).isEqualByComparingTo(new BigDecimal("3.25"));
+        assertThat(patched.getCostCurrency()).isEqualTo("USD");
+    }
+
+    @Test
     void batchUpdatePrices_updatesVariantsInOrg_rejectsForeignVariant() {
         when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
                 .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
@@ -693,6 +786,102 @@ class ProductVariantIT extends BaseIT {
     }
 
     @Test
+    void batchUpdateCosts_updatesVariantsInOrg_rejectsForeignVariant() {
+        when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
+                .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
+
+        Setup s = buildProductWithMetadata();
+        ProductVariantResponseDTO variant1 = createVariant(s.productId, s.optionId);
+
+        Setup s2 = buildProductWithMetadata();
+        ProductVariantResponseDTO variant2 = createVariant(s2.productId, s2.optionId);
+
+        UUID foreignVariantId = UUID.randomUUID();
+
+        VariantCostUpdateDTO item1 = new VariantCostUpdateDTO();
+        item1.setVariantId(variant1.getId());
+        item1.setCost(new BigDecimal("4.00"));
+        VariantCostUpdateDTO item2 = new VariantCostUpdateDTO();
+        item2.setVariantId(variant2.getId());
+        item2.setCost(new BigDecimal("8.00"));
+
+        VariantBatchCostRequestDTO happyDto = new VariantBatchCostRequestDTO();
+        happyDto.setItems(List.of(item1, item2));
+
+        client.patch().uri("/variants/pricing/cost-batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(happyDto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(UUID.class)
+                .hasSize(2)
+                .contains(variant1.getId(), variant2.getId());
+
+        ProductVariantResponseDTO refetched = client.get()
+                .uri("/products/{productId}/variants/{variantId}", s.productId, variant1.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(refetched).isNotNull();
+        assertThat(refetched.getCost()).isEqualByComparingTo("4.00");
+        assertThat(refetched.getCostCurrency()).isEqualTo("USD");
+
+        VariantCostUpdateDTO foreignItem = new VariantCostUpdateDTO();
+        foreignItem.setVariantId(foreignVariantId);
+        foreignItem.setCost(new BigDecimal("1.00"));
+        VariantBatchCostRequestDTO mixedDto = new VariantBatchCostRequestDTO();
+        mixedDto.setItems(List.of(item1, foreignItem));
+
+        client.patch().uri("/variants/pricing/cost-batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(mixedDto)
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void batchUpdateCosts_rejectsNegativeOrZeroCost() {
+        when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
+                .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
+        Setup s = buildProductWithMetadata();
+        ProductVariantResponseDTO variant = createVariant(s.productId, s.optionId);
+
+        VariantCostUpdateDTO zero = new VariantCostUpdateDTO();
+        zero.setVariantId(variant.getId());
+        zero.setCost(BigDecimal.ZERO);
+        VariantBatchCostRequestDTO dto = new VariantBatchCostRequestDTO();
+        dto.setItems(List.of(zero));
+
+        client.patch().uri("/variants/pricing/cost-batch")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void batchUpdateCosts_viewerRole_returns403() {
+        mockViewerJwt();
+        VariantCostUpdateDTO item = new VariantCostUpdateDTO();
+        item.setVariantId(UUID.randomUUID());
+        item.setCost(BigDecimal.TEN);
+        VariantBatchCostRequestDTO dto = new VariantBatchCostRequestDTO();
+        dto.setItems(List.of(item));
+
+        client.patch().uri("/variants/pricing/cost-batch")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isForbidden();
+    }
+
+    @Test
     void getVariantById_withCurrencyParam_convertsPrice() {
         when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
                 .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
@@ -725,6 +914,77 @@ class ProductVariantIT extends BaseIT {
         assertThat(converted).isNotNull();
         assertThat(converted.getPrice()).isEqualByComparingTo("10000.00");
         assertThat(converted.getPriceCurrency()).isEqualTo("ARS");
+    }
+
+    @Test
+    void getVariantById_withCurrencyParam_convertsCostAndUomPricesToo() {
+        // Regression: price used to convert while cost stayed in its original currency, so
+        // margin = price - cost silently mixed currencies once a ?currency= view was applied.
+        when(raumClient.getOrgCurrency(eq(ORG_ID), any()))
+                .thenReturn(Mono.just(new OrgCurrencyDTO("ARS", "MANUAL", "USD")));
+        when(raumClient.getRate(eq("USD"), eq("ARS"), any()))
+                .thenReturn(Mono.just(new BigDecimal("1000")));
+
+        Setup s = buildProductWithMetadata();
+        ProductVariantRequestDTO dto = new ProductVariantRequestDTO();
+        dto.setOptionIds(List.of(s.optionId));
+        dto.setPrice(new BigDecimal("0.75"));
+        dto.setPriceCurrency("USD");
+        dto.setCost(new BigDecimal("0.42"));
+        dto.setCostCurrency("USD");
+        dto.setUomConversions(List.of());
+        ProductVariantResponseDTO variant = client.post()
+                .uri("/products/{productId}/variants", s.productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(variant).isNotNull();
+
+        OrgUnitRequestDTO caseUnit = new OrgUnitRequestDTO();
+        caseUnit.setName("case");
+        client.post().uri("/units")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(caseUnit)
+                .exchange();
+
+        UomConversionRequestDTO caseConversion = new UomConversionRequestDTO();
+        caseConversion.setUomName("case");
+        caseConversion.setFactor(new BigDecimal("24"));
+        caseConversion.setPrice(new BigDecimal("18.00"));
+        client.put().uri("/variants/{v}/uom-conversions", variant.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(caseConversion)
+                .exchange()
+                .expectStatus().isOk();
+
+        ProductVariantResponseDTO converted = client.get()
+                .uri("/products/{productId}/variants/{variantId}?currency=ARS", s.productId, variant.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(converted).isNotNull();
+        assertThat(converted.getPrice()).isEqualByComparingTo("750");
+        assertThat(converted.getPriceCurrency()).isEqualTo("ARS");
+        assertThat(converted.getCost()).isEqualByComparingTo("420");
+        assertThat(converted.getCostCurrency()).isEqualTo("ARS");
+        // Margin must now stay meaningful in a single currency.
+        assertThat(converted.getPrice().subtract(converted.getCost())).isEqualByComparingTo("330");
+
+        assertThat(converted.getUomConversions()).hasSize(1);
+        UomConversionResponseDTO convertedUom = converted.getUomConversions().get(0);
+        assertThat(convertedUom.getPrice()).isEqualByComparingTo("18000");
+        assertThat(convertedUom.getEffectivePrice()).isEqualByComparingTo("18000");
+        // effectiveCost has no override - always derived as factor * the (already-converted) variant cost.
+        assertThat(convertedUom.getEffectiveCost()).isEqualByComparingTo("10080");
     }
 
     @Test

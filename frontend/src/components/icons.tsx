@@ -102,6 +102,15 @@ export function MetadataIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+export function UnitsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="7" width="14" height="6" rx="1" transform="rotate(-20 10 10)" />
+      <path d="M6.2 8.8 7 10.4M8.6 7.9 9.4 9.5M11 7 11.8 8.6M13.4 6.1 14.2 7.7" />
+    </Icon>
+  )
+}
+
 export function ProductsIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

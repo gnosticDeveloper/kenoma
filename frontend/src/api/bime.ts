@@ -5,6 +5,8 @@ import type {
   NotificationEmailVerifyRequest,
   MetadataOptionRequest,
   MetadataOptionResponse,
+  OrgUnitRequest,
+  OrgUnitResponse,
   ProductMetadataAssignmentItem,
   ProductMetadataRequest,
   ProductMetadataResponse,
@@ -12,6 +14,7 @@ import type {
   ProductResponse,
   ProductVariantRequest,
   ProductVariantResponse,
+  VariantBatchCostRequest,
   VariantBatchPriceRequest,
   RoleResponse,
   StockAlertResponse,
@@ -20,6 +23,8 @@ import type {
   StockBalanceResponse,
   StockMovementRequest,
   StockMovementResponse,
+  UomConversionRequest,
+  UomConversionResponse,
 } from '../types'
 import { payload, query, req } from './client'
 
@@ -102,6 +107,24 @@ export const bime = {
       req<void>(`/products/${productId}/variants/${variantId}`, { method: 'DELETE' }, token),
     batchUpdatePrices: (dto: VariantBatchPriceRequest, token: string) =>
       req<string[]>('/variants/pricing/batch', { method: 'PATCH', ...payload(dto) }, token),
+    batchUpdateCosts: (dto: VariantBatchCostRequest, token: string) =>
+      req<string[]>('/variants/pricing/cost-batch', { method: 'PATCH', ...payload(dto) }, token),
+  },
+  units: {
+    list: (token: string) =>
+      req<OrgUnitResponse[]>('/units', { method: 'GET' }, token),
+    create: (dto: OrgUnitRequest, token: string) =>
+      req<OrgUnitResponse>('/units', { method: 'POST', ...payload(dto) }, token),
+    delete: (id: string, token: string) =>
+      req<void>(`/units/${id}`, { method: 'DELETE' }, token),
+  },
+  uomConversions: {
+    set: (variantId: string, dto: UomConversionRequest, token: string) =>
+      req<UomConversionResponse>(`/variants/${variantId}/uom-conversions`, { method: 'PUT', ...payload(dto) }, token),
+    list: (variantId: string, token: string) =>
+      req<UomConversionResponse[]>(`/variants/${variantId}/uom-conversions`, { method: 'GET' }, token),
+    delete: (variantId: string, uomName: string, token: string) =>
+      req<void>(`/variants/${variantId}/uom-conversions/${encodeURIComponent(uomName)}`, { method: 'DELETE' }, token),
   },
   stock: {
     recordMovement: (dto: StockMovementRequest, token: string) =>

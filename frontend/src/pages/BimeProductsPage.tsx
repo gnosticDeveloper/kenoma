@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { formatMoney } from '../lib/money'
+import { formatQuantity } from '../lib/uom'
 import { useApiCall } from '../hooks/useApiCall'
 import { useDebouncedEffect } from '../hooks/useDebouncedEffect'
 import { useToast } from '../components/Toast'
@@ -16,12 +17,14 @@ import { FilterChips, FilterDisclosure, toggleOptionId } from '../components/Opt
 import type { Permissions } from '../auth'
 import type {
   LocationResponse,
+  OrgUnitResponse,
   ProductMetadataAssignmentItem,
   ProductMetadataResponse,
   ProductRequest,
   ProductResponse,
   ProductVariantRequest,
   ProductVariantResponse,
+  UomConversionResponse,
   VariantPriceUpdate,
 } from '../types'
 
@@ -38,6 +41,61 @@ interface AssignmentRow {
 
 function newAssignmentRowKey(): string {
   return crypto.randomUUID()
+}
+
+interface UomConversionRow {
+  key: string
+  unitId: string | null
+  factor: string
+  price: string
+}
+
+function UomConversionsInput({ value, onChange, baseUom, unitItems }: {
+  value: UomConversionRow[]
+  onChange: (rows: UomConversionRow[]) => void
+  baseUom: string
+  unitItems: { id: string; label: string; sublabel?: string }[]
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="roles-input">
+      {value.map(row => (
+        <div key={row.key} className="role-row">
+          <Combobox
+            items={unitItems}
+            value={row.unitId}
+            onChange={id => onChange(value.map(r => r.key === row.key ? { ...r, unitId: id } : r))}
+            placeholder={t('bimeProductsPage.uomName')}
+          />
+          <input
+            type="number"
+            step="any"
+            min="0"
+            value={row.factor}
+            onChange={e => onChange(value.map(r => r.key === row.key ? { ...r, factor: e.target.value } : r))}
+            placeholder={t('bimeProductsPage.uomFactor')}
+          />
+          <input
+            type="number"
+            step="any"
+            min="0"
+            value={row.price}
+            onChange={e => onChange(value.map(r => r.key === row.key ? { ...r, price: e.target.value } : r))}
+            placeholder={t('bimeProductsPage.uomPriceOptional')}
+          />
+          <button className="btn btn-outline btn-sm" type="button" onClick={() => onChange(value.filter(r => r.key !== row.key))}>−</button>
+        </div>
+      ))}
+      <button
+        className="btn btn-outline btn-sm"
+        type="button"
+        onClick={() => onChange([...value, { key: newAssignmentRowKey(), unitId: null, factor: '', price: '' }])}
+      >
+        {t('bimeProductsPage.addUomConversion')}
+      </button>
+      <p className="panel-hint">{t('bimeProductsPage.uomConversionsHint', { baseUom })}</p>
+    </div>
+  )
 }
 
 const VIEW_CURRENCY_KEY = 'kenoma.bime.viewCurrency'
@@ -101,6 +159,15 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   const metadataDefs = useApiCall<ProductMetadataResponse[]>()
   useEffect(() => { metadataDefs.call(() => bime.metadata.list(token)) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
   const metadataDefsList = metadataDefs.state.status === 'success' ? metadataDefs.state.data : []
+
+  const units = useApiCall<OrgUnitResponse[]>()
+  function reloadUnits() { units.call(() => bime.units.list(token)) }
+  useEffect(reloadUnits, [token])
+  const unitsList = units.state.status === 'success' ? units.state.data : []
+  const unitItems = unitsList.map(u => ({ id: u.id, label: u.name, sublabel: u.standard ? t('bimeProductsPage.standardUnit') : t('bimeProductsPage.customUnit') }))
+  function unitNameById(id: string | null): string | undefined {
+    return id ? unitsList.find(u => u.id === id)?.name : undefined
+  }
 
   const allProducts = useApiCall<ProductResponse[]>()
   const allProductsList = allProducts.state.status === 'success' ? allProducts.state.data : []
@@ -219,7 +286,11 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   const [variantModalOpen, setVariantModalOpen] = useState(false)
   const [variantPrice, setVariantPrice] = useState('')
   const [variantPriceCurrency, setVariantPriceCurrency] = useState('')
+  const [variantCost, setVariantCost] = useState('')
+  const [variantCostCurrency, setVariantCostCurrency] = useState('')
+  const [variantBaseUomId, setVariantBaseUomId] = useState<string | null>(null)
   const [variantRows, setVariantRows] = useState<AssignmentRow[]>([])
+  const [variantUomRows, setVariantUomRows] = useState<UomConversionRow[]>([])
   const createVariant = useApiCall<ProductVariantResponse>()
   const deactivateVariant = useApiCall<void>()
 
@@ -228,7 +299,11 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     setVariantModalOpen(false)
     setVariantPrice('')
     setVariantPriceCurrency('')
+    setVariantCost('')
+    setVariantCostCurrency('')
+    setVariantBaseUomId(null)
     setVariantRows([])
+    setVariantUomRows([])
     reloadVariants()
     toast.show(t('bimeProductsPage.variantCreated'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -237,10 +312,17 @@ export default function BimeProductsPage({ token, permissions }: Props) {
   function submitVariant() {
     if (!selectedProductId) return
     const optionIds = buildAssignments(variantRows).flatMap(a => a.optionIds)
+    const uomConversions = variantUomRows
+      .filter(r => r.unitId && r.factor.trim())
+      .map(r => ({ uomName: unitNameById(r.unitId)!, factor: Number(r.factor), price: r.price.trim() ? Number(r.price) : undefined }))
     const dto: ProductVariantRequest = {
       optionIds,
       price: variantPrice.trim() ? Number(variantPrice) : undefined,
       priceCurrency: variantPrice.trim() ? (variantPriceCurrency.trim() || undefined) : undefined,
+      cost: variantCost.trim() ? Number(variantCost) : undefined,
+      costCurrency: variantCost.trim() ? (variantCostCurrency.trim() || undefined) : undefined,
+      baseUom: unitNameById(variantBaseUomId),
+      uomConversions: uomConversions.length ? uomConversions : undefined,
     }
     createVariant.call(() => bime.variants.create(selectedProductId, dto, token))
   }
@@ -254,10 +336,13 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     })
   }
 
-  // ── Edit variant (price) ──
+  // ── Edit variant (price, cost, base unit) ──
   const [editingVariant, setEditingVariant] = useState<ProductVariantResponse | null>(null)
   const [editVariantPrice, setEditVariantPrice] = useState('')
   const [editVariantPriceCurrency, setEditVariantPriceCurrency] = useState('')
+  const [editVariantCost, setEditVariantCost] = useState('')
+  const [editVariantCostCurrency, setEditVariantCostCurrency] = useState('')
+  const [editVariantBaseUomId, setEditVariantBaseUomId] = useState<string | null>(null)
   const updateVariant = useApiCall<ProductVariantResponse>()
 
   useEffect(() => {
@@ -272,6 +357,9 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     setEditingVariant(v)
     setEditVariantPrice(v.price != null ? String(v.price) : '')
     setEditVariantPriceCurrency(v.priceCurrency ?? '')
+    setEditVariantCost(v.cost != null ? String(v.cost) : '')
+    setEditVariantCostCurrency(v.costCurrency ?? '')
+    setEditVariantBaseUomId(unitsList.find(u => u.name === v.baseUom)?.id ?? null)
   }
 
   function submitEditVariant() {
@@ -281,8 +369,60 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       optionIds: [],
       price: editVariantPrice.trim() ? Number(editVariantPrice) : undefined,
       priceCurrency: editVariantPrice.trim() ? (editVariantPriceCurrency.trim() || undefined) : undefined,
+      cost: editVariantCost.trim() ? Number(editVariantCost) : undefined,
+      costCurrency: editVariantCost.trim() ? (editVariantCostCurrency.trim() || undefined) : undefined,
+      baseUom: unitNameById(editVariantBaseUomId),
     }
     updateVariant.call(() => bime.variants.patch(editingVariant.productId, editingVariant.id, dto, token))
+  }
+
+  // ── Unit-of-measure conversions for the variant being edited ──
+  const [uomConversions, setUomConversions] = useState<UomConversionResponse[]>([])
+  const [newUomId, setNewUomId] = useState<string | null>(null)
+  const [newUomFactor, setNewUomFactor] = useState('')
+  const [newUomPrice, setNewUomPrice] = useState('')
+  const uomConversionsList = useApiCall<UomConversionResponse[]>()
+  const saveUomConversion = useApiCall<UomConversionResponse>()
+  const deleteUomConversion = useApiCall<void>()
+
+  useEffect(() => {
+    if (editingVariant) {
+      uomConversionsList.call(() => bime.uomConversions.list(editingVariant.id, token))
+    } else {
+      setUomConversions([])
+      setNewUomId(null)
+      setNewUomFactor('')
+      setNewUomPrice('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingVariant])
+
+  useEffect(() => {
+    if (uomConversionsList.state.status === 'success') setUomConversions(uomConversionsList.state.data)
+  }, [uomConversionsList.state])
+
+  function submitNewUomConversion() {
+    const uomName = unitNameById(newUomId)
+    if (!editingVariant || !uomName || !newUomFactor.trim()) return
+    saveUomConversion.call(() => bime.uomConversions.set(
+      editingVariant.id,
+      { uomName, factor: Number(newUomFactor), price: newUomPrice.trim() ? Number(newUomPrice) : undefined },
+      token,
+    )).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
+      setNewUomId(null)
+      setNewUomFactor('')
+      setNewUomPrice('')
+      uomConversionsList.call(() => bime.uomConversions.list(editingVariant.id, token))
+    })
+  }
+
+  function removeUomConversion(uomName: string) {
+    if (!editingVariant) return
+    deleteUomConversion.call(() => bime.uomConversions.delete(editingVariant.id, uomName, token)).then(result => {
+      if (!result.ok) { toast.show(result.message, 'error'); return }
+      uomConversionsList.call(() => bime.uomConversions.list(editingVariant.id, token))
+    })
   }
 
   // ── Batch reprice selected variants ──
@@ -312,6 +452,26 @@ export default function BimeProductsPage({ token, permissions }: Props) {
     const price = Number(repriceValue)
     const items: VariantPriceUpdate[] = Array.from(selectedVariantIds).map(variantId => ({ variantId, price }))
     batchReprice.call(() => bime.variants.batchUpdatePrices({ items }, token))
+  }
+
+  const [costModalOpen, setCostModalOpen] = useState(false)
+  const [batchCostValue, setBatchCostValue] = useState('')
+  const batchCost = useApiCall<string[]>()
+
+  useEffect(() => {
+    if (batchCost.state.status !== 'success') return
+    setCostModalOpen(false)
+    setBatchCostValue('')
+    setSelectedVariantIds(new Set())
+    reloadVariants()
+    toast.show(t('bimeProductsPage.costsUpdated'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchCost.state])
+
+  function submitBatchCost() {
+    const cost = Number(batchCostValue)
+    const items = Array.from(selectedVariantIds).map(variantId => ({ variantId, cost }))
+    batchCost.call(() => bime.variants.batchUpdateCosts({ items }, token))
   }
 
   const productColumns: Column<ProductResponse>[] = [
@@ -368,7 +528,14 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       key: 'price',
       header: t('bimeProductsPage.price'),
       render: v => v.price != null
-        ? <span>{formatMoney(v.price, v.priceCurrency ?? '', i18n.language)}</span>
+        ? (
+          <span>
+            {formatMoney(v.price, v.priceCurrency ?? '', i18n.language)}
+            {v.cost != null && (
+              <span className="td-muted"> ({t('bimeProductsPage.margin', { margin: formatMoney(v.price - v.cost, v.priceCurrency ?? '', i18n.language) })})</span>
+            )}
+          </span>
+        )
         : <span className="td-muted">{t('bimeProductsPage.noPriceSet')}</span>,
     },
     {
@@ -388,8 +555,8 @@ export default function BimeProductsPage({ token, permissions }: Props) {
       ) : (
         <span className="td-muted">
           {v.stock.map(s => t('bimeProductsPage.stockAt', {
-            quantity: s.quantity, location: locationLookup[s.locationId]?.name ?? '—',
-          })).join(', ')}
+            quantity: formatQuantity(s.quantity, v.baseUom, v.uomConversions), location: locationLookup[s.locationId]?.name ?? '—',
+          })).join('; ')}
         </span>
       ),
     },
@@ -526,6 +693,13 @@ export default function BimeProductsPage({ token, permissions }: Props) {
                         >
                           {t('bimeProductsPage.repriceSelectedAction')}
                         </button>
+                        <button
+                          className="btn btn-outline"
+                          type="button"
+                          onClick={() => { setBatchCostValue(''); setCostModalOpen(true) }}
+                        >
+                          {t('bimeProductsPage.setCostSelectedAction')}
+                        </button>
                       </>
                     )}
                     {permissions.canManageBime && selectedProductId && (
@@ -620,10 +794,32 @@ export default function BimeProductsPage({ token, permissions }: Props) {
               disabled={!variantPrice.trim()}
             />
           </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.cost')}</label>
+            <input type="number" step="0.01" min="0" value={variantCost} onChange={e => setVariantCost(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.costCurrency')}</label>
+            <input
+              value={variantCostCurrency}
+              onChange={e => setVariantCostCurrency(e.target.value.toUpperCase())}
+              placeholder="USD"
+              maxLength={3}
+              disabled={!variantCost.trim()}
+            />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.baseUom')}</label>
+            <Combobox items={unitItems} value={variantBaseUomId} onChange={setVariantBaseUomId} placeholder={t('bimeProductsPage.baseUomDefaultPlaceholder')} />
+          </div>
         </div>
         <div className="field" style={{ marginBottom: '14px' }}>
           <label style={{ marginBottom: '8px' }}>{t('bimeProductsPage.options')}</label>
           <AssignmentsInput value={variantRows} onChange={setVariantRows} metadataDefs={metadataDefsList} />
+        </div>
+        <div className="field" style={{ marginBottom: '14px' }}>
+          <label style={{ marginBottom: '8px' }}>{t('bimeProductsPage.uomConversions')}</label>
+          <UomConversionsInput value={variantUomRows} onChange={setVariantUomRows} baseUom={unitNameById(variantBaseUomId) ?? 'units'} unitItems={unitItems} />
         </div>
         <div className="actions">
           <button
@@ -654,7 +850,32 @@ export default function BimeProductsPage({ token, permissions }: Props) {
               disabled={!editVariantPrice.trim()}
             />
           </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.cost')}</label>
+            <input type="number" step="0.01" min="0" value={editVariantCost} onChange={e => setEditVariantCost(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.costCurrency')}</label>
+            <input
+              value={editVariantCostCurrency}
+              onChange={e => setEditVariantCostCurrency(e.target.value.toUpperCase())}
+              placeholder="USD"
+              maxLength={3}
+              disabled={!editVariantCost.trim()}
+            />
+          </div>
+          <div className="field">
+            <label>{t('bimeProductsPage.baseUom')}</label>
+            <Combobox items={unitItems} value={editVariantBaseUomId} onChange={setEditVariantBaseUomId} placeholder={t('bimeProductsPage.baseUomDefaultPlaceholder')} />
+          </div>
         </div>
+        {editingVariant && editingVariant.price != null && editingVariant.cost != null && (
+          <p className="panel-hint">
+            {t('bimeProductsPage.margin', {
+              margin: formatMoney(editingVariant.price - editingVariant.cost, editingVariant.priceCurrency ?? '', i18n.language),
+            })}
+          </p>
+        )}
         <div className="actions">
           <button
             className="btn btn-primary"
@@ -665,6 +886,54 @@ export default function BimeProductsPage({ token, permissions }: Props) {
           </button>
         </div>
         {updateVariant.state.status === 'error' && <Feedback state={updateVariant.state} />}
+
+        {editingVariant && (
+          <div className="field" style={{ marginTop: '18px' }}>
+            <label style={{ marginBottom: '8px' }}>{t('bimeProductsPage.uomConversions')}</label>
+            <p className="panel-hint">{t('bimeProductsPage.uomConversionsHint', { baseUom: editingVariant.baseUom })}</p>
+            <div className="roles-input">
+              {uomConversions.map(c => (
+                <div key={c.id} className="role-row">
+                  <span className="td-muted">
+                    1 {c.uomName} = {c.factor} {editingVariant.baseUom}
+                    {c.effectivePrice != null && (
+                      <> · {formatMoney(c.effectivePrice, editingVariant.priceCurrency ?? '', i18n.language)}{c.price == null && ` (${t('bimeProductsPage.uomPriceDerived')})`}</>
+                    )}
+                  </span>
+                  <button className="btn btn-outline btn-sm" type="button" onClick={() => removeUomConversion(c.uomName)}>−</button>
+                </div>
+              ))}
+              <div className="role-row">
+                <Combobox items={unitItems} value={newUomId} onChange={setNewUomId} placeholder={t('bimeProductsPage.uomName')} />
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={newUomFactor}
+                  onChange={e => setNewUomFactor(e.target.value)}
+                  placeholder={t('bimeProductsPage.uomFactor')}
+                />
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={newUomPrice}
+                  onChange={e => setNewUomPrice(e.target.value)}
+                  placeholder={t('bimeProductsPage.uomPriceOptional')}
+                />
+                <button
+                  className="btn btn-outline btn-sm"
+                  type="button"
+                  disabled={saveUomConversion.state.status === 'loading' || !newUomId || !newUomFactor.trim()}
+                  onClick={submitNewUomConversion}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            {saveUomConversion.state.status === 'error' && <Feedback state={saveUomConversion.state} />}
+          </div>
+        )}
       </Modal>
 
       <Modal
@@ -689,6 +958,30 @@ export default function BimeProductsPage({ token, permissions }: Props) {
           </button>
         </div>
         {batchReprice.state.status === 'error' && <Feedback state={batchReprice.state} />}
+      </Modal>
+
+      <Modal
+        open={costModalOpen}
+        onClose={() => setCostModalOpen(false)}
+        title={t('bimeProductsPage.setCostSelectedTitle', { count: selectedVariantIds.size })}
+      >
+        <p className="panel-hint">{t('bimeProductsPage.setCostSelectedHint')}</p>
+        <div className="fields">
+          <div className="field">
+            <label>{t('bimeProductsPage.newCost')}</label>
+            <input type="number" step="0.01" min="0" value={batchCostValue} onChange={e => setBatchCostValue(e.target.value)} />
+          </div>
+        </div>
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            disabled={batchCost.state.status === 'loading' || !batchCostValue.trim() || Number(batchCostValue) < 0}
+            onClick={submitBatchCost}
+          >
+            {batchCost.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.save')}
+          </button>
+        </div>
+        {batchCost.state.status === 'error' && <Feedback state={batchCost.state} />}
       </Modal>
     </div>
   )

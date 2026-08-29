@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -47,7 +48,7 @@ class StockLedgerIT extends BaseIT {
         assertThat(movement.getId()).isNotNull();
         assertThat(movement.getVariantId()).isEqualTo(f.variantId);
         assertThat(movement.getLocationId()).isEqualTo(f.locationId);
-        assertThat(movement.getDelta()).isEqualTo(10);
+        assertThat(movement.getDelta()).isEqualByComparingTo(BigDecimal.valueOf(10));
         assertThat(movement.getMovementType()).isEqualTo(MovementType.INBOUND);
 
         List<StockBalanceResponseDTO> balances = client.get()
@@ -59,7 +60,7 @@ class StockLedgerIT extends BaseIT {
                 .returnResult().getResponseBody();
 
         assertThat(balances).hasSize(1);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(10);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(10));
     }
 
     @Test
@@ -77,7 +78,7 @@ class StockLedgerIT extends BaseIT {
 
         assertThat(response).isNotNull();
         assertThat(response.getId()).isEqualTo(created.getId());
-        assertThat(response.getDelta()).isEqualTo(5);
+        assertThat(response.getDelta()).isEqualByComparingTo(BigDecimal.valueOf(5));
     }
 
     @Test
@@ -117,7 +118,7 @@ class StockLedgerIT extends BaseIT {
                 .returnResult().getResponseBody();
 
         assertThat(balances).hasSize(1);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(30);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(30));
     }
 
     @Test
@@ -197,7 +198,7 @@ class StockLedgerIT extends BaseIT {
                 .expectBodyList(StockBalanceResponseDTO.class)
                 .returnResult().getResponseBody();
         assertThat(balances).hasSize(1);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(0);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(0));
     }
 
     @Test
@@ -215,7 +216,7 @@ class StockLedgerIT extends BaseIT {
                 .returnResult().getResponseBody();
 
         assertThat(balances).hasSize(1);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(15);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(15));
     }
 
     @Test
@@ -310,7 +311,7 @@ class StockLedgerIT extends BaseIT {
                 .expectBodyList(StockBalanceResponseDTO.class)
                 .returnResult().getResponseBody();
         assertThat(sourceBalances).hasSize(1);
-        assertThat(sourceBalances.get(0).getQuantity()).isEqualTo(12);
+        assertThat(sourceBalances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(12));
 
         List<StockBalanceResponseDTO> destBalances = client.get()
                 .uri("/stock/balances?variantId={v}&locationId={l}", source.variantId, destination)
@@ -320,7 +321,7 @@ class StockLedgerIT extends BaseIT {
                 .expectBodyList(StockBalanceResponseDTO.class)
                 .returnResult().getResponseBody();
         assertThat(destBalances).hasSize(1);
-        assertThat(destBalances.get(0).getQuantity()).isEqualTo(8);
+        assertThat(destBalances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(8));
     }
 
     @Test
@@ -412,7 +413,7 @@ class StockLedgerIT extends BaseIT {
 
         assertThat(balances).hasSize(1);
         assertThat(balances.get(0).getVariantId()).isEqualTo(f2.variantId);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(30);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(30));
     }
 
     @Test
@@ -682,7 +683,7 @@ class StockLedgerIT extends BaseIT {
         dto.setVariantId(variantId);
         dto.setLocationId(locationId);
         dto.setMovementType(type);
-        dto.setDelta(delta);
+        dto.setDelta(BigDecimal.valueOf(delta));
         return dto;
     }
 

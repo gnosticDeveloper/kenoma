@@ -71,6 +71,12 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    location /units {
+        proxy_pass http://bime:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     # Batch variant pricing (VariantPricingController) lives at a top-level /variants/pricing
     # path, not nested under /products like variant CRUD — without this block it 404s/405s at
     # the gateway even though the service itself handles it correctly.

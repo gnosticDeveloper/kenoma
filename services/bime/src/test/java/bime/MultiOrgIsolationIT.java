@@ -8,6 +8,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -220,7 +221,7 @@ class MultiOrgIsolationIT extends BaseIT {
         movement.setVariantId(fixture.variantId());
         movement.setLocationId(orgBLocation.getId());
         movement.setMovementType(MovementType.INBOUND);
-        movement.setDelta(10);
+        movement.setDelta(BigDecimal.valueOf(10));
 
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -254,7 +255,7 @@ class MultiOrgIsolationIT extends BaseIT {
         movement.setVariantId(fixture.variantId());
         movement.setLocationId(orgBLocation.getId());
         movement.setMovementType(MovementType.INBOUND);
-        movement.setDelta(10);
+        movement.setDelta(BigDecimal.valueOf(10));
 
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -272,7 +273,7 @@ class MultiOrgIsolationIT extends BaseIT {
         movement.setVariantId(fixture.variantId());
         movement.setLocationId(fixture.locationId());
         movement.setMovementType(MovementType.INBOUND);
-        movement.setDelta(5);
+        movement.setDelta(BigDecimal.valueOf(5));
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -403,7 +404,7 @@ class MultiOrgIsolationIT extends BaseIT {
         dto.setVariantId(variantId);
         dto.setLocationId(locationId);
         dto.setMovementType(MovementType.INBOUND);
-        dto.setDelta(delta);
+        dto.setDelta(BigDecimal.valueOf(delta));
         return dto;
     }
 
