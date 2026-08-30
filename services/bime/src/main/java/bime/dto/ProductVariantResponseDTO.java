@@ -41,4 +41,6 @@ public class ProductVariantResponseDTO {
     private List<VariantStockDTO> stock;
     @Schema(description = "Alternate units this variant can be bought/sold in, and their conversion factor to baseUom")
     private List<UomConversionResponseDTO> uomConversions;
+    @Schema(description = "Barcodes linked to this variant (provider-supplied or system-issued). At most one is primary")
+    private List<VariantBarcodeResponseDTO> barcodes;
 }

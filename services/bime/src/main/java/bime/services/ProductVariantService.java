@@ -4,9 +4,12 @@ import bime.clients.RaumClient;
 import bime.db.BimeContextService;
 import bime.db.BimeDbHandle;
 import bime.db.SkuSearchSql;
+import bime.dto.BarcodeSource;
+import bime.dto.BarcodeSymbology;
 import bime.dto.MetadataOptionResponseDTO;
 import bime.dto.UomConversionRequestDTO;
 import bime.dto.UomConversionResponseDTO;
+import bime.dto.VariantBarcodeResponseDTO;
 import bime.openbao.OpenBaoService;
 import org.springframework.r2dbc.core.DatabaseClient;
 import bime.dto.ProductVariantRequestDTO;
@@ -509,7 +512,9 @@ public class ProductVariantService {
                                         .collectList()
                                         .flatMap(stockRows -> loadUomConversionsForVariants(handle, orgId, variantIds)
                                                 .collectList()
-                                                .map(uomRows -> mergeVariantData(variants, optionRows, stockRows, uomRows)));
+                                                .flatMap(uomRows -> loadBarcodesForVariants(handle, orgId, variantIds)
+                                                        .collectList()
+                                                        .map(barcodeRows -> mergeVariantData(variants, optionRows, stockRows, uomRows, barcodeRows))));
                             })
                             .flatMapMany(Flux::fromIterable);
                 });
@@ -549,7 +554,9 @@ public class ProductVariantService {
                                     .collectList()
                                     .flatMap(stockRows -> loadUomConversionsForVariants(handle, orgId, variantIds)
                                             .collectList()
-                                            .map(uomRows -> mergeVariantData(variants, optionRows, stockRows, uomRows))))
+                                            .flatMap(uomRows -> loadBarcodesForVariants(handle, orgId, variantIds)
+                                                    .collectList()
+                                                    .map(barcodeRows -> mergeVariantData(variants, optionRows, stockRows, uomRows, barcodeRows)))))
                             .flatMapMany(Flux::fromIterable);
                 });
     }
@@ -608,6 +615,7 @@ public class ProductVariantService {
                 .options(new ArrayList<>())
                 .stock(new ArrayList<>())
                 .uomConversions(new ArrayList<>())
+                .barcodes(new ArrayList<>())
                 .build();
     }
 
@@ -668,11 +676,45 @@ public class ProductVariantService {
                 .all();
     }
 
+    private Flux<Map<String, Object>> loadBarcodesForVariants(BimeDbHandle handle, UUID orgId, List<UUID> variantIds) {
+        return handle.client().sql("""
+                SELECT vb.id, vb.org_id, vb.variant_id, vb.barcode, vb.symbology, vb.source, vb.is_primary, vb.created_at,
+                       ou.name AS uom,
+                       CASE WHEN vb.uom_id = pv.base_uom_id THEN 1 ELSE vuc.factor END AS factor
+                FROM variant_barcodes vb
+                JOIN product_variants pv ON pv.id = vb.variant_id
+                JOIN org_units ou ON ou.id = vb.uom_id
+                LEFT JOIN variant_uom_conversions vuc ON vuc.variant_id = vb.variant_id AND vuc.uom_id = vb.uom_id
+                WHERE vb.org_id = :orgId AND vb.variant_id = ANY(:variantIds)
+                ORDER BY vb.is_primary DESC, vb.created_at
+                """)
+                .bind("orgId", orgId)
+                .bind("variantIds", variantIds.toArray(new UUID[0]))
+                .fetch()
+                .all();
+    }
+
+    static VariantBarcodeResponseDTO toBarcodeDTO(Map<String, Object> row) {
+        return VariantBarcodeResponseDTO.builder()
+                .id((UUID) row.get("id"))
+                .orgId((UUID) row.get("org_id"))
+                .variantId((UUID) row.get("variant_id"))
+                .barcode((String) row.get("barcode"))
+                .symbology(BarcodeSymbology.valueOf((String) row.get("symbology")))
+                .source(BarcodeSource.valueOf((String) row.get("source")))
+                .uom((String) row.get("uom"))
+                .factor((BigDecimal) row.get("factor"))
+                .isPrimary((Boolean) row.get("is_primary"))
+                .createdAt((LocalDateTime) row.get("created_at"))
+                .build();
+    }
+
     private List<ProductVariantResponseDTO> mergeVariantData(
             List<ProductVariantResponseDTO> variants,
             List<Map<String, Object>> optionRows,
             List<Map<String, Object>> stockRows,
-            List<Map<String, Object>> uomConversionRows) {
+            List<Map<String, Object>> uomConversionRows,
+            List<Map<String, Object>> barcodeRows) {
 
         Map<UUID, ProductVariantResponseDTO> byId = new LinkedHashMap<>();
         for (ProductVariantResponseDTO v : variants) byId.put(v.getId(), v);
@@ -724,6 +766,13 @@ public class ProductVariantService {
             }
         }
 
+        for (Map<String, Object> row : barcodeRows) {
+            ProductVariantResponseDTO variant = byId.get((UUID) row.get("variant_id"));
+            if (variant != null) {
+                variant.getBarcodes().add(toBarcodeDTO(row));
+            }
+        }
+
         return new ArrayList<>(byId.values());
     }
 
@@ -753,8 +802,45 @@ public class ProductVariantService {
                                         .doOnNext(c -> variant.getUomConversions().add(c))
                                         .then()
                                 )
+                                .then(loadVariantBarcodes(handle, orgId, variantId)
+                                        .doOnNext(b -> variant.getBarcodes().add(b))
+                                        .then()
+                                )
                                 .thenReturn(variant)
                 );
+    }
+
+    /** Loads a fully-populated variant by id alone (org-scoped), for callers that hold a variant id
+      * but not its product - e.g. barcode point-of-sale lookup. */
+    public Mono<ProductVariantResponseDTO> loadVariantByIdForOrg(BimeDbHandle handle, UUID variantId, UUID orgId) {
+        return handle.client().sql("""
+                SELECT product_id FROM product_variants WHERE id = :variantId AND org_id = :orgId
+                """)
+                .bind("variantId", variantId)
+                .bind("orgId", orgId)
+                .fetch()
+                .one()
+                .switchIfEmpty(Mono.error(new NotFoundException("Variant not found")))
+                .flatMap(row -> fetchVariantById(handle, variantId, (UUID) row.get("product_id"), orgId));
+    }
+
+    private Flux<VariantBarcodeResponseDTO> loadVariantBarcodes(BimeDbHandle handle, UUID orgId, UUID variantId) {
+        return handle.client().sql("""
+                SELECT vb.id, vb.org_id, vb.variant_id, vb.barcode, vb.symbology, vb.source, vb.is_primary, vb.created_at,
+                       ou.name AS uom,
+                       CASE WHEN vb.uom_id = pv.base_uom_id THEN 1 ELSE vuc.factor END AS factor
+                FROM variant_barcodes vb
+                JOIN product_variants pv ON pv.id = vb.variant_id
+                JOIN org_units ou ON ou.id = vb.uom_id
+                LEFT JOIN variant_uom_conversions vuc ON vuc.variant_id = vb.variant_id AND vuc.uom_id = vb.uom_id
+                WHERE vb.org_id = :orgId AND vb.variant_id = :variantId
+                ORDER BY vb.is_primary DESC, vb.created_at
+                """)
+                .bind("orgId", orgId)
+                .bind("variantId", variantId)
+                .fetch()
+                .all()
+                .map(ProductVariantService::toBarcodeDTO);
     }
 
     private Flux<UomConversionResponseDTO> loadVariantUomConversions(BimeDbHandle handle, UUID orgId, UUID variantId, BigDecimal variantPrice, BigDecimal variantCost) {
