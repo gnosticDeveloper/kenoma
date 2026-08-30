@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { createCache } from '../lib/cache'
@@ -12,9 +12,11 @@ import { DataTable, type Column } from '../components/DataTable'
 import { Combobox } from '../components/Combobox'
 import { Feedback } from '../components/Feedback'
 import { FilterChips, FilterDisclosure, toggleOptionId } from '../components/OptionFilter'
+import { SearchIcon } from '../components/icons'
 import type { Permissions } from '../auth'
 import { RowActionsMenu } from '../components/RowActionsMenu'
 import type {
+  BarcodeLookupResponse,
   LocationResponse,
   MovementType,
   ProductMetadataResponse,
@@ -275,6 +277,54 @@ export default function BimeStockPage({ token, permissions }: Props) {
   }
   useDebouncedEffect(loadActiveAlerts, [alertFilterVariant, alertFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
 
+  // ── Scan to locate: barcode -> which locations hold it ──
+  const [locateValue, setLocateValue] = useState('')
+  const [locateHit, setLocateHit] = useState<BarcodeLookupResponse | null>(null)
+  const locateLookup = useApiCall<BarcodeLookupResponse>()
+  const locateInputRef = useRef<HTMLInputElement>(null)
+
+  function submitLocate(raw?: string) {
+    const value = (raw ?? locateValue).trim()
+    if (!value) return
+    locateLookup.call(() => bime.barcodes.lookup(value, token)).then(r => {
+      if (!r.ok) { setLocateHit(null); toast.show(r.message, 'error') }
+    })
+  }
+
+  useEffect(() => {
+    if (locateLookup.state.status !== 'success') return
+    const hit = locateLookup.state.data
+    setLocateHit(hit)
+    setBalFilterProduct(hit.productId); setBalFilterVariant(hit.variant.id)
+    setMovFilterProduct(hit.productId); setMovFilterVariant(hit.variant.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locateLookup.state])
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (document.querySelector('.modal-overlay')) return
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+      if (e.key === 'Enter') {
+        const cur = locateInputRef.current?.value.trim()
+        if (cur) { e.preventDefault(); submitLocate(cur) }
+        return
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault(); setLocateValue(v => v.slice(0, -1)); locateInputRef.current?.focus(); return
+      }
+      if (e.key.length === 1) {
+        e.preventDefault(); setLocateValue(v => v + e.key); locateInputRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const locateTotal = locateHit ? locateHit.variant.stock.reduce((n, s) => n + s.quantity, 0) : 0
+
   const movementColumns: Column<StockMovementResponse>[] = [
     { key: 'type', header: t('bimeStockPage.type'), render: m => <span className="role-badge">{t(`bimeStockPage.movementTypes.${m.movementType}`)}</span> },
     {
@@ -346,6 +396,80 @@ export default function BimeStockPage({ token, permissions }: Props) {
           onMatchAllChange={setOptionMatchAll}
         />
       </FilterDisclosure>
+
+      <div className="barcode-lookup">
+        <div className="barcode-lookup-head">
+          <span>{t('bimeStockPage.locateLabel')}</span>
+        </div>
+        <div className="barcode-lookup-bar">
+          <div className="barcode-lookup-field">
+            <SearchIcon className="barcode-lookup-icon" />
+            <input
+              ref={locateInputRef}
+              value={locateValue}
+              onChange={e => setLocateValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitLocate() } }}
+              placeholder={t('bimeStockPage.locatePlaceholder')}
+            />
+            {locateValue && (
+              <button
+                type="button"
+                className="barcode-lookup-clear"
+                aria-label={t('common.actions.clear')}
+                onClick={() => { setLocateValue(''); setLocateHit(null) }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <button className="btn btn-primary btn-sm" type="button" onClick={() => submitLocate()} disabled={!locateValue.trim()}>
+            {t('bimeStockPage.locateAction')}
+          </button>
+        </div>
+        {locateHit && (() => {
+          const factor = locateHit.factor && locateHit.factor > 1 ? locateHit.factor : 1
+          const isPack = factor > 1
+          const unit = isPack ? locateHit.uom : locateHit.variant.baseUom
+          const inUnit = (q: number) => `${(q / factor).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`
+          const inBase = (q: number) => `${q.toLocaleString()} ${locateHit.variant.baseUom}`
+          const stock = [...locateHit.variant.stock].sort((a, b) => b.quantity - a.quantity)
+          return (
+            <div className="stock-locate-result">
+              <div className="stock-locate-head">
+                <span className="stock-locate-name">
+                  {locateHit.productName}
+                  {!locateHit.variant.isActive && (
+                    <span className="barcode-lookup-retired">{t('bimeStockPage.locateRetired')}</span>
+                  )}
+                </span>
+                <span className="stock-locate-sub">
+                  {locateHit.variant.sku ?? locateHit.productSku}
+                  {isPack && ` · ${locateHit.uom} ×${locateHit.factor}`}
+                </span>
+              </div>
+              {stock.length === 0
+                ? <p className="td-muted stock-locate-empty">{t('bimeStockPage.locateNoStock')}</p>
+                : (
+                  <ul className="stock-locate-list">
+                    {stock.map(s => (
+                      <li key={s.locationId}>
+                        <span className="stock-locate-loc">{locationLabel(s.locationId)}</span>
+                        <span className="stock-locate-qty">
+                          {inUnit(s.quantity)}
+                          {isPack && <span className="td-muted"> ({inBase(s.quantity)})</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              <div className="stock-locate-total">
+                {t('bimeStockPage.locateTotal', { qty: inUnit(locateTotal) })}
+                {isPack && ` (${inBase(locateTotal)})`}
+              </div>
+            </div>
+          )
+        })()}
+      </div>
 
       <Tabs
         tabs={[

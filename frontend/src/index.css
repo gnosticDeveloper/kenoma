@@ -596,6 +596,299 @@ button, input, select {
 .role-row { display: flex; align-items: center; gap: 8px; }
 .role-row .combobox { flex: 1; min-width: 0; }
 
+/* ── Barcode point-of-sale lookup (Products tab) ── */
+.barcode-lookup { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.barcode-lookup-head { display: flex; align-items: baseline; justify-content: space-between; }
+.barcode-lookup-head > span {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.barcode-lookup-settings {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.barcode-lookup-settings:hover { color: var(--color-accent); text-decoration: underline; }
+.barcode-lookup-bar { display: flex; gap: 8px; align-items: stretch; max-width: 520px; }
+.barcode-lookup-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+.barcode-lookup-field:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+.barcode-lookup-icon { width: 15px; height: 15px; color: var(--color-text-muted); flex-shrink: 0; }
+.barcode-lookup-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 0;
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+.barcode-lookup-clear {
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.barcode-lookup-clear:hover { color: var(--color-text); }
+.barcode-lookup-bar .btn { flex-shrink: 0; }
+.barcode-lookup-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 520px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-raised);
+  text-align: left;
+  cursor: pointer;
+}
+.barcode-lookup-result:hover { border-color: var(--color-accent); }
+.barcode-lookup-result.is-retired { border-color: var(--color-border); opacity: 0.85; }
+.barcode-lookup-retired {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  vertical-align: middle;
+  background: var(--color-border-faint);
+  color: var(--color-text-muted);
+}
+.barcode-lookup-result:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+.barcode-lookup-result-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.barcode-lookup-result-name { font-size: 13px; font-weight: 500; color: var(--color-text); }
+.barcode-lookup-result-meta {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.barcode-lookup-result-price { font-size: 13px; color: var(--color-text); white-space: nowrap; }
+.barcode-lookup-result-arrow { color: var(--color-text-muted); flex-shrink: 0; }
+
+/* ── Stock: scan-to-locate result ── */
+.stock-locate-result {
+  max-width: 460px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-raised);
+}
+.stock-locate-head { margin-bottom: 8px; }
+.stock-locate-name { display: block; font-size: 13px; font-weight: 500; color: var(--color-text); }
+.stock-locate-sub { display: block; margin-top: 1px; font-size: 11px; font-family: var(--font-mono); color: var(--color-text-muted); }
+.stock-locate-empty { font-size: 12px; margin: 2px 0; }
+.stock-locate-list { list-style: none; margin: 0; padding: 0; }
+.stock-locate-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 12px;
+  border-top: 1px solid var(--color-border-faint);
+}
+.stock-locate-list li:first-child { border-top: none; }
+.stock-locate-loc { color: var(--color-text); }
+.stock-locate-qty { font-family: var(--font-mono); white-space: nowrap; }
+.stock-locate-total {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  text-align: right;
+  color: var(--color-text-muted);
+}
+
+/* ── Variant units-of-measure editor (Edit Variant modal) ── */
+.uom-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+
+.uom-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-faint);
+  border-radius: var(--radius-sm);
+}
+.uom-name { min-width: 66px; font-size: 12px; font-weight: 600; color: var(--color-text); }
+.uom-factor { min-width: 34px; font-size: 11px; font-family: var(--font-mono); color: var(--color-text-muted); }
+.uom-eff { flex: 1; min-width: 0; font-size: 12px; font-family: var(--font-mono); color: var(--color-text); }
+.uom-tag {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.uom-editbtn {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 11px;
+  color: var(--color-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.uom-editbtn:hover { text-decoration: underline; }
+
+.uom-row-edit { flex-direction: column; align-items: stretch; gap: 10px; background: var(--color-bg); }
+.uom-edit-head .uom-name { font-size: 12px; }
+.uom-edit-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.uom-edit-grid > label { flex: 1; min-width: 130px; display: flex; flex-direction: column; gap: 3px; }
+.uom-edit-grid > label > span {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.uom-edit-grid input {
+  padding: 7px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-panel);
+}
+.uom-edit-grid input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+.uom-edit-grid input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.uom-edit-grid input[type="number"]::-webkit-outer-spin-button,
+.uom-edit-grid input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.uom-edit-grid .combobox { width: 100%; }
+.uom-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.uom-add-btn {
+  align-self: flex-start;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.uom-add-btn:hover { color: var(--color-accent); }
+
+/* ── Variant barcodes editor (Edit Variant modal) ── */
+.bc { margin-top: 18px; }
+.bc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bc-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.bc-hint { margin: 6px 0 10px; }
+.bc-empty { font-size: 12px; color: var(--color-text-muted); padding: 4px 0 10px; }
+.bc-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.bc-group { display: flex; flex-direction: column; gap: 4px; }
+.bc-group-head {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.bc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-faint);
+  border-radius: var(--radius-sm);
+}
+.bc-item.is-primary { border-color: var(--color-border); background: var(--color-bg); }
+.bc-star {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.bc-star:hover { color: var(--color-accent); }
+.bc-item.is-primary .bc-star { color: var(--color-accent); }
+.bc-body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.bc-value { font-family: var(--font-mono); font-size: 12px; color: var(--color-text); }
+.bc-meta {
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.bc-remove {
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.bc-remove:hover { color: var(--color-danger); }
+.bc-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bc-add input,
+.bc-add select {
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+.bc-add .bc-add-value { flex: 1; min-width: 150px; font-family: var(--font-mono); }
+.bc-add input:focus,
+.bc-add select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+.bc-add .btn { flex-shrink: 0; }
+
 /* ── Filter chips (toggleable option filter, grouped by metadata attribute) ── */
 .filter-disclosure { margin-bottom: 16px; }
 .filter-disclosure summary {

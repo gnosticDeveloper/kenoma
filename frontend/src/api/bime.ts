@@ -1,10 +1,13 @@
 import type {
+  BarcodeLookupResponse,
   LocationRequest,
   LocationResponse,
   MetadataOptionPatch,
   NotificationEmailVerifyRequest,
   MetadataOptionRequest,
   MetadataOptionResponse,
+  OrgBarcodeSettingsRequest,
+  OrgBarcodeSettingsResponse,
   OrgUnitRequest,
   OrgUnitResponse,
   ProductMetadataAssignmentItem,
@@ -25,8 +28,22 @@ import type {
   StockMovementResponse,
   UomConversionRequest,
   UomConversionResponse,
+  VariantBarcodeIssueRequest,
+  VariantBarcodePrimaryRequest,
+  VariantBarcodeRequest,
+  VariantBarcodeResponse,
 } from '../types'
-import { payload, query, req } from './client'
+import { API_BASE_URL } from './base'
+import { ApiError, payload, query, req } from './client'
+
+export interface BarcodeLabelOptions {
+  which?: 'primary' | 'all'
+  columns?: number
+  copies?: number
+  pageSize?: 'A4' | 'LETTER'
+  variantId?: string
+  uom?: string
+}
 
 interface StockListFilters {
   variantId?: string
@@ -125,6 +142,43 @@ export const bime = {
       req<UomConversionResponse[]>(`/variants/${variantId}/uom-conversions`, { method: 'GET' }, token),
     delete: (variantId: string, uomName: string, token: string) =>
       req<void>(`/variants/${variantId}/uom-conversions/${encodeURIComponent(uomName)}`, { method: 'DELETE' }, token),
+  },
+  barcodes: {
+    list: (productId: string, variantId: string, token: string) =>
+      req<VariantBarcodeResponse[]>(`/products/${productId}/variants/${variantId}/barcodes`, { method: 'GET' }, token),
+    link: (productId: string, variantId: string, dto: VariantBarcodeRequest, token: string) =>
+      req<VariantBarcodeResponse>(`/products/${productId}/variants/${variantId}/barcodes`, { method: 'POST', ...payload(dto) }, token),
+    issue: (productId: string, variantId: string, dto: VariantBarcodeIssueRequest, token: string) =>
+      req<VariantBarcodeResponse>(`/products/${productId}/variants/${variantId}/barcodes/issue`, { method: 'POST', ...payload(dto) }, token),
+    setPrimary: (productId: string, variantId: string, barcode: string, dto: VariantBarcodePrimaryRequest, token: string) =>
+      req<VariantBarcodeResponse>(`/products/${productId}/variants/${variantId}/barcodes${query({ barcode })}`, { method: 'PATCH', ...payload(dto) }, token),
+    remove: (productId: string, variantId: string, barcode: string, token: string) =>
+      req<void>(`/products/${productId}/variants/${variantId}/barcodes${query({ barcode })}`, { method: 'DELETE' }, token),
+    lookup: (barcode: string, token: string) =>
+      req<BarcodeLookupResponse>(`/barcodes/lookup${query({ code: barcode })}`, { method: 'GET' }, token),
+    getSettings: (token: string) =>
+      req<OrgBarcodeSettingsResponse>('/barcodes/settings', { method: 'GET' }, token),
+    updateSettings: (dto: OrgBarcodeSettingsRequest, token: string) =>
+      req<OrgBarcodeSettingsResponse>('/barcodes/settings', { method: 'PUT', ...payload(dto) }, token),
+    labelsPdf: async (productId: string, opts: BarcodeLabelOptions, token: string): Promise<Blob> => {
+      const qs = query({
+        which: opts.which,
+        columns: opts.columns != null ? String(opts.columns) : undefined,
+        copies: opts.copies != null ? String(opts.copies) : undefined,
+        pageSize: opts.pageSize,
+        variantId: opts.variantId,
+        uom: opts.uom,
+      })
+      const res = await fetch(`${API_BASE_URL}/products/${productId}/barcode-labels${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new ApiError(res.status, res.statusText, text)
+      }
+      return res.blob()
+    },
   },
   stock: {
     recordMovement: (dto: StockMovementRequest, token: string) =>

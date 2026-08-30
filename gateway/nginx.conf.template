@@ -86,6 +86,14 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    # Point-of-sale barcode lookup (BarcodeController) and the org's barcode issuance settings.
+    # Variant-scoped barcode CRUD lives under /products and is already covered above.
+    location /barcodes {
+        proxy_pass http://bime:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     location /orgs {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;

@@ -347,6 +347,70 @@ export interface ProductVariantResponse {
   baseUom: string
   // Alternate units this variant can be bought/sold in, and their conversion factor to baseUom
   uomConversions: UomConversionResponse[]
+  // Barcodes linked to this variant (provider-supplied or system-issued); at most one is primary
+  barcodes: VariantBarcodeResponse[]
+}
+
+export type BarcodeSymbology = 'EAN13' | 'UPC_A' | 'EAN8' | 'CODE128' | 'CODE39'
+export type BarcodeSource = 'PROVIDER' | 'ISSUED'
+
+export interface VariantBarcodeRequest {
+  barcode: string
+  symbology: BarcodeSymbology
+  // The variant's base unit, or one of its configured pack sizes (e.g. "case"). Omit for base unit.
+  uom?: string
+  isPrimary?: boolean
+}
+
+export interface VariantBarcodeIssueRequest {
+  uom?: string
+  isPrimary?: boolean
+}
+
+export interface VariantBarcodePrimaryRequest {
+  isPrimary: boolean
+}
+
+export interface VariantBarcodeResponse {
+  id: string
+  orgId: string
+  variantId: string
+  barcode: string
+  symbology: BarcodeSymbology
+  source: BarcodeSource
+  // The unit this barcode identifies (base unit, or a pack size)
+  uom: string
+  // Base units per scan: 1 for the base unit, or the pack size's factor; null if that conversion was removed
+  factor: number | null
+  isPrimary: boolean
+  createdAt: string
+}
+
+export interface BarcodeLookupResponse {
+  barcode: string
+  symbology: BarcodeSymbology
+  productId: string
+  productSku: string
+  productName: string
+  // Unit this barcode identifies, and how many base units one scan represents
+  uom: string
+  factor: number | null
+  // Price for one scan of this barcode (unit price for a base-unit barcode, pack price otherwise)
+  packPrice: number | null
+  variant: ProductVariantResponse
+}
+
+export interface OrgBarcodeSettingsRequest {
+  // Digits only, 4-11 long; null/empty clears it and falls back to the restricted-distribution range
+  gs1Prefix?: string | null
+}
+
+export interface OrgBarcodeSettingsResponse {
+  orgId: string
+  gs1Prefix: string | null
+  nextSequence: number
+  createdAt: string | null
+  modifiedAt: string | null
 }
 
 export interface OrgUnitRequest {
