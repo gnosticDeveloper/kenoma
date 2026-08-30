@@ -1,5 +1,6 @@
 package bime.controllers;
 
+import bime.dto.MovementStatus;
 import bime.dto.StockBalanceResponseDTO;
 import bime.dto.StockMovementRequestDTO;
 import bime.dto.StockMovementResponseDTO;
@@ -49,6 +50,35 @@ public class StockController {
         return stockLedgerService.recordMovement(dto);
     }
 
+    @Operation(summary = "Post a pending movement",
+            description = "Flips a PENDING movement to POSTED, applying its delta to on-hand stock. Requires BIME_MANAGE.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Movement posted"),
+            @ApiResponse(responseCode = "400", description = "Posting would drive the balance negative", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "No pending movement with this ID", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping("/movements/{id}/post")
+    @PreAuthorize("hasAuthority('BIME_MANAGE')")
+    public Mono<StockMovementResponseDTO> postPendingMovement(@PathVariable UUID id) {
+        return stockLedgerService.postPendingMovement(id);
+    }
+
+    @Operation(summary = "Cancel a pending movement",
+            description = "Marks a PENDING movement CANCELLED. Its delta is never applied. Requires BIME_MANAGE.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Movement cancelled"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "No pending movement with this ID", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping("/movements/{id}/cancel")
+    @PreAuthorize("hasAuthority('BIME_MANAGE')")
+    public Mono<StockMovementResponseDTO> cancelPendingMovement(@PathVariable UUID id) {
+        return stockLedgerService.cancelPendingMovement(id);
+    }
+
     @Operation(summary = "Get a movement by ID", description = "Returns a single immutable stock movement record. Requires BIME_VIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Movement found"),
@@ -75,9 +105,10 @@ public class StockController {
     public Flux<StockMovementResponseDTO> getMovements(
             @Parameter(description = "Filter to movements for this variant") @RequestParam(required = false) UUID variantId,
             @Parameter(description = "Filter to movements at this location") @RequestParam(required = false) UUID locationId,
+            @Parameter(description = "Filter to movements in this lifecycle state (PENDING, POSTED, CANCELLED)") @RequestParam(required = false) MovementStatus status,
             @RequestParam(required = false) List<UUID> optionIds,
             @RequestParam(required = false, defaultValue = "false") boolean matchAll) {
-        return stockLedgerService.getMovements(variantId, locationId, optionIds, matchAll);
+        return stockLedgerService.getMovements(variantId, locationId, status, optionIds, matchAll);
     }
 
     @Operation(summary = "List stock balances", description = "Returns current on-hand stock balances for the organization, optionally filtered by variant and/or location. " +

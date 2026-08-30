@@ -665,6 +665,74 @@ class StockLedgerIT extends BaseIT {
         return new StockFixture(product.getId(), variant.getId(), location.getId(), option.getId());
     }
 
+    @Test
+    void pendingMovement_doesNotAffectBalanceUntilPosted() {
+        StockFixture f = buildStockFixture();
+
+        StockMovementRequestDTO dto = movementRequest(f.variantId, f.locationId, MovementType.INBOUND, 15);
+        dto.setStatus(MovementStatus.PENDING);
+        StockMovementResponseDTO pending = client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+        assertThat(pending.getStatus()).isEqualTo(MovementStatus.PENDING);
+        assertThat(balanceQuantity(f.variantId)).isEqualByComparingTo(BigDecimal.ZERO);
+
+        StockMovementResponseDTO posted = client.post().uri("/stock/movements/{id}/post", pending.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+        assertThat(posted.getStatus()).isEqualTo(MovementStatus.POSTED);
+        assertThat(balanceQuantity(f.variantId)).isEqualByComparingTo(BigDecimal.valueOf(15));
+    }
+
+    @Test
+    void pendingMovement_cancelled_neverAffectsBalance() {
+        StockFixture f = buildStockFixture();
+
+        StockMovementRequestDTO dto = movementRequest(f.variantId, f.locationId, MovementType.INBOUND, 15);
+        dto.setStatus(MovementStatus.PENDING);
+        StockMovementResponseDTO pending = client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+
+        StockMovementResponseDTO cancelled = client.post().uri("/stock/movements/{id}/cancel", pending.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+        assertThat(cancelled.getStatus()).isEqualTo(MovementStatus.CANCELLED);
+        assertThat(balanceQuantity(f.variantId)).isEqualByComparingTo(BigDecimal.ZERO);
+
+        // a cancelled movement can no longer be posted
+        client.post().uri("/stock/movements/{id}/post", pending.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isNotFound();
+    }
+
+    @Test
+    void recordMovement_rejectsTransferTypesOnManualEndpoint() {
+        StockFixture f = buildStockFixture();
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.TRANSFER_OUT, -3))
+                .exchange().expectStatus().isBadRequest();
+    }
+
+    private BigDecimal balanceQuantity(UUID variantId) {
+        List<StockBalanceResponseDTO> balances = client.get()
+                .uri("/stock/balances?variantId={v}", variantId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk()
+                .expectBodyList(StockBalanceResponseDTO.class).returnResult().getResponseBody();
+        return balances.isEmpty() ? BigDecimal.ZERO : balances.get(0).getQuantity();
+    }
+
     private StockMovementResponseDTO recordMovement(UUID variantId, UUID locationId, MovementType type, int delta) {
         StockMovementResponseDTO response = client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")

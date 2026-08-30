@@ -3,6 +3,7 @@ package bime.services;
 import bime.db.BimeContextService;
 import bime.db.BimeDbHandle;
 import bime.db.OptionFilterSql;
+import bime.dto.MovementStatus;
 import bime.dto.MovementType;
 import bime.dto.StockBalanceResponseDTO;
 import bime.dto.StockMovementRequestDTO;
@@ -29,26 +30,86 @@ public class StockLedgerService {
 
     private final BimeContextService ctx;
 
+    static final String MOVEMENT_COLUMNS = """
+            id, org_id, product_id, variant_id, location_id, movement_type, status,
+            delta, uom, uom_quantity, reference_id, note, created_at, created_by
+            """;
+
     public Mono<StockMovementResponseDTO> recordMovement(StockMovementRequestDTO dto) {
+        if (dto.getMovementType() == MovementType.TRANSFER_OUT || dto.getMovementType() == MovementType.TRANSFER_IN) {
+            return Mono.error(new BadRequestException(
+                    "TRANSFER_OUT and TRANSFER_IN movements are created by the transfer-order flow, not directly"));
+        }
         if (dto.getMovementType() == MovementType.INBOUND && dto.getDelta().compareTo(BigDecimal.ZERO) <= 0) {
             return Mono.error(new BadRequestException("INBOUND movement must have a positive delta"));
         }
         if (dto.getMovementType() == MovementType.OUTBOUND && dto.getDelta().compareTo(BigDecimal.ZERO) >= 0) {
             return Mono.error(new BadRequestException("OUTBOUND movement must have a negative delta"));
         }
+        MovementStatus status = dto.getStatus() != null ? dto.getStatus() : MovementStatus.POSTED;
+        if (status == MovementStatus.CANCELLED) {
+            return Mono.error(new BadRequestException("A movement cannot be created already CANCELLED"));
+        }
         return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
-                resolveBaseDelta(handle, caller.getOrgId(), dto)
-                        .flatMap(baseDelta -> insertMovement(handle, caller.getOrgId(), caller.getId(), dto, baseDelta)
-                                .flatMap(movement -> upsertBalance(handle, caller.getOrgId(), dto.getVariantId(), dto.getLocationId(), baseDelta)
-                                        .thenReturn(movement)))
+                resolveBaseDelta(handle, caller.getOrgId(), dto.getVariantId(), dto.getUom(), dto.getDelta())
+                        .flatMap(baseDelta -> appendMovement(handle, caller.getOrgId(), caller.getId(),
+                                dto.getVariantId(), dto.getLocationId(), dto.getMovementType(), status, baseDelta,
+                                dto.getUom(), dto.getUom() != null ? dto.getDelta() : null,
+                                dto.getReferenceId(), dto.getNote()))
         )));
     }
 
-    private Mono<BigDecimal> resolveBaseDelta(BimeDbHandle handle, UUID orgId, StockMovementRequestDTO dto) {
-        if (dto.getUom() == null) {
-            return Mono.just(dto.getDelta());
+    /**
+     * Flip a PENDING movement to POSTED, applying its delta to the running balance. Used both by
+     * the manual endpoint and, indirectly, by the transfer receive flow.
+     */
+    public Mono<StockMovementResponseDTO> postPendingMovement(UUID id) {
+        return ctx.withHandle((caller, handle) -> Mono.from(handle.tx().transactional(
+                handle.client().sql("""
+                        UPDATE stock_movements SET status = 'POSTED'
+                        WHERE id = :id AND org_id = :orgId AND status = 'PENDING'
+                        RETURNING %s
+                        """.formatted(MOVEMENT_COLUMNS))
+                        .bind("id", id)
+                        .bind("orgId", caller.getOrgId())
+                        .fetch()
+                        .one()
+                        .switchIfEmpty(Mono.error(new NotFoundException("Pending movement not found")))
+                        .flatMap(row -> {
+                            StockMovementResponseDTO movement = toMovementResponseDTO(row);
+                            return upsertBalance(handle, movement.getOrgId(), movement.getVariantId(),
+                                    movement.getLocationId(), movement.getDelta())
+                                    .thenReturn(movement);
+                        })
+        )));
+    }
+
+    /** Void a PENDING movement without ever applying its delta. */
+    public Mono<StockMovementResponseDTO> cancelPendingMovement(UUID id) {
+        return ctx.withHandle((caller, handle) -> handle.client().sql("""
+                UPDATE stock_movements SET status = 'CANCELLED'
+                WHERE id = :id AND org_id = :orgId AND status = 'PENDING'
+                RETURNING %s
+                """.formatted(MOVEMENT_COLUMNS))
+                .bind("id", id)
+                .bind("orgId", caller.getOrgId())
+                .fetch()
+                .one()
+                .map(this::toMovementResponseDTO)
+                .switchIfEmpty(Mono.error(new NotFoundException("Pending movement not found")))
+        );
+    }
+
+    /**
+     * Convert an entered quantity to the variant's base unit. When {@code uom} is null the quantity
+     * is already in the base unit. Otherwise it is multiplied by the explicit per-variant
+     * conversion factor, or a standard metric factor, else the call fails.
+     */
+    Mono<BigDecimal> resolveBaseDelta(BimeDbHandle handle, UUID orgId, UUID variantId, String uom, BigDecimal quantity) {
+        if (uom == null) {
+            return Mono.just(quantity);
         }
-        String normalizedUom = UomNames.normalize(dto.getUom());
+        String normalizedUom = UomNames.normalize(uom);
         return handle.client().sql("""
                 SELECT ou_base.name AS base_uom_name, vuc.factor AS explicit_factor
                 FROM product_variants pv
@@ -58,22 +119,22 @@ public class StockLedgerService {
                 WHERE pv.id = :variantId AND pv.org_id = :orgId
                 """)
                 .bind("orgId", orgId)
-                .bind("variantId", dto.getVariantId())
+                .bind("variantId", variantId)
                 .bind("uomName", normalizedUom)
                 .fetch()
                 .one()
                 .flatMap(row -> {
                     BigDecimal explicitFactor = (BigDecimal) row.get("explicit_factor");
                     if (explicitFactor != null) {
-                        return Mono.just(dto.getDelta().multiply(explicitFactor));
+                        return Mono.just(quantity.multiply(explicitFactor));
                     }
                     String baseUomName = (String) row.get("base_uom_name");
                     if (baseUomName.equals(normalizedUom)) {
-                        return Mono.just(dto.getDelta());
+                        return Mono.just(quantity);
                     }
                     BigDecimal standardFactor = StandardUnits.factor(baseUomName, normalizedUom);
                     if (standardFactor != null) {
-                        return Mono.just(dto.getDelta().multiply(standardFactor));
+                        return Mono.just(quantity.multiply(standardFactor));
                     }
                     return Mono.error(new BadRequestException(
                             "No conversion configured from \"" + normalizedUom + "\" to this variant's base unit \"" + baseUomName + "\""));
@@ -83,11 +144,10 @@ public class StockLedgerService {
 
     public Mono<StockMovementResponseDTO> getMovementById(UUID id) {
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
-                SELECT id, org_id, product_id, variant_id, location_id, movement_type,
-                       delta, uom, uom_quantity, reference_id, note, created_at, created_by
+                SELECT %s
                 FROM stock_movements
                 WHERE id = :id AND org_id = :orgId
-                """)
+                """.formatted(MOVEMENT_COLUMNS))
                 .bind("id", id)
                 .bind("orgId", caller.getOrgId())
                 .fetch()
@@ -97,21 +157,22 @@ public class StockLedgerService {
         );
     }
 
-    public Flux<StockMovementResponseDTO> getMovements(UUID variantId, UUID locationId, List<UUID> optionIds, boolean matchAll) {
+    public Flux<StockMovementResponseDTO> getMovements(UUID variantId, UUID locationId, MovementStatus status,
+                                                      List<UUID> optionIds, boolean matchAll) {
         return ctx.withHandleMany((caller, handle) -> {
             WhereClause where = WhereClause.of()
                     .eq("org_id", "orgId", caller.getOrgId())
                     .eqIfPresent("variant_id", "variantId", variantId)
                     .eqIfPresent("location_id", "locationId", locationId)
+                    .eqIfPresent("status", "status", status != null ? status.name() : null)
                     .raw(OptionFilterSql.fragment("variant_id"));
 
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
-                    SELECT id, org_id, product_id, variant_id, location_id, movement_type,
-                           delta, uom, uom_quantity, reference_id, note, created_at, created_by
+                    SELECT %s
                     FROM stock_movements
                     %s
                     ORDER BY created_at DESC
-                    """.formatted(where.toSql()));
+                    """.formatted(MOVEMENT_COLUMNS, where.toSql()));
             for (WhereClause.Binding b : where.bindings()) {
                 spec = spec.bind(b.name(), b.value());
             }
@@ -141,47 +202,57 @@ public class StockLedgerService {
         });
     }
 
-    // Derives product_id from the variant in the same INSERT to avoid an extra round-trip.
-    // Joins locations (not just product_variants) so a locationId belonging to another org
-    // can't be smuggled in alongside a valid same-org variantId.
-    // Returns empty if the variant or location doesn't exist or doesn't belong to the org.
-    private Mono<StockMovementResponseDTO> insertMovement(BimeDbHandle handle, UUID orgId, UUID userId, StockMovementRequestDTO dto, BigDecimal baseDelta) {
+    /**
+     * Insert one movement row (deriving product_id from the variant, and joining locations so a
+     * location from another org can't be smuggled in with a valid same-org variant). When the
+     * movement is POSTED its delta is immediately applied to the running balance; a PENDING
+     * movement is only recorded. Runs inside the caller's transaction.
+     */
+    Mono<StockMovementResponseDTO> appendMovement(BimeDbHandle handle, UUID orgId, UUID userId,
+                                                  UUID variantId, UUID locationId, MovementType type,
+                                                  MovementStatus status, BigDecimal baseDelta,
+                                                  String uom, BigDecimal uomQuantity, UUID referenceId, String note) {
         DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                 INSERT INTO stock_movements
-                    (org_id, product_id, variant_id, location_id, movement_type, delta, uom, uom_quantity, reference_id, note, created_by)
-                SELECT :orgId, pv.product_id, pv.id, l.id, :movementType, :delta, :uom, :uomQuantity, :referenceId, :note, :createdBy
+                    (org_id, product_id, variant_id, location_id, movement_type, status, delta, uom, uom_quantity, reference_id, note, created_by)
+                SELECT :orgId, pv.product_id, pv.id, l.id, :movementType, :status, :delta, :uom, :uomQuantity, :referenceId, :note, :createdBy
                 FROM product_variants pv
                 JOIN locations l ON l.id = :locationId AND l.org_id = :orgId
                 WHERE pv.id = :variantId AND pv.org_id = :orgId
-                RETURNING id, org_id, product_id, variant_id, location_id, movement_type,
-                          delta, uom, uom_quantity, reference_id, note, created_at, created_by
-                """)
+                RETURNING %s
+                """.formatted(MOVEMENT_COLUMNS))
                 .bind("orgId", orgId)
-                .bind("variantId", dto.getVariantId())
-                .bind("locationId", dto.getLocationId())
-                .bind("movementType", dto.getMovementType().name())
+                .bind("variantId", variantId)
+                .bind("locationId", locationId)
+                .bind("movementType", type.name())
+                .bind("status", status.name())
                 .bind("delta", baseDelta)
-                .bind("note", dto.getNote() != null ? dto.getNote() : "")
+                .bind("note", note != null ? note : "")
                 .bind("createdBy", userId);
 
-        if (dto.getUom() != null) {
-            spec = spec.bind("uom", dto.getUom()).bind("uomQuantity", dto.getDelta());
+        if (uom != null) {
+            spec = spec.bind("uom", uom).bind("uomQuantity", uomQuantity);
         } else {
             spec = spec.bindNull("uom", String.class).bindNull("uomQuantity", BigDecimal.class);
         }
-
-        if (dto.getReferenceId() != null) {
-            spec = spec.bind("referenceId", dto.getReferenceId());
+        if (referenceId != null) {
+            spec = spec.bind("referenceId", referenceId);
         } else {
             spec = spec.bindNull("referenceId", UUID.class);
         }
 
-        return spec.fetch().one()
+        Mono<StockMovementResponseDTO> inserted = spec.fetch().one()
                 .map(this::toMovementResponseDTO)
                 .switchIfEmpty(Mono.error(new NotFoundException("Variant or location not found")));
+
+        if (status != MovementStatus.POSTED) {
+            return inserted;
+        }
+        return inserted.flatMap(movement ->
+                upsertBalance(handle, orgId, variantId, locationId, baseDelta).thenReturn(movement));
     }
 
-    private Mono<Long> upsertBalance(BimeDbHandle handle, UUID orgId, UUID variantId, UUID locationId, BigDecimal baseDelta) {
+    Mono<Long> upsertBalance(BimeDbHandle handle, UUID orgId, UUID variantId, UUID locationId, BigDecimal baseDelta) {
         LocalDateTime now = LocalDateTime.now();
         // Same two-step pattern as before: guarantee the row exists at 0 first so the CHECK
         // constraint (quantity >= 0) is never evaluated on the initial insert, then apply the delta.
@@ -223,6 +294,7 @@ public class StockLedgerService {
                 .variantId((UUID) row.get("variant_id"))
                 .locationId((UUID) row.get("location_id"))
                 .movementType(MovementType.valueOf((String) row.get("movement_type")))
+                .status(MovementStatus.valueOf((String) row.get("status")))
                 .delta((BigDecimal) row.get("delta"))
                 .uom((String) row.get("uom"))
                 .uomQuantity((BigDecimal) row.get("uom_quantity"))

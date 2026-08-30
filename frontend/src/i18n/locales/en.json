@@ -621,7 +621,15 @@
     },
     "BIME_ADMIN": {
       "displayName": "Inventory Administrator",
-      "description": "Full control over products, stock, and locations."
+      "description": "Full control over products, stock, and locations, including approving transfers."
+    },
+    "BIME_STOCK_OPERATOR": {
+      "displayName": "Stock Operator",
+      "description": "Manages stock movements and transfers day to day. Transfers this user raises need a separate approval before dispatch."
+    },
+    "BIME_TRANSFER_APPROVER": {
+      "displayName": "Transfer Approver",
+      "description": "Approves or rejects stock transfer orders. Cannot make other stock changes."
     },
     "BIME_VIEWER": {
       "displayName": "Inventory Viewer",

@@ -8,7 +8,7 @@ public enum BimeRole {
     BIME_ADMIN {
         @Override
         public Set<BimePermission> getPermissions() {
-            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG);
+            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG, BIME_TRANSFER_APPROVE);
         }
 
         @Override
@@ -18,7 +18,39 @@ public enum BimeRole {
 
         @Override
         public String getDescription() {
-            return "Full control over products, stock, and locations.";
+            return "Full control over products, stock, and locations, including approving transfers.";
+        }
+    },
+    BIME_STOCK_OPERATOR {
+        @Override
+        public Set<BimePermission> getPermissions() {
+            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG);
+        }
+
+        @Override
+        public String getDisplayName() {
+            return "Stock Operator";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Manages stock movements and transfers day to day. Transfers this user raises need a separate approval before dispatch.";
+        }
+    },
+    BIME_TRANSFER_APPROVER {
+        @Override
+        public Set<BimePermission> getPermissions() {
+            return Set.of(BIME_VIEW, BIME_VIEW_CATALOG, BIME_TRANSFER_APPROVE);
+        }
+
+        @Override
+        public String getDisplayName() {
+            return "Transfer Approver";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Approves or rejects stock transfer orders. Cannot make other stock changes.";
         }
     },
     BIME_VIEWER {

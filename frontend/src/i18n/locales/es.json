@@ -621,7 +621,15 @@
     },
     "BIME_ADMIN": {
       "displayName": "Administrador de inventario",
-      "description": "Control total sobre productos, stock y ubicaciones."
+      "description": "Control total sobre productos, stock y ubicaciones, incluida la aprobación de traslados."
+    },
+    "BIME_STOCK_OPERATOR": {
+      "displayName": "Operador de existencias",
+      "description": "Gestiona los movimientos de stock y los traslados en el día a día. Los traslados que crea este usuario requieren una aprobación aparte antes del envío."
+    },
+    "BIME_TRANSFER_APPROVER": {
+      "displayName": "Aprobador de traslados",
+      "description": "Aprueba o rechaza órdenes de traslado de stock. No puede realizar otros cambios de stock."
     },
     "BIME_VIEWER": {
       "displayName": "Visualizador de inventario",
