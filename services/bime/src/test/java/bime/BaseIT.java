@@ -94,7 +94,7 @@ public abstract class BaseIT {
         when(connectionPoolService.getHandle(any())).thenReturn(Mono.just(testHandle));
         when(connectionPoolService.getHandleViaVaultToken(any(), any())).thenReturn(Mono.just(testHandle));
         testHandle.client()
-                .sql("TRUNCATE locations, products, product_metadata, org_units, org_barcode_settings CASCADE")
+                .sql("TRUNCATE locations, products, product_metadata, org_units, org_barcode_settings, stock_transfers CASCADE")
                 .fetch().rowsUpdated().block();
     }
 
@@ -112,6 +112,16 @@ public abstract class BaseIT {
 
     protected void mockAdminJwtForOrg(UUID orgId) {
         mockJwtWithRole("BIME_ADMIN", orgId);
+    }
+
+    /** Holds BIME_MANAGE but not BIME_TRANSFER_APPROVE: transfers this user submits need approval. */
+    protected void mockStockOperatorJwt() {
+        mockJwtWithRole("BIME_STOCK_OPERATOR", ORG_ID);
+    }
+
+    /** Holds BIME_TRANSFER_APPROVE and read access, nothing else. */
+    protected void mockTransferApproverJwt() {
+        mockJwtWithRole("BIME_TRANSFER_APPROVER", ORG_ID);
     }
 
     @SuppressWarnings("unchecked")
