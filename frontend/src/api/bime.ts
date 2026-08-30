@@ -26,6 +26,10 @@ import type {
   StockBalanceResponse,
   StockMovementRequest,
   StockMovementResponse,
+  StockTransferReceiveRequest,
+  StockTransferRequest,
+  StockTransferResponse,
+  InTransitStock,
   UomConversionRequest,
   UomConversionResponse,
   VariantBarcodeIssueRequest,
@@ -50,6 +54,13 @@ interface StockListFilters {
   locationId?: string
   optionIds?: string[]
   matchAll?: boolean
+}
+
+interface TransferListFilters {
+  status?: string
+  sourceLocationId?: string
+  destLocationId?: string
+  variantId?: string
 }
 
 function stockQuery(filters: StockListFilters): string {
@@ -197,5 +208,36 @@ export const bime = {
       req<void>(`/stock/alerts/thresholds${query({ variantId, locationId })}`, { method: 'DELETE' }, token),
     listActiveAlerts: (token: string, filters: StockListFilters = {}) =>
       req<StockAlertResponse[]>(`/stock/alerts/active${stockQuery(filters)}`, { method: 'GET' }, token),
+  },
+  transfers: {
+    list: (token: string, filters: TransferListFilters = {}) =>
+      req<StockTransferResponse[]>(`/stock/transfers${query({
+        status: filters.status,
+        sourceLocationId: filters.sourceLocationId,
+        destLocationId: filters.destLocationId,
+        variantId: filters.variantId,
+      })}`, { method: 'GET' }, token),
+    get: (id: string, token: string) =>
+      req<StockTransferResponse>(`/stock/transfers/${id}`, { method: 'GET' }, token),
+    inTransit: (token: string) =>
+      req<InTransitStock[]>('/stock/transfers/in-transit', { method: 'GET' }, token),
+    create: (dto: StockTransferRequest, token: string) =>
+      req<StockTransferResponse>('/stock/transfers', { method: 'POST', ...payload(dto) }, token),
+    update: (id: string, dto: StockTransferRequest, token: string) =>
+      req<StockTransferResponse>(`/stock/transfers/${id}`, { method: 'PATCH', ...payload(dto) }, token),
+    remove: (id: string, token: string) =>
+      req<void>(`/stock/transfers/${id}`, { method: 'DELETE' }, token),
+    submit: (id: string, token: string) =>
+      req<StockTransferResponse>(`/stock/transfers/${id}/submit`, { method: 'POST' }, token),
+    approve: (id: string, token: string) =>
+      req<StockTransferResponse>(`/stock/transfers/${id}/approve`, { method: 'POST' }, token),
+    reject: (id: string, token: string) =>
+      req<StockTransferResponse>(`/stock/transfers/${id}/reject`, { method: 'POST' }, token),
+    dispatch: (id: string, token: string) =>
+      req<StockTransferResponse>(`/stock/transfers/${id}/dispatch`, { method: 'POST' }, token),
+    cancel: (id: string, token: string) =>
+      req<StockTransferResponse>(`/stock/transfers/${id}/cancel`, { method: 'POST' }, token),
+    receive: (id: string, dto: StockTransferReceiveRequest, token: string) =>
+      req<StockTransferResponse>(`/stock/transfers/${id}/receive`, { method: 'POST', ...payload(dto) }, token),
   },
 }
