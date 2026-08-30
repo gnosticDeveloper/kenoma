@@ -15,6 +15,7 @@ import { FilterChips, FilterDisclosure, toggleOptionId } from '../components/Opt
 import { SearchIcon } from '../components/icons'
 import type { Permissions } from '../auth'
 import { RowActionsMenu } from '../components/RowActionsMenu'
+import BimeTransfersTab from './BimeTransfersTab'
 import type {
   BarcodeLookupResponse,
   LocationResponse,
@@ -135,6 +136,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
     const info = variantLookup[variantId]
     if (!info) return String(quantity)
     return formatQuantity(quantity, info.baseUom, info.uomConversions)
+  }
+
+  function variantUnits(variantId: string): { base: string; alts: string[] } {
+    const info = variantLookup[variantId]
+    return {
+      base: info?.baseUom ?? '',
+      alts: (info?.uomConversions ?? []).map(c => c.uomName),
+    }
   }
 
   // ── Record movement ──
@@ -475,6 +484,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
         tabs={[
           { id: 'movements', label: t('bimeStockPage.tabMovements') },
           { id: 'balances', label: t('bimeStockPage.tabBalances') },
+          { id: 'transfers', label: t('bimeStockPage.tabTransfers') },
           { id: 'thresholds', label: t('bimeStockPage.tabThresholds') },
           { id: 'alerts', label: t('bimeStockPage.tabAlerts') },
         ]}
@@ -540,6 +550,22 @@ export default function BimeStockPage({ token, permissions }: Props) {
               headerAction={<button className="btn btn-outline" onClick={loadBalances} type="button">{t('common.actions.refresh')}</button>}
             />
           </div>
+        )}
+
+        {activeTab === 'transfers' && (
+          <BimeTransfersTab
+            token={token}
+            canManage={permissions.canManageBime}
+            canApprove={permissions.canApproveBimeTransfers}
+            locationItems={locationItems}
+            productItems={productItems}
+            variantItemsFor={variantItemsFor}
+            variantLabel={variantLabel}
+            locationLabel={locationLabel}
+            variantQuantityLabel={variantQuantityLabel}
+            variantUnits={variantUnits}
+            productForVariant={vid => variantLookup[vid]?.productId ?? null}
+          />
         )}
 
         {activeTab === 'thresholds' && (

@@ -69,7 +69,7 @@ const NAV: { labelKey: string; items: { id: Page; labelKey: string; perm: keyof 
 const EMPTY_PERMISSIONS: Permissions = {
   canManage: false, canOnboard: false,
   canViewUsers: false, canCreateUsers: false, canEditUsers: false, canOffboardUsers: false,
-  canViewBime: false, canViewBimeCatalog: false, canManageBime: false,
+  canViewBime: false, canViewBimeCatalog: false, canManageBime: false, canApproveBimeTransfers: false,
 }
 
 function safePermissions(token: string): Permissions {

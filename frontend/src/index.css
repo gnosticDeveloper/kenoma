@@ -1111,7 +1111,15 @@ button, input, select {
   padding: 18px 20px;
   border-bottom: 1px solid var(--color-border);
 }
-.modal-header h2 { font-size: 15px; font-weight: 700; }
+.modal-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text);
+  text-transform: none;
+  letter-spacing: normal;
+}
 .modal-close { background: none; border: none; color: var(--color-text-muted); cursor: pointer; display: flex; }
 .modal-close:hover { color: var(--color-text); }
 .modal-body { padding: 20px; }
@@ -1213,3 +1221,173 @@ button, input, select {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ── Stock transfers ── */
+.transfer-lines {
+  margin: 14px 0 6px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+}
+.transfer-lines-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-text-muted);
+}
+.transfer-line {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel-raised);
+}
+.transfer-line-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1px;
+}
+.transfer-line-num {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--color-text-muted);
+}
+.transfer-line-remove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color 0.12s ease;
+}
+.transfer-line-remove:hover:not(:disabled) { color: var(--color-danger); }
+.transfer-line-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+.transfer-line-qty {
+  display: flex;
+  gap: 8px;
+}
+.transfer-line-qty input {
+  width: 110px;
+  text-align: right;
+}
+.transfer-line-qty select { flex: 1; min-width: 0; }
+.transfer-line-qty input,
+.transfer-line-qty select {
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+.transfer-line-qty input:focus,
+.transfer-line-qty select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+.transfer-line-qty input:disabled,
+.transfer-line-qty select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.detail-grid > div span.td-muted {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 3px;
+}
+
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.mini-table th,
+.mini-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.mini-table th {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-text-muted);
+}
+.mini-table th.num,
+.mini-table td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+.mini-table td input {
+  width: 96px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  text-align: right;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+/* Drop the native number spinners in transfer inputs */
+.mini-table td input[type="number"],
+.transfer-line-qty input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.mini-table td input[type="number"]::-webkit-outer-spin-button,
+.mini-table td input[type="number"]::-webkit-inner-spin-button,
+.transfer-line-qty input[type="number"]::-webkit-outer-spin-button,
+.transfer-line-qty input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.mini-table td input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+.mini-table td input:disabled { opacity: 0.5; }
+
+/* Receive-transfer modal spacing */
+.transfer-receive .mini-table { margin-bottom: 0; }
+.transfer-close-short {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 16px 0 20px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.transfer-close-short input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 1px 0 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.transfer-receive .actions { margin-top: 0; }

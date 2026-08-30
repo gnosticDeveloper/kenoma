@@ -309,7 +309,9 @@ export interface AssignedMetadata {
   selectedOptions: MetadataOptionResponse[]
 }
 
-export type MovementType = 'INBOUND' | 'OUTBOUND' | 'ADJUSTMENT'
+export type MovementType = 'INBOUND' | 'OUTBOUND' | 'ADJUSTMENT' | 'TRANSFER_OUT' | 'TRANSFER_IN'
+
+export type MovementStatus = 'PENDING' | 'POSTED' | 'CANCELLED'
 
 export interface VariantStock {
   locationId: string
@@ -497,6 +499,8 @@ export interface StockMovementRequest {
   // Optional unit the delta above is expressed in (e.g. "case"), if different from the
   // variant's base unit. Must be a unit configured via the uom-conversions endpoints
   uom?: string
+  // POSTED (default) applies the delta immediately; PENDING records it without touching stock
+  status?: MovementStatus
   referenceId?: string
   note?: string
 }
@@ -508,6 +512,7 @@ export interface StockMovementResponse {
   variantId: string
   locationId: string
   movementType: MovementType
+  status: MovementStatus
   // Always in the variant's base unit
   delta: number
   uom: string | null
@@ -524,6 +529,84 @@ export interface StockBalanceResponse {
   locationId: string
   quantity: number
   modifiedAt: string
+}
+
+// ── Transfer orders ──
+
+export type TransferStatus =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'IN_TRANSIT'
+  | 'PARTIALLY_RECEIVED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+
+export interface StockTransferLineRequest {
+  variantId: string
+  quantity: number
+  uom?: string
+}
+
+export interface StockTransferRequest {
+  reference?: string
+  note?: string
+  sourceLocationId: string
+  destLocationId: string
+  lines: StockTransferLineRequest[]
+}
+
+export interface StockTransferLineResponse {
+  id: string
+  variantId: string
+  sourceLocationId: string
+  destLocationId: string
+  qtyRequested: number
+  qtyDispatched: number
+  qtyReceived: number
+  qtyInTransit: number
+  uom: string | null
+  uomQuantity: number | null
+}
+
+export interface StockTransferResponse {
+  id: string
+  orgId: string
+  reference: string | null
+  status: TransferStatus
+  note: string | null
+  sourceLocationId: string | null
+  destLocationId: string | null
+  lines: StockTransferLineResponse[]
+  createdAt: string
+  createdBy: string | null
+  submittedAt: string | null
+  submittedBy: string | null
+  approvedAt: string | null
+  approvedBy: string | null
+  dispatchedAt: string | null
+  dispatchedBy: string | null
+  completedAt: string | null
+  completedBy: string | null
+  cancelledAt: string | null
+  cancelledBy: string | null
+}
+
+export interface StockTransferReceiveLine {
+  lineId: string
+  qtyReceived: number
+  uom?: string
+}
+
+export interface StockTransferReceiveRequest {
+  lines: StockTransferReceiveLine[]
+  closeShort: boolean
+}
+
+export interface InTransitStock {
+  variantId: string
+  destLocationId: string
+  quantity: number
 }
 
 // ── DR Backups ──
