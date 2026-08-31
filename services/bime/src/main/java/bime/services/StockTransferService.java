@@ -25,6 +25,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -329,6 +330,7 @@ public class StockTransferService {
                                         SELECT id, delta FROM stock_movements
                                         WHERE reference_id = :transferId AND org_id = :orgId AND variant_id = :variantId
                                           AND location_id = :destLocationId AND movement_type = 'TRANSFER_IN' AND status = 'PENDING'
+                                        FOR UPDATE
                                         """)
                                         .bind("transferId", transferId)
                                         .bind("orgId", orgId)
@@ -446,6 +448,10 @@ public class StockTransferService {
         return Flux.fromIterable(dto.getLines())
                 .concatMap(line -> stockLedgerService.resolveBaseDelta(handle, orgId, line.getVariantId(), line.getUom(), line.getQuantity())
                         .flatMap(baseQty -> {
+                            if (baseQty.setScale(3, RoundingMode.HALF_UP).signum() <= 0) {
+                                return Mono.error(new BadRequestException(
+                                        "a line quantity is too small to record - it rounds to zero in the variant's base unit"));
+                            }
                             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                                     INSERT INTO stock_transfer_lines
                                         (transfer_id, org_id, source_location_id, dest_location_id, variant_id, qty_requested, uom, uom_quantity)
