@@ -162,7 +162,7 @@ function AssignmentsInput({ value, onChange, metadataDefs, addLabel }: {
   )
 }
 
-const EMPTY_PRODUCT_FORM: ProductRequest = { sku: '', name: '', description: '' }
+const EMPTY_PRODUCT_FORM: ProductRequest = { sku: '', name: '', description: '', tracksBatches: false }
 
 export default function BimeProductsPage({ token, permissions }: Props) {
   const { t, i18n } = useTranslation()
@@ -231,7 +231,7 @@ export default function BimeProductsPage({ token, permissions }: Props) {
 
   function openEdit(product: ProductResponse) {
     setEditing(product)
-    setForm({ sku: product.sku, name: product.name, description: product.description ?? '' })
+    setForm({ sku: product.sku, name: product.name, description: product.description ?? '', tracksBatches: product.tracksBatches })
     setModalOpen(true)
   }
 
@@ -971,7 +971,22 @@ export default function BimeProductsPage({ token, permissions }: Props) {
                       {scanHit.variant.sku ?? scanHit.productSku}
                       {scanHit.variant.options.length > 0 && ` · ${scanHit.variant.options.map(o => o.value).join(' / ')}`}
                       {scanHit.factor != null && scanHit.factor !== 1 && ` · ${scanHit.uom} ×${scanHit.factor}`}
+                      {scanHit.batchCode && ` · ${t('bimeProductsPage.scanLookupBatch')} ${scanHit.batchCode}`}
+                      {scanHit.batchExpiry && ` · ${t('bimeProductsPage.scanLookupExpiry')} ${scanHit.batchExpiry}`}
                     </span>
+                    {(scanHit.recalled || scanHit.expired || scanHit.batchStatus === 'UNKNOWN') && (
+                      <span className="barcode-lookup-result-meta">
+                        {scanHit.recalled && (
+                          <span className="barcode-lookup-retired">{t('bimeProductsPage.scanLookupRecalled')}</span>
+                        )}
+                        {scanHit.expired && (
+                          <span className="barcode-lookup-retired">{t('bimeProductsPage.scanLookupExpired')}</span>
+                        )}
+                        {scanHit.batchStatus === 'UNKNOWN' && (
+                          <span className="barcode-lookup-retired">{t('bimeProductsPage.scanLookupBatchUnknown')}</span>
+                        )}
+                      </span>
+                    )}
                   </span>
                   <span className="barcode-lookup-result-price">
                     {(scanHit.packPrice ?? scanHit.variant.price) != null
@@ -1110,6 +1125,17 @@ export default function BimeProductsPage({ token, permissions }: Props) {
           <div className="field">
             <label>{t('bimeProductsPage.description')}</label>
             <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+          </div>
+          <div className="field field-checkbox">
+            <label>
+              <input
+                type="checkbox"
+                checked={form.tracksBatches ?? false}
+                onChange={e => setForm(f => ({ ...f, tracksBatches: e.target.checked }))}
+              />
+              {' '}{t('bimeProductsPage.tracksBatches')}
+            </label>
+            <p className="panel-hint">{t('bimeProductsPage.tracksBatchesHint')}</p>
           </div>
         </div>
         <div className="actions">

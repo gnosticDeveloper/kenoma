@@ -27,14 +27,15 @@ public class ProductService {
 
     public Mono<ProductResponseDTO> createProduct(ProductRequestDTO dto) {
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
-                INSERT INTO products (org_id, sku, name, description)
-                VALUES (:orgId, :sku, :name, :description)
-                RETURNING id, org_id, sku, name, description, is_active, created_at, modified_at
+                INSERT INTO products (org_id, sku, name, description, tracks_batches)
+                VALUES (:orgId, :sku, :name, :description, :tracksBatches)
+                RETURNING id, org_id, sku, name, description, is_active, tracks_batches, created_at, modified_at
                 """)
                 .bind("orgId", caller.getOrgId())
                 .bind("sku", dto.getSku())
                 .bind("name", dto.getName())
                 .bind("description", dto.getDescription() != null ? dto.getDescription() : "")
+                .bind("tracksBatches", Boolean.TRUE.equals(dto.getTracksBatches()))
                 .fetch()
                 .one()
                 .map(this::toResponseDTO)
@@ -66,7 +67,7 @@ public class ProductService {
     public Flux<ProductResponseDTO> getProducts(List<UUID> optionIds, boolean matchAll) {
         boolean hasFilter = optionIds != null && !optionIds.isEmpty();
         return ctx.withHandleMany((caller, handle) -> handle.client().sql("""
-                SELECT p.id, p.org_id, p.sku, p.name, p.description, p.is_active, p.created_at, p.modified_at,
+                SELECT p.id, p.org_id, p.sku, p.name, p.description, p.is_active, p.tracks_batches, p.created_at, p.modified_at,
                        COUNT(pv.id) AS variant_count
                 FROM products p
                 LEFT JOIN product_variants pv ON pv.product_id = p.id
@@ -92,6 +93,7 @@ public class ProductService {
                         .name((String) row.get("name"))
                         .description((String) row.get("description"))
                         .isActive((Boolean) row.get("is_active"))
+                        .tracksBatches((Boolean) row.get("tracks_batches"))
                         .createdAt((LocalDateTime) row.get("created_at"))
                         .modifiedAt((LocalDateTime) row.get("modified_at"))
                         .variantCount(((Long) row.get("variant_count")).intValue())
@@ -103,14 +105,15 @@ public class ProductService {
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
                 UPDATE products
                 SET sku = :sku, name = :name, description = :description,
-                    is_active = :isActive, modified_at = :modifiedAt
+                    is_active = :isActive, tracks_batches = :tracksBatches, modified_at = :modifiedAt
                 WHERE id = :id AND org_id = :orgId
-                RETURNING id, org_id, sku, name, description, is_active, created_at, modified_at
+                RETURNING id, org_id, sku, name, description, is_active, tracks_batches, created_at, modified_at
                 """)
                 .bind("sku", dto.getSku())
                 .bind("name", dto.getName())
                 .bind("description", dto.getDescription() != null ? dto.getDescription() : "")
                 .bind("isActive", dto.getIsActive() != null ? dto.getIsActive() : Boolean.TRUE)
+                .bind("tracksBatches", Boolean.TRUE.equals(dto.getTracksBatches()))
                 .bind("modifiedAt", LocalDateTime.now())
                 .bind("id", id)
                 .bind("orgId", caller.getOrgId())
@@ -141,7 +144,7 @@ public class ProductService {
 
     private Mono<ProductResponseDTO> fetchProductRow(BimeDbHandle handle, UUID id, UUID orgId) {
         return handle.client().sql("""
-                SELECT id, org_id, sku, name, description, is_active, created_at, modified_at
+                SELECT id, org_id, sku, name, description, is_active, tracks_batches, created_at, modified_at
                 FROM products
                 WHERE id = :id AND org_id = :orgId
                 """)
@@ -203,6 +206,7 @@ public class ProductService {
                 .name((String) row.get("name"))
                 .description((String) row.get("description"))
                 .isActive((Boolean) row.get("is_active"))
+                .tracksBatches((Boolean) row.get("tracks_batches"))
                 .createdAt((LocalDateTime) row.get("created_at"))
                 .modifiedAt((LocalDateTime) row.get("modified_at"))
                 .build();

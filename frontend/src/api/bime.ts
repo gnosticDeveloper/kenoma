@@ -1,5 +1,11 @@
 import type {
   BarcodeLookupResponse,
+  BatchResponse,
+  BatchStatus,
+  OrgBatchSettingsRequest,
+  OrgBatchSettingsResponse,
+  RecallReport,
+  RecallRequest,
   LocationRequest,
   LocationResponse,
   MetadataOptionPatch,
@@ -190,6 +196,30 @@ export const bime = {
       }
       return res.blob()
     },
+  },
+  batches: {
+    list: (
+      token: string,
+      filters: { variantId?: string; locationId?: string; status?: BatchStatus; expiringWithinDays?: number } = {},
+    ) =>
+      req<BatchResponse[]>(`/batches${query({
+        variantId: filters.variantId,
+        locationId: filters.locationId,
+        status: filters.status,
+        expiringWithinDays: filters.expiringWithinDays != null ? String(filters.expiringWithinDays) : undefined,
+      })}`, { method: 'GET' }, token),
+    get: (id: string, token: string) =>
+      req<BatchResponse>(`/batches/${id}`, { method: 'GET' }, token),
+    recallReport: (id: string, token: string) =>
+      req<RecallReport>(`/batches/${id}/recall-report`, { method: 'GET' }, token),
+    recall: (id: string, dto: RecallRequest, token: string) =>
+      req<BatchResponse>(`/batches/${id}/recall`, { method: 'POST', ...payload(dto) }, token),
+    liftRecall: (id: string, token: string) =>
+      req<BatchResponse>(`/batches/${id}/lift-recall`, { method: 'POST' }, token),
+    getSettings: (token: string) =>
+      req<OrgBatchSettingsResponse>('/batches/settings', { method: 'GET' }, token),
+    updateSettings: (dto: OrgBatchSettingsRequest, token: string) =>
+      req<OrgBatchSettingsResponse>('/batches/settings', { method: 'PUT', ...payload(dto) }, token),
   },
   stock: {
     recordMovement: (dto: StockMovementRequest, token: string) =>

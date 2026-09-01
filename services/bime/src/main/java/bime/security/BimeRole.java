@@ -8,7 +8,7 @@ public enum BimeRole {
     BIME_ADMIN {
         @Override
         public Set<BimePermission> getPermissions() {
-            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG, BIME_TRANSFER_APPROVE);
+            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG, BIME_TRANSFER_APPROVE, BIME_RECALL_MANAGE);
         }
 
         @Override
@@ -18,7 +18,7 @@ public enum BimeRole {
 
         @Override
         public String getDescription() {
-            return "Full control over products, stock, and locations, including approving transfers.";
+            return "Full control over products, stock, and locations, including approving transfers and recalling batches.";
         }
     },
     BIME_STOCK_OPERATOR {

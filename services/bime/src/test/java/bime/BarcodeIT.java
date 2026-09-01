@@ -3,6 +3,11 @@ package bime;
 import bime.dto.BarcodeLookupResponseDTO;
 import bime.dto.BarcodeSource;
 import bime.dto.BarcodeSymbology;
+import bime.dto.LocationRequestDTO;
+import bime.dto.LocationResponseDTO;
+import bime.dto.MovementType;
+import bime.dto.StockMovementRequestDTO;
+import bime.dto.StockMovementResponseDTO;
 import bime.dto.OrgBarcodeSettingsRequestDTO;
 import bime.dto.OrgBarcodeSettingsResponseDTO;
 import bime.dto.OrgUnitRequestDTO;
@@ -21,7 +26,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -853,6 +860,67 @@ class BarcodeIT extends BaseIT {
                 .bodyValue(conv).exchange().expectStatus().isOk();
 
         return new Ctx(product.getId(), variant.getId());
+    }
+
+    @Test
+    void lookup_gs1_128_resolvesVariantAndFlagsRecalledBatch() {
+        // batch-tracked product + variant, EAN13 barcode linked
+        ProductRequestDTO prod = new ProductRequestDTO();
+        prod.setSku("BC-GS1-" + UUID.randomUUID());
+        prod.setName("GS1 Product");
+        prod.setIsActive(true);
+        prod.setTracksBatches(true);
+        ProductResponseDTO product = client.post().uri("/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(prod)
+                .exchange().expectStatus().isOk()
+                .expectBody(ProductResponseDTO.class).returnResult().getResponseBody();
+        ProductVariantRequestDTO varDto = new ProductVariantRequestDTO();
+        varDto.setOptionIds(List.of());
+        ProductVariantResponseDTO variant = client.post().uri("/products/{p}/variants", product.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(varDto)
+                .exchange().expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class).returnResult().getResponseBody();
+        Ctx ctx = new Ctx(product.getId(), variant.getId());
+        link(ctx, "9780201379624", BarcodeSymbology.EAN13, true);
+
+        LocationRequestDTO loc = new LocationRequestDTO();
+        loc.setName("WH-" + UUID.randomUUID());
+        loc.setCode("WH-" + UUID.randomUUID().toString().substring(0, 8));
+        loc.setIsActive(true);
+        LocationResponseDTO location = client.post().uri("/locations")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(loc)
+                .exchange().expectStatus().isOk()
+                .expectBody(LocationResponseDTO.class).returnResult().getResponseBody();
+
+        StockMovementRequestDTO in = new StockMovementRequestDTO();
+        in.setVariantId(variant.getId());
+        in.setLocationId(location.getId());
+        in.setMovementType(MovementType.INBOUND);
+        in.setDelta(BigDecimal.valueOf(10));
+        in.setBatchCode("LOT-A");
+        in.setExpiryDate(LocalDate.of(2026, 12, 31));
+        StockMovementResponseDTO m = client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(in)
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+        client.post().uri("/batches/{id}/recall", m.getBatchId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk();
+
+        // GS1-128: (01) GTIN-14 + (17) expiry + (10) lot
+        BarcodeLookupResponseDTO hit = lookup("01" + "09780201379624" + "17" + "261231" + "10LOT-A");
+        assertThat(hit.getVariant().getId()).isEqualTo(variant.getId());
+        assertThat(hit.getBatchCode()).isEqualTo("LOT-A");
+        assertThat(hit.getBatchStatus()).isEqualTo("RECALLED");
+        assertThat(hit.isRecalled()).isTrue();
+
+        // unknown lot on the same product -> UNKNOWN
+        BarcodeLookupResponseDTO unknown = lookup("01" + "09780201379624" + "10NOSUCHLOT");
+        assertThat(unknown.getBatchStatus()).isEqualTo("UNKNOWN");
     }
 
     private Ctx newVariant() {

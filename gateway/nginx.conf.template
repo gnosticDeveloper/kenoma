@@ -94,6 +94,13 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    # Batch (lot) reads, recall/quarantine actions, and near-expiry alert settings (BatchController).
+    location /batches {
+        proxy_pass http://bime:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     location /orgs {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;

@@ -94,7 +94,7 @@ public abstract class BaseIT {
         when(connectionPoolService.getHandle(any())).thenReturn(Mono.just(testHandle));
         when(connectionPoolService.getHandleViaVaultToken(any(), any())).thenReturn(Mono.just(testHandle));
         testHandle.client()
-                .sql("TRUNCATE locations, products, product_metadata, org_units, org_barcode_settings, stock_transfers CASCADE")
+                .sql("TRUNCATE locations, products, product_metadata, org_units, org_barcode_settings, org_batch_settings, stock_batches, stock_transfers CASCADE")
                 .fetch().rowsUpdated().block();
     }
 
@@ -148,6 +148,7 @@ public abstract class BaseIT {
                     "BIME_SERVICE_ID=" + BIME_SERVICE_ID.toString(),
                     "vassago.jwt.public-key-refresh-cron=-",
                     "bime.stock-alerts.check-cron=-",
+                    "bime.batch-expiry.check-cron=-",
                     "mailgun.api-key=test-key",
                     "mailgun.domain=test.example.com",
                     "mailgun.from=noreply@test.example.com",

@@ -5,6 +5,7 @@ import bime.db.BimeDbHandle;
 import bime.dto.InTransitStockDTO;
 import bime.dto.MovementStatus;
 import bime.dto.MovementType;
+import bime.dto.StockTransferLineBatchDTO;
 import bime.dto.StockTransferLineRequestDTO;
 import bime.dto.StockTransferLineResponseDTO;
 import bime.dto.StockTransferReceiveLineDTO;
@@ -26,9 +27,11 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -268,11 +271,27 @@ public class StockTransferService {
         UUID sourceLocationId = (UUID) line.get("source_location_id");
         UUID destLocationId = (UUID) line.get("dest_location_id");
         BigDecimal qty = (BigDecimal) line.get("qty_requested");
-        return stockLedgerService.appendMovement(handle, orgId, userId, variantId, sourceLocationId,
-                        MovementType.TRANSFER_OUT, MovementStatus.POSTED, qty.negate(), null, null, transferId, "")
-                .then(stockLedgerService.appendMovement(handle, orgId, userId, variantId, destLocationId,
-                        MovementType.TRANSFER_IN, MovementStatus.PENDING, qty, null, null, transferId, ""))
-                .then();
+        return isBatchTracked(handle, orgId, variantId).flatMap(tracked -> {
+            if (!tracked) {
+                return stockLedgerService.appendMovement(handle, orgId, userId, variantId, sourceLocationId,
+                                MovementType.TRANSFER_OUT, MovementStatus.POSTED, qty.negate(), null, null, transferId, "", null)
+                        .then(stockLedgerService.appendMovement(handle, orgId, userId, variantId, destLocationId,
+                                MovementType.TRANSFER_IN, MovementStatus.PENDING, qty, null, null, transferId, "", null))
+                        .then();
+            }
+            return stockLedgerService.allocateFefo(handle, orgId, variantId, sourceLocationId, qty)
+                    .flatMapMany(Flux::fromIterable)
+                    .concatMap(entry -> {
+                        UUID batchId = (UUID) entry[0];
+                        BigDecimal take = (BigDecimal) entry[1];
+                        return stockLedgerService.appendMovement(handle, orgId, userId, variantId, sourceLocationId,
+                                        MovementType.TRANSFER_OUT, MovementStatus.POSTED, take.negate(), null, null, transferId, "", batchId)
+                                .then(stockLedgerService.upsertBatchBalance(handle, orgId, batchId, variantId, sourceLocationId, take.negate()))
+                                .then(stockLedgerService.appendMovement(handle, orgId, userId, variantId, destLocationId,
+                                        MovementType.TRANSFER_IN, MovementStatus.PENDING, take, null, null, transferId, "", batchId));
+                    })
+                    .then();
+        });
     }
 
     public Mono<StockTransferResponseDTO> receive(UUID id, StockTransferReceiveRequestDTO dto) {
@@ -327,43 +346,76 @@ public class StockTransferService {
                                     return Mono.empty();
                                 }
                                 return handle.client().sql("""
-                                        SELECT id, delta FROM stock_movements
-                                        WHERE reference_id = :transferId AND org_id = :orgId AND variant_id = :variantId
-                                          AND location_id = :destLocationId AND movement_type = 'TRANSFER_IN' AND status = 'PENDING'
-                                        FOR UPDATE
+                                        SELECT m.id, m.delta, m.batch_id
+                                        FROM stock_movements m
+                                        LEFT JOIN stock_batches sb ON sb.id = m.batch_id
+                                        WHERE m.reference_id = :transferId AND m.org_id = :orgId AND m.variant_id = :variantId
+                                          AND m.location_id = :destLocationId AND m.movement_type = 'TRANSFER_IN' AND m.status = 'PENDING'
+                                        ORDER BY sb.expiry_date ASC NULLS LAST, m.created_at ASC
+                                        FOR UPDATE OF m
                                         """)
                                         .bind("transferId", transferId)
                                         .bind("orgId", orgId)
                                         .bind("variantId", variantId)
                                         .bind("destLocationId", destLocationId)
-                                        .fetch().one()
-                                        .switchIfEmpty(Mono.error(new BadRequestException("This line has already been fully received")))
-                                        .flatMap(pending -> {
-                                            UUID pendingId = (UUID) pending.get("id");
-                                            BigDecimal outstanding = (BigDecimal) pending.get("delta");
-                                            int cmp = baseQty.compareTo(outstanding);
-                                            if (cmp > 0) {
+                                        .fetch().all().collectList()
+                                        .flatMap(pendingRows -> {
+                                            if (pendingRows.isEmpty()) {
+                                                return Mono.error(new BadRequestException("This line has already been fully received"));
+                                            }
+                                            BigDecimal outstanding = pendingRows.stream()
+                                                    .map(r -> (BigDecimal) r.get("delta"))
+                                                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                                            if (baseQty.compareTo(outstanding) > 0) {
                                                 return Mono.error(new BadRequestException(
                                                         "Received quantity " + baseQty.stripTrailingZeros().toPlainString()
                                                                 + " exceeds the " + outstanding.stripTrailingZeros().toPlainString()
                                                                 + " still in transit for this line"));
                                             }
-                                            Mono<?> settle = cmp == 0
-                                                    ? handle.client().sql("UPDATE stock_movements SET status = 'POSTED' WHERE id = :mid")
-                                                            .bind("mid", pendingId).fetch().rowsUpdated()
-                                                            .then(stockLedgerService.upsertBalance(handle, orgId, variantId, destLocationId, baseQty))
-                                                    : handle.client().sql("UPDATE stock_movements SET delta = delta - :recv WHERE id = :mid")
-                                                            .bind("recv", baseQty).bind("mid", pendingId).fetch().rowsUpdated()
-                                                            .then(stockLedgerService.appendMovement(handle, orgId, userId, variantId, destLocationId,
-                                                                    MovementType.TRANSFER_IN, MovementStatus.POSTED, baseQty, null, null, transferId, ""));
-                                            return settle.then(handle.client().sql(
-                                                            "UPDATE stock_transfer_lines SET qty_received = qty_received + :recv WHERE id = :lineId")
-                                                    .bind("recv", baseQty).bind("lineId", rl.getLineId())
-                                                    .fetch().rowsUpdated());
+                                            List<Object[]> plan = new ArrayList<>();
+                                            BigDecimal remaining = baseQty;
+                                            for (Map<String, Object> r : pendingRows) {
+                                                if (remaining.signum() <= 0) break;
+                                                BigDecimal rowDelta = (BigDecimal) r.get("delta");
+                                                BigDecimal take = rowDelta.min(remaining);
+                                                plan.add(new Object[]{(UUID) r.get("id"), rowDelta, take, (UUID) r.get("batch_id")});
+                                                remaining = remaining.subtract(take);
+                                            }
+                                            return Flux.fromIterable(plan)
+                                                    .concatMap(p -> settlePendingLeg(handle, orgId, userId, transferId, variantId, destLocationId, p))
+                                                    .then(handle.client().sql(
+                                                                    "UPDATE stock_transfer_lines SET qty_received = qty_received + :recv WHERE id = :lineId")
+                                                            .bind("recv", baseQty).bind("lineId", rl.getLineId())
+                                                            .fetch().rowsUpdated());
                                         });
                             });
                 })
                 .then();
+    }
+
+    /** Settle one PENDING TRANSFER_IN leg by {@code take}: post it whole, or split off a POSTED
+      * portion and shrink the leg. Applies the running balance and, when the leg carries a lot,
+      * the per-batch balance at the destination. */
+    private Mono<Void> settlePendingLeg(BimeDbHandle handle, UUID orgId, UUID userId, UUID transferId,
+                                        UUID variantId, UUID destLocationId, Object[] p) {
+        UUID legId = (UUID) p[0];
+        BigDecimal legDelta = (BigDecimal) p[1];
+        BigDecimal take = (BigDecimal) p[2];
+        UUID batchId = (UUID) p[3];
+        Mono<Void> batchBalance = batchId != null
+                ? stockLedgerService.upsertBatchBalance(handle, orgId, batchId, variantId, destLocationId, take).then()
+                : Mono.empty();
+        if (take.compareTo(legDelta) == 0) {
+            return handle.client().sql("UPDATE stock_movements SET status = 'POSTED' WHERE id = :mid")
+                    .bind("mid", legId).fetch().rowsUpdated()
+                    .then(stockLedgerService.upsertBalance(handle, orgId, variantId, destLocationId, take))
+                    .then(batchBalance);
+        }
+        return handle.client().sql("UPDATE stock_movements SET delta = delta - :recv WHERE id = :mid")
+                .bind("recv", take).bind("mid", legId).fetch().rowsUpdated()
+                .then(stockLedgerService.appendMovement(handle, orgId, userId, variantId, destLocationId,
+                        MovementType.TRANSFER_IN, MovementStatus.POSTED, take, null, null, transferId, "", batchId))
+                .then(batchBalance);
     }
 
     private Mono<Void> finalizeReceiveStatus(BimeDbHandle handle, UUID orgId, UUID userId, UUID transferId) {
@@ -428,6 +480,23 @@ public class StockTransferService {
             }
         }
         return null;
+    }
+
+    /** Whether the variant's product opts into batch/expiry tracking. Batch-tracked lines
+      * FEFO-allocate across source batches on dispatch and carry each lot through to receipt. */
+    private Mono<Boolean> isBatchTracked(BimeDbHandle handle, UUID orgId, UUID variantId) {
+        return handle.client().sql("""
+                SELECT p.tracks_batches
+                FROM product_variants pv
+                JOIN products p ON p.id = pv.product_id
+                WHERE pv.id = :variantId AND pv.org_id = :orgId
+                """)
+                .bind("variantId", variantId)
+                .bind("orgId", orgId)
+                .fetch()
+                .one()
+                .switchIfEmpty(Mono.error(new NotFoundException("Variant not found")))
+                .map(row -> Boolean.TRUE.equals(row.get("tracks_batches")));
     }
 
     private Mono<UUID> insertTransfer(BimeDbHandle handle, UUID orgId, UUID userId, StockTransferRequestDTO dto) {
@@ -508,7 +577,55 @@ public class StockTransferService {
     }
 
     private Mono<List<StockTransferLineResponseDTO>> loadLines(BimeDbHandle handle, UUID orgId, UUID transferId) {
-        return loadLineRows(handle, orgId, transferId).map(StockTransferService::toLineDTO).collectList();
+        return loadLineRows(handle, orgId, transferId).map(StockTransferService::toLineDTO).collectList()
+                .flatMap(lines -> {
+                    if (lines.isEmpty()) {
+                        return Mono.just(lines);
+                    }
+                    return loadLineBatches(handle, orgId, transferId).map(byVariant -> {
+                        for (StockTransferLineResponseDTO line : lines) {
+                            List<StockTransferLineBatchDTO> b = byVariant.get(line.getVariantId());
+                            line.setBatches(b != null ? b : List.of());
+                        }
+                        return lines;
+                    });
+                });
+    }
+
+    /** Per-lot dispatch/receipt progress for every batch-tracked line of a transfer, keyed by variant.
+      * Derived from the TRANSFER_OUT / TRANSFER_IN movement rows that carry a batch_id. */
+    private Mono<Map<UUID, List<StockTransferLineBatchDTO>>> loadLineBatches(BimeDbHandle handle, UUID orgId, UUID transferId) {
+        return handle.client().sql("""
+                SELECT m.variant_id, m.batch_id, sb.batch_code, sb.expiry_date, sb.status,
+                       SUM(CASE WHEN m.movement_type = 'TRANSFER_OUT' THEN -m.delta ELSE 0::numeric END) AS dispatched,
+                       SUM(CASE WHEN m.movement_type = 'TRANSFER_IN' AND m.status = 'POSTED'  THEN m.delta ELSE 0::numeric END) AS received,
+                       SUM(CASE WHEN m.movement_type = 'TRANSFER_IN' AND m.status = 'PENDING' THEN m.delta ELSE 0::numeric END) AS in_transit
+                FROM stock_movements m
+                JOIN stock_batches sb ON sb.id = m.batch_id
+                WHERE m.reference_id = :transferId AND m.org_id = :orgId AND m.batch_id IS NOT NULL
+                GROUP BY m.variant_id, m.batch_id, sb.batch_code, sb.expiry_date, sb.status
+                ORDER BY sb.expiry_date ASC NULLS LAST, sb.batch_code ASC
+                """)
+                .bind("transferId", transferId)
+                .bind("orgId", orgId)
+                .fetch().all()
+                .collectList()
+                .map(rows -> {
+                    Map<UUID, List<StockTransferLineBatchDTO>> byVariant = new LinkedHashMap<>();
+                    for (Map<String, Object> r : rows) {
+                        byVariant.computeIfAbsent((UUID) r.get("variant_id"), k -> new ArrayList<>())
+                                .add(StockTransferLineBatchDTO.builder()
+                                        .batchId((UUID) r.get("batch_id"))
+                                        .batchCode((String) r.get("batch_code"))
+                                        .expiryDate((LocalDate) r.get("expiry_date"))
+                                        .status((String) r.get("status"))
+                                        .qtyDispatched((BigDecimal) r.get("dispatched"))
+                                        .qtyReceived((BigDecimal) r.get("received"))
+                                        .qtyInTransit((BigDecimal) r.get("in_transit"))
+                                        .build());
+                    }
+                    return byVariant;
+                });
     }
 
     private Mono<StockTransferResponseDTO> loadTransfer(BimeDbHandle handle, UUID orgId, UUID id) {

@@ -70,6 +70,7 @@ const EMPTY_PERMISSIONS: Permissions = {
   canManage: false, canOnboard: false,
   canViewUsers: false, canCreateUsers: false, canEditUsers: false, canOffboardUsers: false,
   canViewBime: false, canViewBimeCatalog: false, canManageBime: false, canApproveBimeTransfers: false,
+  canRecallBimeBatches: false,
 }
 
 function safePermissions(token: string): Permissions {

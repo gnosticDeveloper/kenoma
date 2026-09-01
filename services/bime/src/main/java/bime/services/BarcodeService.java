@@ -26,6 +26,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -180,11 +181,18 @@ public class BarcodeService {
         ).then();
     }
 
-    /** Point-of-sale resolution: a scanned string to the variant it identifies. */
+    /** Point-of-sale resolution: a scanned string to the variant it identifies. A GS1-128 / GS1
+      * element string is parsed first (AI 01 GTIN drives the variant match; AI 10 lot and AI 17
+      * expiry are resolved against the variant's batches so the register can flag a recalled or
+      * expired lot). A plain barcode value is matched as before. */
     public Mono<BarcodeLookupResponseDTO> lookup(String scanned) {
         if (scanned == null || scanned.isBlank()) {
             return Mono.error(new BadRequestException("barcode is required"));
         }
+        Gs1Parser.Gs1Scan gs1 = Gs1Parser.parse(scanned);
+        String[] candidates = (gs1 != null && gs1.gtin() != null)
+                ? gtinCandidates(gs1.gtin()).toArray(new String[0])
+                : lookupCandidates(scanned).toArray(new String[0]);
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
                 SELECT vb.barcode, vb.symbology, vb.variant_id, ou.name AS uom,
                        CASE WHEN vb.uom_id = pv.base_uom_id THEN 1 ELSE vuc.factor END AS factor,
@@ -199,16 +207,16 @@ public class BarcodeService {
                 LIMIT 1
                 """)
                 .bind("orgId", caller.getOrgId())
-                .bind("candidates", lookupCandidates(scanned).toArray(new String[0]))
+                .bind("candidates", candidates)
                 .fetch()
                 .one()
                 .switchIfEmpty(Mono.error(new NotFoundException("No variant is linked to barcode \"" + scanned.trim() + "\"")))
                 .flatMap(row -> productVariantService.loadVariantByIdForOrg(handle, (UUID) row.get("variant_id"), caller.getOrgId())
-                        .map(variant -> {
+                        .flatMap(variant -> {
                             BigDecimal factor = (BigDecimal) row.get("factor");
                             BigDecimal packPrice = UomConversionService.effectivePrice(
                                     (BigDecimal) row.get("pack_price_explicit"), factor, (BigDecimal) row.get("variant_price"));
-                            return BarcodeLookupResponseDTO.builder()
+                            BarcodeLookupResponseDTO.BarcodeLookupResponseDTOBuilder builder = BarcodeLookupResponseDTO.builder()
                                     .barcode((String) row.get("barcode"))
                                     .symbology(BarcodeSymbology.valueOf((String) row.get("symbology")))
                                     .productId((UUID) row.get("product_id"))
@@ -217,10 +225,63 @@ public class BarcodeService {
                                     .uom((String) row.get("uom"))
                                     .factor(factor)
                                     .packPrice(packPrice)
-                                    .variant(variant)
-                                    .build();
+                                    .variant(variant);
+                            if (gs1 == null || (gs1.lot() == null && gs1.expiry() == null)) {
+                                return Mono.just(builder.build());
+                            }
+                            return enrichWithBatch(handle, caller.getOrgId(), (UUID) row.get("variant_id"), gs1, builder);
                         }))
         );
+    }
+
+    private Mono<BarcodeLookupResponseDTO> enrichWithBatch(BimeDbHandle handle, UUID orgId, UUID variantId,
+                                                          Gs1Parser.Gs1Scan gs1,
+                                                          BarcodeLookupResponseDTO.BarcodeLookupResponseDTOBuilder builder) {
+        builder.batchCode(gs1.lot()).batchExpiry(gs1.expiry());
+        if (gs1.lot() == null) {
+            return Mono.just(builder.build());
+        }
+        return handle.client().sql("""
+                SELECT status, expiry_date FROM stock_batches
+                WHERE org_id = :orgId AND variant_id = :variantId AND batch_code = :lot
+                """)
+                .bind("orgId", orgId)
+                .bind("variantId", variantId)
+                .bind("lot", gs1.lot())
+                .fetch()
+                .one()
+                .map(b -> {
+                    String status = (String) b.get("status");
+                    LocalDate expiry = b.get("expiry_date") != null
+                            ? (LocalDate) b.get("expiry_date") : gs1.expiry();
+                    return builder
+                            .batchStatus(status)
+                            .batchExpiry(expiry)
+                            .recalled("RECALLED".equals(status))
+                            .expired(expiry != null && expiry.isBefore(LocalDate.now()))
+                            .build();
+                })
+                .switchIfEmpty(Mono.fromSupplier(() -> builder
+                        .batchStatus("UNKNOWN")
+                        .expired(gs1.expiry() != null && gs1.expiry().isBefore(LocalDate.now()))
+                        .build()));
+    }
+
+    /** Barcode-column candidates for a 14-digit GTIN carried by a GS1 scan: the value as-is, with
+      * leading zeros trimmed to 13/12/8 digits, so it matches a stored EAN-13 / UPC-A / EAN-8. */
+    private static List<String> gtinCandidates(String gtin) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        out.add(gtin);
+        String trimmed = gtin.replaceFirst("^0+", "");
+        for (int len : new int[]{13, 12, 8}) {
+            if (gtin.length() >= len) {
+                out.add(gtin.substring(gtin.length() - len));
+            }
+        }
+        if (!trimmed.isEmpty()) {
+            out.add(trimmed);
+        }
+        return new ArrayList<>(out);
     }
 
     public Mono<OrgBarcodeSettingsResponseDTO> getSettings() {

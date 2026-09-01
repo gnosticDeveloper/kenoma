@@ -1391,3 +1391,128 @@ button, input, select {
   cursor: pointer;
 }
 .transfer-receive .actions { margin-top: 0; }
+
+/* Per-lot breakdown row inside a transfer's line table */
+.transfer-line-lots > td {
+  background: var(--color-bg);
+  padding: 8px 8px 10px 20px;
+}
+.transfer-line-lots .lot-note {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-text-muted);
+  margin-bottom: 5px;
+}
+.lot-subtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.lot-subtable th {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-text-muted);
+  text-align: left;
+  padding: 0 12px 3px 0;
+}
+.lot-subtable td {
+  padding: 3px 12px 3px 0;
+  border: 0;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.lot-subtable td:first-child { color: var(--color-text); }
+.lot-subtable th.num,
+.lot-subtable td.num {
+  text-align: right;
+  white-space: nowrap;
+  padding-right: 0;
+}
+.transfer-line-lots .panel-hint { margin: 6px 0 0; }
+
+/* Inline "i" help trigger + floating panel */
+.infotip {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 5px;
+}
+.infotip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  line-height: 0;
+}
+.infotip-trigger:hover,
+.infotip-trigger[aria-expanded="true"] { color: var(--color-accent); }
+.infotip-trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+.infotip-panel {
+  position: fixed;
+  z-index: 200;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* GS1-128 help content (rendered inside an InfoTip) */
+.gs1-help { font-size: 12.5px; }
+.gs1-help-lead {
+  margin: 0 0 10px;
+  color: var(--color-text);
+  line-height: 1.45;
+}
+.gs1-help-body {
+  margin: 10px 0 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+.gs1-compare {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.gs1-compare figure {
+  margin: 0;
+  flex: 1 1 120px;
+  min-width: 110px;
+}
+.gs1-compare svg {
+  display: block;
+  width: 100%;
+  max-width: 170px;
+  height: auto;
+  color: var(--color-text);
+  border: 1px solid var(--color-border-faint);
+  border-radius: 3px;
+  background: var(--color-bg);
+  padding: 4px 6px;
+}
+.gs1-compare figcaption {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.35;
+}
+.gs1-compare figcaption strong { color: var(--color-text); font-weight: 600; }
+.gs1-compare figcaption span { color: var(--color-text-muted); }

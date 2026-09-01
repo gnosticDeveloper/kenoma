@@ -15,9 +15,13 @@ import { FilterChips, FilterDisclosure, toggleOptionId } from '../components/Opt
 import { SearchIcon } from '../components/icons'
 import type { Permissions } from '../auth'
 import { RowActionsMenu } from '../components/RowActionsMenu'
+import { Gs1Help } from '../components/Gs1Explainer'
+import { InfoTip } from '../components/InfoTip'
 import BimeTransfersTab from './BimeTransfersTab'
+import BimeBatchesTab from './BimeBatchesTab'
 import type {
   BarcodeLookupResponse,
+  BatchResponse,
   LocationResponse,
   MovementType,
   ProductMetadataResponse,
@@ -86,11 +90,13 @@ export default function BimeStockPage({ token, permissions }: Props) {
   useEffect(() => {
     if (products.state.status !== 'success') return
     let cancelled = false
-    Promise.all(products.state.data.map(p => bime.products.get(p.id, token))).then(full => {
+    Promise.allSettled(products.state.data.map(p => bime.products.get(p.id, token))).then(results => {
       if (cancelled) return
       const byProduct: Record<string, ProductVariantResponse[]> = {}
       const lookup: Record<string, VariantInfo> = {}
-      full.forEach(p => {
+      results.forEach(r => {
+        if (r.status !== 'fulfilled') return
+        const p = r.value
         const vs = p.variants ?? []
         byProduct[p.id] = vs
         vs.forEach(v => { lookup[v.id] = { productId: p.id, sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', '), baseUom: v.baseUom, uomConversions: v.uomConversions } })
@@ -155,12 +161,32 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [delta, setDelta] = useState(0)
   const [movementUom, setMovementUom] = useState<string | null>(null)
   const [note, setNote] = useState('')
+  const [batchCode, setBatchCode] = useState('')
+  const [batchExpiry, setBatchExpiry] = useState('')
+  const [batchGs1, setBatchGs1] = useState('')
+  const [outboundBatchId, setOutboundBatchId] = useState<string | null>(null)
   const record = useApiCall<StockMovementResponse>()
+  const outboundBatches = useApiCall<BatchResponse[]>()
   const movementUomConversions = variantId ? (variantLookup[variantId]?.uomConversions ?? []) : []
+
+  function productTracksBatches(productId: string | null): boolean {
+    if (!productId || products.state.status !== 'success') return false
+    return products.state.data.find(p => p.id === productId)?.tracksBatches ?? false
+  }
+  const recordTracksBatches = productTracksBatches(recordProductId)
+  const recordIsInbound = movementType === 'INBOUND' || (movementType === 'ADJUSTMENT' && delta > 0)
 
   useEffect(() => {
     setMovementUom(null)
   }, [variantId])
+
+  useEffect(() => {
+    setOutboundBatchId(null)
+    if (recordOpen && recordTracksBatches && !recordIsInbound && variantId && locationId) {
+      outboundBatches.call(() => bime.batches.list(token, { variantId, locationId, status: 'ACTIVE' }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordOpen, recordTracksBatches, recordIsInbound, variantId, locationId])
 
   const movements = useApiCall<StockMovementResponse[]>()
   const [movFilterProduct, setMovFilterProduct] = useState<string | null>(null)
@@ -185,6 +211,10 @@ export default function BimeStockPage({ token, permissions }: Props) {
     setLocationId(null)
     setDelta(0)
     setNote('')
+    setBatchCode('')
+    setBatchExpiry('')
+    setBatchGs1('')
+    setOutboundBatchId(null)
     movementsCache.clear()
     balancesCache.clear()
     alertsCache.clear()
@@ -485,6 +515,7 @@ export default function BimeStockPage({ token, permissions }: Props) {
           { id: 'movements', label: t('bimeStockPage.tabMovements') },
           { id: 'balances', label: t('bimeStockPage.tabBalances') },
           { id: 'transfers', label: t('bimeStockPage.tabTransfers') },
+          { id: 'batches', label: t('bimeStockPage.tabBatches') },
           { id: 'thresholds', label: t('bimeStockPage.tabThresholds') },
           { id: 'alerts', label: t('bimeStockPage.tabAlerts') },
         ]}
@@ -565,6 +596,19 @@ export default function BimeStockPage({ token, permissions }: Props) {
             variantQuantityLabel={variantQuantityLabel}
             variantUnits={variantUnits}
             productForVariant={vid => variantLookup[vid]?.productId ?? null}
+          />
+        )}
+
+        {activeTab === 'batches' && (
+          <BimeBatchesTab
+            token={token}
+            canManage={permissions.canManageBime}
+            canRecall={permissions.canRecallBimeBatches}
+            productItems={productItems}
+            locationItems={locationItems}
+            variantItemsFor={variantItemsFor}
+            variantLabel={variantLabel}
+            locationLabel={locationLabel}
           />
         )}
 
@@ -666,6 +710,38 @@ export default function BimeStockPage({ token, permissions }: Props) {
               </select>
             </div>
           )}
+          {recordTracksBatches && recordIsInbound && (
+            <>
+              <div className="field">
+                <label>
+                  {t('bimeStockPage.batchGs1')}
+                  <InfoTip label={t('bimeStockPage.batchGs1Explain')}><Gs1Help /></InfoTip>
+                </label>
+                <input value={batchGs1} onChange={e => setBatchGs1(e.target.value)} placeholder={t('bimeStockPage.batchGs1Placeholder')} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.batchCode')}</label>
+                <input value={batchCode} onChange={e => setBatchCode(e.target.value)} placeholder="LOT-2026-08-A" disabled={!!batchGs1.trim()} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.batchExpiry')}</label>
+                <input type="date" value={batchExpiry} onChange={e => setBatchExpiry(e.target.value)} disabled={!!batchGs1.trim()} />
+              </div>
+            </>
+          )}
+          {recordTracksBatches && !recordIsInbound && (
+            <div className="field">
+              <label>{t('bimeStockPage.batchOutbound')}</label>
+              <select value={outboundBatchId ?? ''} onChange={e => setOutboundBatchId(e.target.value || null)} disabled={!variantId || !locationId}>
+                <option value="">{t('bimeStockPage.batchFefo')}</option>
+                {(outboundBatches.state.status === 'success' ? outboundBatches.state.data : []).map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.batchCode}{b.expiryDate ? ` · ${b.expiryDate}` : ''} · {b.totalQuantity}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="field">
             <label>{t('bimeStockPage.note')}</label>
             <input value={note} onChange={e => setNote(e.target.value)} placeholder={t('bimeStockPage.notePlaceholder')} />
@@ -674,9 +750,24 @@ export default function BimeStockPage({ token, permissions }: Props) {
         <div className="actions">
           <button
             className="btn btn-primary"
-            disabled={record.state.status === 'loading' || !variantId || !locationId || delta === 0}
+            disabled={
+              record.state.status === 'loading' || !variantId || !locationId || delta === 0
+              || (recordTracksBatches && recordIsInbound && !batchGs1.trim() && !batchCode.trim())
+            }
             onClick={() => variantId && locationId && record.call(() => bime.stock.recordMovement(
-              { variantId, locationId, movementType, delta, uom: movementUom ?? undefined, note: note.trim() || undefined }, token,
+              {
+                variantId, locationId, movementType, delta,
+                uom: movementUom ?? undefined,
+                note: note.trim() || undefined,
+                ...(recordTracksBatches && recordIsInbound
+                  ? {
+                      gs1: batchGs1.trim() || undefined,
+                      batchCode: batchGs1.trim() ? undefined : (batchCode.trim() || undefined),
+                      expiryDate: batchGs1.trim() ? undefined : (batchExpiry || undefined),
+                    }
+                  : {}),
+                ...(recordTracksBatches && !recordIsInbound && outboundBatchId ? { batchId: outboundBatchId } : {}),
+              }, token,
             ))}
           >
             {record.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.create')}
