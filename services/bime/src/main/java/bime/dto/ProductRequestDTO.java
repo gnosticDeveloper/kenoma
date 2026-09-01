@@ -12,4 +12,8 @@ public class ProductRequestDTO {
     @Schema(description = "Optional description of the product")
     private String description;
     private Boolean isActive;
+    @Schema(description = "When true, this product's stock is tracked by production batch (lot) and expiry date: movements must " +
+            "name a batch, outbound consumption defaults to first-expired-first-out, and near-expiry / recall handling applies. " +
+            "Defaults to false. Turning it off again is only sensible before any batch stock has been recorded")
+    private Boolean tracksBatches;
 }

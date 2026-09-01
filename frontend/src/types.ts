@@ -400,6 +400,13 @@ export interface BarcodeLookupResponse {
   // Price for one scan of this barcode (unit price for a base-unit barcode, pack price otherwise)
   packPrice: number | null
   variant: ProductVariantResponse
+  // Batch/lot carried by a GS1-128 scan, resolved against the variant's batches. Null on a plain scan
+  batchCode: string | null
+  batchExpiry: string | null
+  // ACTIVE | RECALLED for a known lot; UNKNOWN when a lot was scanned but not on file; null otherwise
+  batchStatus: string | null
+  expired: boolean
+  recalled: boolean
 }
 
 export interface OrgBarcodeSettingsRequest {
@@ -473,6 +480,8 @@ export interface ProductRequest {
   name: string
   description?: string
   isActive?: boolean
+  // Track this product's stock by production batch (lot) and expiry date
+  tracksBatches?: boolean
 }
 
 export interface ProductResponse {
@@ -482,6 +491,7 @@ export interface ProductResponse {
   name: string
   description: string | null
   isActive: boolean
+  tracksBatches: boolean
   createdAt: string
   modifiedAt: string
   // Populated by GET /products/{id}; omitted (null) by the GET /products list endpoint
@@ -503,6 +513,12 @@ export interface StockMovementRequest {
   status?: MovementStatus
   referenceId?: string
   note?: string
+  // Batch-tracked products only. Inbound: name the batch (batchId, or batchCode + optional expiryDate,
+  // or a raw gs1 scan). Outbound: an explicit batchId to draw from, or omit for first-expired-first-out
+  batchId?: string
+  batchCode?: string
+  expiryDate?: string
+  gs1?: string
 }
 
 export interface StockMovementResponse {
@@ -521,6 +537,9 @@ export interface StockMovementResponse {
   note: string | null
   createdAt: string
   createdBy: string
+  batchId: string | null
+  // Set only on the aggregate result of a FEFO outbound split across several batches
+  allocations: StockMovementResponse[] | null
 }
 
 export interface StockBalanceResponse {
@@ -529,6 +548,50 @@ export interface StockBalanceResponse {
   locationId: string
   quantity: number
   modifiedAt: string
+}
+
+// ── Batches (lots) & recalls ──
+
+export type BatchStatus = 'ACTIVE' | 'RECALLED'
+
+export interface BatchLocationBalance {
+  locationId: string
+  locationName: string
+  quantity: number
+}
+
+export interface BatchResponse {
+  id: string
+  variantId: string
+  batchCode: string
+  expiryDate: string | null
+  status: BatchStatus
+  recalledAt: string | null
+  recallNote: string | null
+  createdAt: string
+  balances: BatchLocationBalance[]
+  totalQuantity: number
+}
+
+export interface RecallReport {
+  batch: BatchResponse
+  affectedLocations: BatchLocationBalance[]
+  history: StockMovementResponse[]
+}
+
+export interface RecallRequest {
+  note?: string
+}
+
+export interface OrgBatchSettingsRequest {
+  nearExpiryDays: number
+}
+
+export interface OrgBatchSettingsResponse {
+  orgId: string
+  nearExpiryDays: number
+  createdAt: string | null
+  modifiedAt: string | null
 }
 
 // ── Transfer orders ──
@@ -556,6 +619,16 @@ export interface StockTransferRequest {
   lines: StockTransferLineRequest[]
 }
 
+export interface StockTransferLineBatch {
+  batchId: string
+  batchCode: string
+  expiryDate: string | null
+  status: string
+  qtyDispatched: number
+  qtyReceived: number
+  qtyInTransit: number
+}
+
 export interface StockTransferLineResponse {
   id: string
   variantId: string
@@ -567,6 +640,7 @@ export interface StockTransferLineResponse {
   qtyInTransit: number
   uom: string | null
   uomQuantity: number | null
+  batches: StockTransferLineBatch[]
 }
 
 export interface StockTransferResponse {

@@ -841,6 +841,57 @@ class StockTransferIT extends BaseIT {
                 .expectBody(StockTransferResponseDTO.class).returnResult().getResponseBody();
     }
 
+    @Test
+    void batchTrackedVariant_transfersAndCarriesItsLot() {
+        ProductRequestDTO prodDto = new ProductRequestDTO();
+        prodDto.setSku("TR-BATCH-" + UUID.randomUUID());
+        prodDto.setName("Batch Transfer Product");
+        prodDto.setIsActive(true);
+        prodDto.setTracksBatches(true);
+        ProductResponseDTO product = client.post().uri("/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(prodDto)
+                .exchange().expectStatus().isOk()
+                .expectBody(ProductResponseDTO.class).returnResult().getResponseBody();
+
+        ProductVariantRequestDTO varDto = new ProductVariantRequestDTO();
+        varDto.setOptionIds(List.of());
+        ProductVariantResponseDTO variant = client.post().uri("/products/{p}/variants", product.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(varDto)
+                .exchange().expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class).returnResult().getResponseBody();
+
+        UUID source = createLocation();
+        UUID dest = createLocation();
+
+        StockMovementRequestDTO inbound = new StockMovementRequestDTO();
+        inbound.setVariantId(variant.getId());
+        inbound.setLocationId(source);
+        inbound.setMovementType(MovementType.INBOUND);
+        inbound.setDelta(BigDecimal.valueOf(20));
+        inbound.setBatchCode("TR-LOT-1");
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(inbound)
+                .exchange().expectStatus().isOk();
+
+        StockTransferResponseDTO transfer = createTransfer(source, dest, variant.getId(), 8);
+        transfer = act(transfer.getId(), "submit");
+        transfer = act(transfer.getId(), "dispatch");
+        assertThat(transfer.getStatus()).isEqualTo(TransferStatus.IN_TRANSIT);
+        assertThat(transfer.getLines().get(0).getBatches())
+                .extracting(StockTransferLineBatchDTO::getBatchCode).containsExactly("TR-LOT-1");
+        assertThat(balanceAt(variant.getId(), source)).isEqualByComparingTo("12");
+
+        UUID lineId = transfer.getLines().get(0).getId();
+        transfer = receive(transfer.getId(), lineId, 8, false);
+        assertThat(transfer.getStatus()).isEqualTo(TransferStatus.COMPLETED);
+        assertThat(balanceAt(variant.getId(), dest)).isEqualByComparingTo("8");
+        assertThat(transfer.getLines().get(0).getBatches().get(0).getQtyReceived())
+                .isEqualByComparingTo("8");
+    }
+
     private static StockTransferRequestDTO transferRequest(UUID source, UUID dest, UUID variantId, int qty) {
         StockTransferRequestDTO dto = new StockTransferRequestDTO();
         dto.setSourceLocationId(source);

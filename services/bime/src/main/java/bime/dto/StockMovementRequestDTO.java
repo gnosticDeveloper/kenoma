@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Data
@@ -26,4 +27,15 @@ public class StockMovementRequestDTO {
     private UUID referenceId;
     @Schema(description = "Optional free-text note for human-readable context", example = "Received from supplier PO-2026-042")
     private String note;
+    @Schema(description = "Batch-tracked variants only. On INBOUND / positive ADJUSTMENT: the batch this stock belongs to " +
+            "(supply either batchId, or batchCode with an optional expiryDate, or gs1). On OUTBOUND / negative ADJUSTMENT: " +
+            "an explicit batch to draw from; omit to consume first-expired-first-out across the variant's active batches")
+    private UUID batchId;
+    @Schema(description = "Batch-tracked INBOUND only: the producer's batch/lot code. Ignored when batchId or gs1 is given", example = "LOT-2026-08-A")
+    private String batchCode;
+    @Schema(description = "Batch-tracked INBOUND only: the batch's expiry date, recorded against batchCode. Ignored when batchId or gs1 is given", example = "2026-12-31")
+    private LocalDate expiryDate;
+    @Schema(description = "Batch-tracked INBOUND only: a raw GS1-128 / GS1 element-string scan (AI 01 GTIN, 10 lot, 17 expiry). " +
+            "Parsed server-side to fill batchCode and expiryDate; takes precedence over both")
+    private String gs1;
 }

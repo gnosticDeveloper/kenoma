@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -31,4 +32,6 @@ public class StockTransferLineResponseDTO {
     private String uom;
     @Schema(description = "Quantity as entered, in uom. Null when uom is null")
     private BigDecimal uomQuantity;
+    @Schema(description = "Per-lot breakdown for a batch-tracked line. Empty for lines whose product does not track batches")
+    private List<StockTransferLineBatchDTO> batches;
 }

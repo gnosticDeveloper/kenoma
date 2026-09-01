@@ -19,6 +19,7 @@ export interface Permissions {
   canViewBimeCatalog: boolean
   canManageBime: boolean
   canApproveBimeTransfers: boolean
+  canRecallBimeBatches: boolean
 }
 
 export function parseJwtClaims(token: string): JwtClaims {
@@ -56,6 +57,7 @@ export function derivePermissions(claims: JwtClaims): Permissions {
     canViewBimeCatalog: bimeViewCatalog,
     canManageBime:      bimeManage,
     canApproveBimeTransfers: bimeApproveTransfers,
+    canRecallBimeBatches: allRoles.includes('BIME_ADMIN'),
   }
 }
 

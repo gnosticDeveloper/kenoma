@@ -8,6 +8,7 @@ import lombok.experimental.SuperBuilder;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -37,4 +38,9 @@ public class StockMovementResponseDTO {
     private LocalDateTime createdAt;
     @Schema(description = "ID of the user who recorded this movement. Derived from the JWT at creation time")
     private UUID createdBy;
+    @Schema(description = "The batch this movement drew from or added to. Null for movements of non-batch-tracked variants")
+    private UUID batchId;
+    @Schema(description = "Set only on the aggregate result of a FEFO outbound that was split across several batches: the individual " +
+            "per-batch movement rows that were written. Null for a single-batch or non-batch movement")
+    private List<StockMovementResponseDTO> allocations;
 }

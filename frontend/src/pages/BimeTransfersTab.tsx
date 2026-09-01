@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { useApiCall } from '../hooks/useApiCall'
@@ -391,13 +391,44 @@ export default function BimeTransfersTab({
               </thead>
               <tbody>
                 {selected.lines.map(l => (
-                  <tr key={l.id}>
-                    <td>{variantLabel(l.variantId)}</td>
-                    <td>{variantQuantityLabel(l.variantId, l.qtyRequested)}</td>
-                    <td>{variantQuantityLabel(l.variantId, l.qtyDispatched)}</td>
-                    <td>{variantQuantityLabel(l.variantId, l.qtyReceived)}</td>
-                    <td>{l.qtyInTransit > 0 ? variantQuantityLabel(l.variantId, l.qtyInTransit) : '—'}</td>
-                  </tr>
+                  <Fragment key={l.id}>
+                    <tr>
+                      <td>{variantLabel(l.variantId)}</td>
+                      <td>{variantQuantityLabel(l.variantId, l.qtyRequested)}</td>
+                      <td>{variantQuantityLabel(l.variantId, l.qtyDispatched)}</td>
+                      <td>{variantQuantityLabel(l.variantId, l.qtyReceived)}</td>
+                      <td>{l.qtyInTransit > 0 ? variantQuantityLabel(l.variantId, l.qtyInTransit) : '—'}</td>
+                    </tr>
+                    {l.batches && l.batches.length > 0 && (
+                      <tr className="transfer-line-lots">
+                        <td colSpan={5}>
+                          <div className="lot-note">{t('bimeStockPage.transfers.lots')}</div>
+                          <table className="lot-subtable">
+                            <thead>
+                              <tr>
+                                <th>{t('bimeBatchesTab.code')}</th>
+                                <th>{t('bimeBatchesTab.expiry')}</th>
+                                <th className="num">{t('bimeStockPage.transfers.dispatched')}</th>
+                                <th className="num">{t('bimeStockPage.transfers.received')}</th>
+                                <th className="num">{t('bimeStockPage.transfers.inTransitCol')}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {l.batches.map(b => (
+                                <tr key={b.batchId}>
+                                  <td>{b.batchCode}{b.status === 'RECALLED' ? ` (${t('bimeStockPage.transfers.lotRecalled')})` : ''}</td>
+                                  <td>{b.expiryDate ?? '—'}</td>
+                                  <td className="num">{variantQuantityLabel(l.variantId, b.qtyDispatched)}</td>
+                                  <td className="num">{variantQuantityLabel(l.variantId, b.qtyReceived)}</td>
+                                  <td className="num">{b.qtyInTransit > 0 ? variantQuantityLabel(l.variantId, b.qtyInTransit) : '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -447,22 +478,44 @@ export default function BimeTransfersTab({
               <tbody>
                 {selected.lines.map(l => {
                   const outstanding = Math.max(0, l.qtyDispatched - l.qtyReceived)
+                  const lots = (l.batches ?? []).filter(b => b.qtyInTransit > 0)
                   return (
-                    <tr key={l.id}>
-                      <td>{variantLabel(l.variantId)}</td>
-                      <td className="num">{variantQuantityLabel(l.variantId, outstanding)}</td>
-                      <td className="num">
-                        <input
-                          type="number"
-                          step="any"
-                          min={0}
-                          max={outstanding}
-                          value={receiveQty[l.id] ?? 0}
-                          disabled={outstanding === 0}
-                          onChange={e => setReceiveQty(q => ({ ...q, [l.id]: parseFloat(e.target.value) || 0 }))}
-                        />
-                      </td>
-                    </tr>
+                    <Fragment key={l.id}>
+                      <tr>
+                        <td>{variantLabel(l.variantId)}</td>
+                        <td className="num">{variantQuantityLabel(l.variantId, outstanding)}</td>
+                        <td className="num">
+                          <input
+                            type="number"
+                            step="any"
+                            min={0}
+                            max={outstanding}
+                            value={receiveQty[l.id] ?? 0}
+                            disabled={outstanding === 0}
+                            onChange={e => setReceiveQty(q => ({ ...q, [l.id]: parseFloat(e.target.value) || 0 }))}
+                          />
+                        </td>
+                      </tr>
+                      {lots.length > 0 && (
+                        <tr className="transfer-line-lots">
+                          <td colSpan={3}>
+                            <div className="lot-note">{t('bimeStockPage.transfers.lotsInTransit')}</div>
+                            <table className="lot-subtable">
+                              <tbody>
+                                {lots.map(b => (
+                                  <tr key={b.batchId}>
+                                    <td>{b.batchCode}{b.status === 'RECALLED' ? ` (${t('bimeStockPage.transfers.lotRecalled')})` : ''}</td>
+                                    <td>{b.expiryDate ?? '—'}</td>
+                                    <td className="num">{variantQuantityLabel(l.variantId, b.qtyInTransit)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            <p className="panel-hint">{t('bimeStockPage.transfers.lotsFefoHint')}</p>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   )
                 })}
               </tbody>

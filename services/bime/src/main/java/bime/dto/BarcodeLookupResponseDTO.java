@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Data
@@ -31,4 +32,14 @@ public class BarcodeLookupResponseDTO {
     private BigDecimal packPrice;
     @Schema(description = "The matched variant, including its SKU, price, defining options and per-location stock. Check variant.isActive - a retired variant still resolves")
     private ProductVariantResponseDTO variant;
+    @Schema(description = "Batch/lot code carried by the scan (GS1 AI 10), or null when the scan had none or the product is not batch-tracked")
+    private String batchCode;
+    @Schema(description = "Expiry date carried by the scan (GS1 AI 17), or the on-file batch's expiry when the scan omitted it. Null otherwise")
+    private LocalDate batchExpiry;
+    @Schema(description = "ACTIVE or RECALLED when the scanned lot is on file for this variant; UNKNOWN when a lot was scanned but no matching batch exists; null when no lot was scanned")
+    private String batchStatus;
+    @Schema(description = "True when the resolved batch is expired as of today")
+    private boolean expired;
+    @Schema(description = "True when the resolved batch is under recall and must not be sold")
+    private boolean recalled;
 }

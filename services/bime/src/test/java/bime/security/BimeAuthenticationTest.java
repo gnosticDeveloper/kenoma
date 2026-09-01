@@ -32,7 +32,7 @@ class BimeAuthenticationTest {
     void bimeAdmin_hasAllPermissions() {
         List<String> authorities = authorityNames(auth("BIME_ADMIN"));
         assertThat(authorities).containsExactlyInAnyOrder(
-                "BIME_MANAGE", "BIME_VIEW", "BIME_VIEW_CATALOG", "BIME_TRANSFER_APPROVE");
+                "BIME_MANAGE", "BIME_VIEW", "BIME_VIEW_CATALOG", "BIME_TRANSFER_APPROVE", "BIME_RECALL_MANAGE");
     }
 
     @Test
