@@ -66,6 +66,7 @@
     "bimeUnits": "Unidades",
     "bimeProducts": "Productos",
     "bimeStock": "Inventario",
+    "bimeSales": "Punto de venta",
     "pricing": "Precios",
     "noPermissions": "No tienes permisos asignados.",
     "logout": "Cerrar sesión"
@@ -628,6 +629,50 @@
       }
     }
   },
+  "bimeSalesPage": {
+    "title": "Punto de venta",
+    "subtitle": "Registra ventas escaneando artículos. El stock se descuenta de inmediato.",
+    "hint": "Escanea artículos para registrar una venta. El stock se descuenta de inmediato; los artículos con lote se consumen por vencimiento más próximo primero.",
+    "location": "Ubicación de la caja",
+      "selectLocation": "Selecciona una ubicación",
+      "locationRequired": "Elige una ubicación de caja para empezar.",
+      "scanPlaceholder": "Escanea o escribe un código de barras y pulsa Enter",
+      "scanHint": "¿Sin escáner? Añade un artículo por producto abajo.",
+      "notFound": "Ningún artículo está vinculado a \"{{code}}\".",
+      "recalledWarning": "{{name}} es de un lote retirado y no se añadió.",
+      "expiredWarning": "Atención: {{name}} es de un lote vencido.",
+      "cart": "Carrito",
+      "cartEmpty": "Aún no se ha escaneado nada.",
+      "item": "Artículo",
+      "unit": "Unidad",
+      "qty": "Cant.",
+      "unitPrice": "Precio unitario",
+      "lineTotal": "Total",
+      "remove": "Quitar",
+      "addManual": "Añadir por producto",
+      "product": "Producto",
+      "variant": "Variante",
+      "add": "Añadir",
+      "noPrice": "Este artículo no tiene precio registrado. Introduce un precio unitario.",
+      "subtotal": "Subtotal",
+      "itemCount": "{{count}} artículo",
+      "itemCount_other": "{{count}} artículos",
+      "reference": "N.º de recibo",
+      "referencePlaceholder": "opcional",
+      "complete": "Completar venta",
+      "completing": "Completando…",
+      "recorded": "Venta registrada.",
+      "receiptTitle": "Venta {{ref}}",
+      "soldAt": "Vendido el",
+      "summary": "Pedido",
+      "recentSales": "Ventas recientes",
+      "recentEmpty": "Aún no hay ventas en esta ubicación.",
+      "colDate": "Fecha",
+      "colReference": "Recibo",
+      "colItems": "Artículos",
+      "colTotal": "Total",
+      "viewReceipt": "Ver"
+  },
   "bimeBatchesTab": {
     "hint": "Lotes de producción de productos con seguimiento por lote. Los movimientos de salida consumen primero el vencimiento más próximo; un lote retirado se omite y no puede venderse.",
     "filterProduct": "Producto",
@@ -756,6 +801,10 @@
     "BIME_TRANSFER_APPROVER": {
       "displayName": "Aprobador de traslados",
       "description": "Aprueba o rechaza órdenes de traslado de stock. No puede realizar otros cambios de stock."
+    },
+    "BIME_CASHIER": {
+      "displayName": "Cajero",
+      "description": "Registra ventas en el punto de venta y consulta el catálogo y el stock. No puede realizar otros cambios de stock."
     },
     "BIME_VIEWER": {
       "displayName": "Visualizador de inventario",

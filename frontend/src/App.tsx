@@ -13,6 +13,7 @@ import BimeMetadataPage from './pages/BimeMetadataPage'
 import BimeUnitsPage from './pages/BimeUnitsPage'
 import BimeProductsPage from './pages/BimeProductsPage'
 import BimeStockPage from './pages/BimeStockPage'
+import BimeSalesPage from './pages/BimeSalesPage'
 import RecoverPage from './pages/RecoverPage'
 import VerifyPage from './pages/VerifyPage'
 import EmailConfirmPage from './pages/EmailConfirmPage'
@@ -29,11 +30,11 @@ import { Sidebar, type NavGroup } from './components/Sidebar'
 import { Feedback } from './components/Feedback'
 import {
   OrgsIcon, PricingIcon, ServicesIcon, CredentialsIcon, OnboardingIcon, UsersIcon,
-  LocationsIcon, MetadataIcon, ProductsIcon, StockIcon, ExportsIcon, DrBackupsIcon, UnitsIcon,
+  LocationsIcon, MetadataIcon, ProductsIcon, StockIcon, SalesIcon, ExportsIcon, DrBackupsIcon, UnitsIcon,
 } from './components/icons'
 
 type Page = 'orgs' | 'pricing' | 'services' | 'credentials' | 'onboarding' | 'users' | 'exports' | 'dr-backups'
-  | 'bime-locations' | 'bime-metadata' | 'bime-units' | 'bime-products' | 'bime-stock'
+  | 'bime-locations' | 'bime-metadata' | 'bime-units' | 'bime-products' | 'bime-stock' | 'bime-sales'
 
 const NAV: { labelKey: string; items: { id: Page; labelKey: string; perm: keyof Permissions; icon: NavGroup['items'][number]['icon'] }[] }[] = [
   {
@@ -62,6 +63,7 @@ const NAV: { labelKey: string; items: { id: Page; labelKey: string; perm: keyof 
       { id: 'bime-units',     labelKey: 'nav.bimeUnits',     perm: 'canViewBimeCatalog', icon: UnitsIcon },
       { id: 'bime-products',  labelKey: 'nav.bimeProducts',  perm: 'canViewBime',        icon: ProductsIcon },
       { id: 'bime-stock',     labelKey: 'nav.bimeStock',     perm: 'canViewBime',        icon: StockIcon },
+      { id: 'bime-sales',     labelKey: 'nav.bimeSales',     perm: 'canViewBime',        icon: SalesIcon },
     ],
   },
 ]
@@ -70,7 +72,7 @@ const EMPTY_PERMISSIONS: Permissions = {
   canManage: false, canOnboard: false,
   canViewUsers: false, canCreateUsers: false, canEditUsers: false, canOffboardUsers: false,
   canViewBime: false, canViewBimeCatalog: false, canManageBime: false, canApproveBimeTransfers: false,
-  canRecallBimeBatches: false,
+  canRecallBimeBatches: false, canSellBime: false,
 }
 
 function safePermissions(token: string): Permissions {
@@ -264,6 +266,7 @@ function AppShell() {
         {activePage === 'bime-units'     && <BimeUnitsPage token={token} permissions={permissions} />}
         {activePage === 'bime-products'  && <BimeProductsPage token={token} permissions={permissions} />}
         {activePage === 'bime-stock'     && <BimeStockPage token={token} permissions={permissions} />}
+        {activePage === 'bime-sales'     && <BimeSalesPage token={token} permissions={permissions} />}
       </main>
     </div>
   )

@@ -94,7 +94,7 @@ public abstract class BaseIT {
         when(connectionPoolService.getHandle(any())).thenReturn(Mono.just(testHandle));
         when(connectionPoolService.getHandleViaVaultToken(any(), any())).thenReturn(Mono.just(testHandle));
         testHandle.client()
-                .sql("TRUNCATE locations, products, product_metadata, org_units, org_barcode_settings, org_batch_settings, stock_batches, stock_transfers CASCADE")
+                .sql("TRUNCATE locations, products, product_metadata, org_units, org_barcode_settings, org_batch_settings, stock_batches, stock_transfers, sales CASCADE")
                 .fetch().rowsUpdated().block();
     }
 

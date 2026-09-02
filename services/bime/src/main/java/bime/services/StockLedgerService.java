@@ -44,6 +44,10 @@ public class StockLedgerService {
             return Mono.error(new BadRequestException(
                     "TRANSFER_OUT and TRANSFER_IN movements are created by the transfer-order flow, not directly"));
         }
+        if (dto.getMovementType() == MovementType.SALE) {
+            return Mono.error(new BadRequestException(
+                    "SALE movements are created by the sales flow (POST /sales), not directly"));
+        }
         if (dto.getMovementType() == MovementType.INBOUND && dto.getDelta().compareTo(BigDecimal.ZERO) <= 0) {
             return Mono.error(new BadRequestException("INBOUND movement must have a positive delta"));
         }
