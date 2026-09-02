@@ -101,6 +101,44 @@ class SalesIT extends BaseIT {
     }
 
     @Test
+    void sale_priceOverride_isFlaggedWithCatalogueRecorded() {
+        Fixture f = fixture(false, "5.00");
+        stockIn(f.variantId, f.locationId, 5, null, null);
+
+        SaleLineRequestDTO l = line(f.variantId, "2");
+        l.setUnitPrice(new BigDecimal("0.01"));
+        SaleResponseDTO sale = ringUp(sale(f.locationId, l));
+
+        assertThat(sale.getLines().get(0).isPriceOverridden()).isTrue();
+        assertThat(sale.getLines().get(0).getCatalogueUnitPrice()).isEqualByComparingTo("5.00");
+        assertThat(sale.getLines().get(0).getUnitPrice()).isEqualByComparingTo("0.01");
+    }
+
+    @Test
+    void sale_atCataloguePrice_isNotFlaggedAsOverride() {
+        Fixture f = fixture(false, "5.00");
+        stockIn(f.variantId, f.locationId, 5, null, null);
+
+        // pass the catalogue price explicitly - same number, not an override
+        SaleLineRequestDTO l = line(f.variantId, "1");
+        l.setUnitPrice(new BigDecimal("5.00"));
+        SaleResponseDTO sale = ringUp(sale(f.locationId, l));
+
+        assertThat(sale.getLines().get(0).isPriceOverridden()).isFalse();
+        assertThat(sale.getLines().get(0).getCatalogueUnitPrice()).isEqualByComparingTo("5.00");
+    }
+
+    @Test
+    void sale_mixedCurrencyLines_returns400() {
+        Fixture usd = fixture(false, "5.00");
+        UUID eurVariant = variantWithCurrency(usd.locationId, "4.00", "EUR");
+        stockIn(usd.variantId, usd.locationId, 5, null, null);
+        stockIn(eurVariant, usd.locationId, 5, null, null);
+
+        badRequest(sale(usd.locationId, line(usd.variantId, "1"), line(eurVariant, "1")));
+    }
+
+    @Test
     void sale_batchTracked_consumesEarliestExpiryFirst() {
         Fixture f = fixture(true, "1.00");
         stockIn(f.variantId, f.locationId, 10, "LOT-LATE", LocalDate.of(2027, 6, 30));
@@ -254,6 +292,24 @@ class SalesIT extends BaseIT {
         badRequest(sale(f.locationId, line(f.variantId, "0")));
         badRequest(sale(f.locationId, line(f.variantId, "-2")));
         assertThat(balance(f.variantId)).isEqualByComparingTo("5");
+    }
+
+    @Test
+    void create_oversizedUnitPrice_returns400NotUnhandled500() {
+        Fixture f = fixture(false, "5.00");
+        stockIn(f.variantId, f.locationId, 5, null, null);
+        SaleLineRequestDTO l = line(f.variantId, "1");
+        l.setUnitPrice(new BigDecimal("1e10")); // overflows sale_lines.unit_price numeric(12,2)
+        badRequest(sale(f.locationId, l));
+    }
+
+    @Test
+    void create_oversizedReference_returns400NotUnhandled500() {
+        Fixture f = fixture(false, "5.00");
+        stockIn(f.variantId, f.locationId, 5, null, null);
+        SaleRequestDTO dto = sale(f.locationId, line(f.variantId, "1"));
+        dto.setReference("X".repeat(200)); // sales.reference is varchar(50)
+        badRequest(dto);
     }
 
     @Test
@@ -502,6 +558,33 @@ class SalesIT extends BaseIT {
         assertThat(location).isNotNull();
 
         return new Fixture(product.getId(), variant.getId(), location.getId());
+    }
+
+    /** A product + single variant priced in the given currency, at the fixture's location. */
+    private UUID variantWithCurrency(UUID locationId, String price, String currency) {
+        ProductRequestDTO p = new ProductRequestDTO();
+        p.setSku("SALE-" + UUID.randomUUID());
+        p.setName("Sale Product " + currency);
+        p.setIsActive(true);
+        p.setTracksBatches(false);
+        ProductResponseDTO product = client.post().uri("/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(p)
+                .exchange().expectStatus().isOk()
+                .expectBody(ProductResponseDTO.class).returnResult().getResponseBody();
+        assertThat(product).isNotNull();
+
+        ProductVariantRequestDTO v = new ProductVariantRequestDTO();
+        v.setOptionIds(List.of());
+        v.setPrice(new BigDecimal(price));
+        v.setPriceCurrency(currency);
+        ProductVariantResponseDTO variant = client.post().uri("/products/{p}/variants", product.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(v)
+                .exchange().expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class).returnResult().getResponseBody();
+        assertThat(variant).isNotNull();
+        return variant.getId();
     }
 
     private void linkBarcode(UUID productId, UUID variantId, String barcode) {

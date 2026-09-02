@@ -13,6 +13,7 @@ import common.db.WhereClause;
 import common.exception.BadRequestException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -36,6 +37,7 @@ import java.util.UUID;
  * is batch-tracked and consumed first-expired-first-out. Recalled batches are skipped by
  * {@link StockLedgerService#allocateFefo} and so are never auto-sold.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SalesService {
@@ -48,7 +50,8 @@ public class SalesService {
             sold_at, sold_by, voided_at, voided_by
             """;
     private static final String LINE_COLUMNS = """
-            id, variant_id, barcode, qty_base, uom, uom_quantity, unit_price, line_total
+            id, variant_id, barcode, qty_base, uom, uom_quantity, unit_price, line_total,
+            catalogue_unit_price, price_overridden
             """;
 
     public Mono<SaleResponseDTO> create(SaleRequestDTO dto) {
@@ -80,11 +83,17 @@ public class SalesService {
                             BigDecimal subtotal = resolved.stream()
                                     .map(ResolvedLine::lineTotal)
                                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-                            String currency = resolved.stream()
+                            List<String> currencies = resolved.stream()
                                     .map(ResolvedLine::currency)
                                     .filter(Objects::nonNull)
-                                    .findFirst()
-                                    .orElse(null);
+                                    .distinct()
+                                    .toList();
+                            if (currencies.size() > 1) {
+                                return Mono.error(new BadRequestException(
+                                        "a sale cannot mix currencies (" + String.join(", ", currencies)
+                                                + "); ring these items up on separate sales"));
+                            }
+                            String currency = currencies.isEmpty() ? null : currencies.get(0);
                             return insertSale(handle, caller.getOrgId(), caller.getId(), dto, subtotal, currency)
                                     .flatMap(saleId -> Flux.fromIterable(resolved)
                                             .concatMap(r -> insertLine(handle, caller.getOrgId(), saleId, r)
@@ -133,7 +142,7 @@ public class SalesService {
 
     private record ResolvedLine(UUID variantId, String barcode, String uom, BigDecimal baseQty,
                                 BigDecimal uomQuantity, BigDecimal unitPrice, BigDecimal lineTotal,
-                                String currency) {}
+                                String currency, BigDecimal catalogueUnitPrice, boolean priceOverridden) {}
 
     private Mono<ResolvedLine> resolveLine(BimeDbHandle handle, UUID orgId, SaleLineRequestDTO line) {
         boolean hasBarcode = line.getBarcode() != null && !line.getBarcode().isBlank();
@@ -168,11 +177,12 @@ public class SalesService {
                     }
                     boolean isPack = factor.compareTo(BigDecimal.ONE) != 0;
                     BigDecimal variantPrice = (BigDecimal) row.get("variant_price");
-                    BigDecimal unitPrice = line.getUnitPrice() != null
-                            ? line.getUnitPrice()
-                            : UomConversionService.effectivePrice((BigDecimal) row.get("pack_price"), factor, variantPrice);
+                    BigDecimal cataloguePrice = UomConversionService.effectivePrice(
+                            (BigDecimal) row.get("pack_price"), factor, variantPrice);
+                    BigDecimal unitPrice = line.getUnitPrice() != null ? line.getUnitPrice() : cataloguePrice;
                     return buildLine(line, (UUID) row.get("variant_id"), (String) row.get("barcode"),
-                            isPack ? (String) row.get("uom") : null, factor, unitPrice, (String) row.get("currency"));
+                            isPack ? (String) row.get("uom") : null, factor, unitPrice, cataloguePrice,
+                            (String) row.get("currency"));
                 });
     }
 
@@ -198,24 +208,27 @@ public class SalesService {
                     String currency = (String) row.get("currency");
                     if (uomName == null || uomName.equals(row.get("base_uom_name"))) {
                         BigDecimal unitPrice = line.getUnitPrice() != null ? line.getUnitPrice() : variantPrice;
-                        return buildLine(line, line.getVariantId(), null, null, BigDecimal.ONE, unitPrice, currency);
+                        return buildLine(line, line.getVariantId(), null, null, BigDecimal.ONE, unitPrice,
+                                variantPrice, currency);
                     }
                     BigDecimal factor = (BigDecimal) row.get("conv_factor");
                     if (factor == null) {
                         return Mono.error(new BadRequestException("Unit \"" + uomName
                                 + "\" is not this variant's base unit or a configured pack size"));
                     }
-                    BigDecimal unitPrice = line.getUnitPrice() != null
-                            ? line.getUnitPrice()
-                            : UomConversionService.effectivePrice((BigDecimal) row.get("conv_price"), factor, variantPrice);
-                    return buildLine(line, line.getVariantId(), null, uomName, factor, unitPrice, currency);
+                    BigDecimal cataloguePrice = UomConversionService.effectivePrice(
+                            (BigDecimal) row.get("conv_price"), factor, variantPrice);
+                    BigDecimal unitPrice = line.getUnitPrice() != null ? line.getUnitPrice() : cataloguePrice;
+                    return buildLine(line, line.getVariantId(), null, uomName, factor, unitPrice,
+                            cataloguePrice, currency);
                 });
     }
 
     /** Common tail of both resolution paths: normalize the quantity to base units, total the line,
       * and fail when there is no price to charge. */
     private Mono<ResolvedLine> buildLine(SaleLineRequestDTO line, UUID variantId, String barcode, String uom,
-                                         BigDecimal factor, BigDecimal unitPrice, String currency) {
+                                         BigDecimal factor, BigDecimal unitPrice, BigDecimal cataloguePrice,
+                                         String currency) {
         BigDecimal qty = line.getQuantity();
         BigDecimal baseQty = qty.multiply(factor).setScale(3, RoundingMode.HALF_UP);
         if (baseQty.signum() <= 0) {
@@ -227,10 +240,17 @@ public class SalesService {
             return Mono.error(new BadRequestException(
                     "no price on file for " + ident + "; pass unitPrice on the line"));
         }
+        BigDecimal scaledUnit = unitPrice.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal scaledCatalogue = cataloguePrice != null ? cataloguePrice.setScale(2, RoundingMode.HALF_UP) : null;
+        // An override is a client-supplied unitPrice that differs from what the catalogue would
+        // have charged (or any client price when nothing is on file). Recorded for after-the-fact
+        // review of below-catalogue tills.
+        boolean overridden = line.getUnitPrice() != null
+                && (scaledCatalogue == null || scaledUnit.compareTo(scaledCatalogue) != 0);
         BigDecimal lineTotal = unitPrice.multiply(qty).setScale(2, RoundingMode.HALF_UP);
         BigDecimal uomQuantity = uom != null ? qty : null;
         return Mono.just(new ResolvedLine(variantId, barcode, uom, baseQty, uomQuantity,
-                unitPrice.setScale(2, RoundingMode.HALF_UP), lineTotal, currency));
+                scaledUnit, lineTotal, currency, scaledCatalogue, overridden));
     }
 
     private Mono<Void> requireLocation(BimeDbHandle handle, UUID orgId, UUID locationId) {
@@ -261,18 +281,28 @@ public class SalesService {
     }
 
     private Mono<Void> insertLine(BimeDbHandle handle, UUID orgId, UUID saleId, ResolvedLine r) {
+        if (r.priceOverridden()) {
+            log.warn("POS price override on sale {}: variant {} charged {} vs catalogue {}",
+                    saleId, r.variantId(), r.unitPrice(), r.catalogueUnitPrice());
+        }
         DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                 INSERT INTO sale_lines
-                    (sale_id, org_id, variant_id, barcode, qty_base, uom, uom_quantity, unit_price, line_total)
-                VALUES (:saleId, :orgId, :variantId, :barcode, :qtyBase, :uom, :uomQuantity, :unitPrice, :lineTotal)
+                    (sale_id, org_id, variant_id, barcode, qty_base, uom, uom_quantity, unit_price, line_total,
+                     catalogue_unit_price, price_overridden)
+                VALUES (:saleId, :orgId, :variantId, :barcode, :qtyBase, :uom, :uomQuantity, :unitPrice, :lineTotal,
+                     :cataloguePrice, :priceOverridden)
                 """)
                 .bind("saleId", saleId)
                 .bind("orgId", orgId)
                 .bind("variantId", r.variantId())
                 .bind("qtyBase", r.baseQty())
                 .bind("unitPrice", r.unitPrice())
-                .bind("lineTotal", r.lineTotal());
+                .bind("lineTotal", r.lineTotal())
+                .bind("priceOverridden", r.priceOverridden());
         spec = bindNullableString(spec, "barcode", r.barcode());
+        spec = r.catalogueUnitPrice() != null
+                ? spec.bind("cataloguePrice", r.catalogueUnitPrice())
+                : spec.bindNull("cataloguePrice", BigDecimal.class);
         if (r.uom() != null) {
             spec = spec.bind("uom", r.uom()).bind("uomQuantity", r.uomQuantity());
         } else {
@@ -374,6 +404,8 @@ public class SalesService {
                 .uomQuantity((BigDecimal) row.get("uom_quantity"))
                 .unitPrice((BigDecimal) row.get("unit_price"))
                 .lineTotal((BigDecimal) row.get("line_total"))
+                .catalogueUnitPrice((BigDecimal) row.get("catalogue_unit_price"))
+                .priceOverridden(Boolean.TRUE.equals(row.get("price_overridden")))
                 .build();
     }
 
