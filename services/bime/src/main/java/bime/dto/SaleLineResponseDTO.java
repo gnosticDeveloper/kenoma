@@ -30,4 +30,9 @@ public class SaleLineResponseDTO {
     private BigDecimal unitPrice;
     @Schema(description = "unitPrice * uomQuantity (or qtyBase when no uom)", example = "18.00")
     private BigDecimal lineTotal;
+    @Schema(description = "What the variant's effective price for this unit was at the time of sale; " +
+            "null when no price was on file", example = "20.00")
+    private BigDecimal catalogueUnitPrice;
+    @Schema(description = "True when unitPrice was a till-side override that differs from catalogueUnitPrice")
+    private boolean priceOverridden;
 }
