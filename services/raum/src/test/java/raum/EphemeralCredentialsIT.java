@@ -125,6 +125,14 @@ class EphemeralCredentialsIT {
                       -H 'X-Vault-Token: dev-root-token' \
                       -H 'Content-Type: application/json' \
                       -d '{"token_policies":"raum-policy","token_ttl":"1h","token_max_ttl":"24h"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/bime-policy \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"policy":"path \\"database/creds/*\\" { capabilities = [\\"read\\"] }"}' ;
+                    curl -sf -X POST http://openbao:8200/v1/auth/approle/role/bime \
+                      -H 'X-Vault-Token: dev-root-token' \
+                      -H 'Content-Type: application/json' \
+                      -d '{"token_policies":"bime-policy","token_ttl":"1h","token_max_ttl":"24h"}' ;
                     curl -sf -X POST http://openbao:8200/v1/sys/policies/acl/raum-provisioner-policy \
                       -H 'X-Vault-Token: dev-root-token' \
                       -H 'Content-Type: application/json' \
@@ -140,6 +148,7 @@ class EphemeralCredentialsIT {
 
     static String vassagoToken;
     static String raumToken;
+    static String bimeToken;
     static String raumProvisionerRoleId;
     static String raumProvisionerSecretId;
     static UUID credentialId;
@@ -155,8 +164,10 @@ class EphemeralCredentialsIT {
         public void initialize(ConfigurableApplicationContext ctx) {
             vassagoToken = loginAppRole(openBao.getMappedPort(8200), "vassago");
             raumToken = loginAppRole(openBao.getMappedPort(8200), "raum");
+            bimeToken = loginAppRole(openBao.getMappedPort(8200), "bime");
             assertThat(vassagoToken).isNotBlank();
             assertThat(raumToken).isNotBlank();
+            assertThat(bimeToken).isNotBlank();
 
             String[] raumProvisionerCreds = fetchRoleIdAndSecretId(openBao.getMappedPort(8200), "raum-provisioner");
             raumProvisionerRoleId = raumProvisionerCreds[0];
@@ -193,6 +204,9 @@ class EphemeralCredentialsIT {
                     "RAUM_JWT_TRANSIT_KEY_NAME=vassago-jwt",
                     "vassago.service-id=" + vassagoServiceIdStr,
                     "bime.service-id=" + bimeServiceIdStr,
+                    "raum.credentials.service-tokens.vassago-policy=VASSAGO",
+                    "raum.credentials.service-tokens.raum-policy=RAUM",
+                    "raum.credentials.service-tokens.bime-policy=BIME",
                     "spring.data.redis.host=localhost",
                     "spring.data.redis.port=" + redis.getMappedPort(6379),
                     "vassago.jwt.public-key-refresh-cron=-",
@@ -213,14 +227,20 @@ class EphemeralCredentialsIT {
         // this must run before the psql queries below, and before Initializer.initialize() (which
         // JUnit/Spring don't run until just before the first @Test, i.e. after this @BeforeAll).
         TestMigrations.migrate(raumDb, "raum");
+        // The pre-seeded credentials row points at the Vassago schema; the per-tier GRANT
+        // statements now name real tables, so that schema must exist in the operational DB.
+        TestMigrations.migrate(operationalDb, "vassago");
 
         WebClient client = WebClient.builder()
                 .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
                 .defaultHeader("X-Vault-Token", "dev-root-token")
                 .build();
 
+        // Deterministically use the Vassago credentials row (LIMIT 1 across all services was
+        // nondeterministic once Bime also had a seeded row).
         credentialId = UUID.fromString(raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
-                        "-t", "-A", "-c", "SELECT id FROM credentials LIMIT 1;")
+                        "-t", "-A", "-c", "SELECT c.id FROM credentials c JOIN services s ON s.id = c.service_id "
+                                + "WHERE s.name = 'Vassago' LIMIT 1;")
                 .getStdout().trim());
         orgId = UUID.fromString(raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
                         "-t", "-A", "-c", "SELECT org_id FROM credentials WHERE id = '" + credentialId + "';")
@@ -242,42 +262,50 @@ class EphemeralCredentialsIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", credentialId + "-admin-role," + credentialId + "-member-role",
+                        "allowed_roles", credentialId + "-full-role," + credentialId + "-readonly-role,"
+                                + credentialId + "-admin-role," + credentialId + "-member-role",
                         "connection_url", "postgresql://{{username}}:{{password}}@vassago-postgres:5432/vassago?sslmode=disable",
                         "username", "admin",
                         "password", "adminpass"
                 ))
                 .retrieve().bodyToMono(Void.class).block();
 
-        client.post().uri("/v1/database/roles/{role}", credentialId + "-admin-role")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of(
-                        "db_name", credentialId.toString(),
-                        "creation_statements", """
-                                CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
-                                GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
-                                GRANT USAGE ON SCHEMA public TO "{{name}}";
-                                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
-                                """,
-                        "default_ttl", "1h",
-                        "max_ttl", "24h"
-                ))
-                .retrieve().bodyToMono(Void.class).block();
+        // full == admin (CRUD), readonly == member (SELECT). Blanket ON ALL TABLES is fine as
+        // test scaffolding; the per-table rendering is covered by GrantStatementRendererTest and
+        // by the saveCredentials_* tests which exercise raum's real renderer.
+        for (String role : List.of(credentialId + "-full-role", credentialId + "-admin-role")) {
+            client.post().uri("/v1/database/roles/{role}", role)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of(
+                            "db_name", credentialId.toString(),
+                            "creation_statements", """
+                                    CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+                                    GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
+                                    GRANT USAGE ON SCHEMA public TO "{{name}}";
+                                    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{name}}";
+                                    """,
+                            "default_ttl", "1h",
+                            "max_ttl", "24h"
+                    ))
+                    .retrieve().bodyToMono(Void.class).block();
+        }
 
-        client.post().uri("/v1/database/roles/{role}", credentialId + "-member-role")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of(
-                        "db_name", credentialId.toString(),
-                        "creation_statements", """
-                                CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
-                                GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
-                                GRANT USAGE ON SCHEMA public TO "{{name}}";
-                                GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{name}}";
-                                """,
-                        "default_ttl", "1h",
-                        "max_ttl", "24h"
-                ))
-                .retrieve().bodyToMono(Void.class).block();
+        for (String role : List.of(credentialId + "-readonly-role", credentialId + "-member-role")) {
+            client.post().uri("/v1/database/roles/{role}", role)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of(
+                            "db_name", credentialId.toString(),
+                            "creation_statements", """
+                                    CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+                                    GRANT CONNECT ON DATABASE "vassago" TO "{{name}}";
+                                    GRANT USAGE ON SCHEMA public TO "{{name}}";
+                                    GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{name}}";
+                                    """,
+                            "default_ttl", "1h",
+                            "max_ttl", "24h"
+                    ))
+                    .retrieve().bodyToMono(Void.class).block();
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -391,6 +419,7 @@ class EphemeralCredentialsIT {
         CredentialsDTO ephemeral = client.post()
                 .uri("/credentials/ephemeral")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .header("X-Vault-Token", raumToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(BasicCredentialDTO.builder()
                         .orgId(orgId)
@@ -402,6 +431,89 @@ class EphemeralCredentialsIT {
 
         assertThat(ephemeral).isNotNull();
         assertThat(ephemeral.getUserName()).isNotBlank();
+        assertThat(ephemeral.getTier()).isEqualTo("FULL");
+    }
+
+    @Test
+    void readonlyTierLeaseCannotWriteAtTheDatabase() throws Exception {
+        // The API only issues the Vassago readonly tier to a role that maps to it (none today),
+        // so pull the readonly-role lease straight from OpenBao to prove the grant itself is
+        // read-only at Postgres — a readonly lease physically cannot UPDATE, even from raw JDBC.
+        WebClient bao = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(openBao.getMappedPort(8200)))
+                .defaultHeader("X-Vault-Token", "dev-root-token")
+                .build();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> creds = (Map<String, Object>) bao.get()
+                .uri("/v1/database/creds/{role}", credentialId + "-readonly-role")
+                .retrieve().bodyToMono(Map.class).block();
+        assertThat(creds).isNotNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) creds.get("data");
+        String user = (String) data.get("username");
+        String pass = (String) data.get("password");
+
+        String jdbcUrl = "jdbc:postgresql://localhost:%d/vassago".formatted(operationalDb.getMappedPort(5432));
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, user, pass)) {
+            assertThatNoException().isThrownBy(() ->
+                    conn.createStatement().execute("SELECT count(*) FROM users"));
+            assertThatThrownBy(() -> conn.createStatement().execute("UPDATE users SET locale = 'xx'"))
+                    .isInstanceOf(SQLException.class)
+                    .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("42501"));
+        }
+    }
+
+    @Test
+    void ephemeralCredentials_jwtWithoutServiceToken_returns401() {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.post()
+                .uri("/credentials/ephemeral")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(BasicCredentialDTO.builder().orgId(orgId).serviceId(serviceId).build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
+    }
+
+    @Test
+    void ephemeralCredentials_rootToken_rejected() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.post()
+                .uri("/credentials/ephemeral")
+                .header("X-Vault-Token", "dev-root-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(BasicCredentialDTO.builder().orgId(orgId).serviceId(serviceId).build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
+    }
+
+    @Test
+    void ephemeralCredentials_bimeTokenForVassagoServiceId_returns403() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.post()
+                .uri("/credentials/ephemeral")
+                .header("X-Vault-Token", bimeToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(BasicCredentialDTO.builder().orgId(orgId).serviceId(serviceId).build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.Forbidden.class);
     }
 
     @Test
@@ -424,6 +536,7 @@ class EphemeralCredentialsIT {
         assertThatThrownBy(() -> client.post()
                 .uri("/credentials/ephemeral")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .header("X-Vault-Token", raumToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(BasicCredentialDTO.builder()
                         .orgId(orgId)
@@ -553,6 +666,16 @@ class EphemeralCredentialsIT {
 
         assertThatThrownBy(() -> DriverManager.getConnection(jdbcUrl, ephemeral.getUserName(), ephemeral.getPassword()))
                 .isInstanceOf(SQLException.class);
+
+        // ...and a fresh issuance for the now-deactivated org is refused (403), even with a valid service token.
+        assertThatThrownBy(() -> client.post().uri("/credentials/ephemeral")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Vault-Token", vassagoToken)
+                .bodyValue(BasicCredentialDTO.builder().orgId(newOrg.getId()).serviceId(serviceId).build())
+                .retrieve()
+                .bodyToMono(CredentialsDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.Forbidden.class);
     }
 
     @Test

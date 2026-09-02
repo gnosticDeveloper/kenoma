@@ -82,6 +82,90 @@ RAUM_TOKEN=$(echo "$RAUM_LOGIN" | grep -o '"client_token":"[^"]*"' | cut -d'"' -
 [ -z "$RAUM_TOKEN" ] && echo "ERROR: Failed to obtain Raum AppRole token." && exit 1
 echo "Raum AppRole login successful."
 
+# ---------------------------------------------------------------------------
+# Per-tier OpenBao database roles
+#
+# Grant statements per (service, tier) are generated at build time by
+# common.tools.GrantStatementGenerator and checked in as
+# scripts/openbao/generated-role-statements.json — raum renders the identical
+# text at runtime for tenant orgs, so a Platform-org role and a tenant-org role
+# of the same tier are the same grants. This mounts to /role-statements.json in
+# the pre-init container; falls back to the in-tree path when run outside Docker.
+# ---------------------------------------------------------------------------
+ROLE_STATEMENTS_FILE="${ROLE_STATEMENTS_FILE:-/role-statements.json}"
+if [ ! -f "$ROLE_STATEMENTS_FILE" ]; then
+  _ALT="$(dirname "$0")/openbao/generated-role-statements.json"
+  [ -f "$_ALT" ] && ROLE_STATEMENTS_FILE="$_ALT"
+fi
+[ -f "$ROLE_STATEMENTS_FILE" ] || { echo "ERROR: role statements file not found at $ROLE_STATEMENTS_FILE"; exit 1; }
+
+# Tiers each service supports (weakest -> strongest). Legacy admin/member names
+# are also created (mapped to full/readonly text) for the rollout window.
+tiers_for() {
+  case "$1" in
+    vassago) echo "readonly full" ;;
+    bime)    echo "catalog readonly sales operations full" ;;
+    *)       echo "readonly full" ;;
+  esac
+}
+
+# allowed_roles list for a connection: every tier role + legacy pair + dr-backup role.
+allowed_roles_for() {
+  _svc="$1"; _conn="$2"; _out=""
+  for _t in $(tiers_for "$_svc"); do _out="${_out}${_conn}-${_t}-role,"; done
+  echo "${_out}${_conn}-admin-role,${_conn}-member-role,${_conn}-dr-backup-role"
+}
+
+# write_role_payload <service> <tier> <conn_id> <db_name> <org_id> <outfile>
+write_role_payload() {
+  python3 -c "
+import json, sys
+svc, tier, conn, dbname, orgid, outfile = sys.argv[1:7]
+data = json.load(open('${ROLE_STATEMENTS_FILE}'))
+stmt = data[svc][tier].replace('__DBNAME__', dbname).replace('__ORG_ID__', orgid)
+json.dump({'db_name': conn, 'creation_statements': stmt, 'default_ttl': '1h', 'max_ttl': '24h'},
+          open(outfile, 'w'))
+" "$1" "$2" "$3" "$4" "$5" "$6"
+}
+
+# create_tier_roles <service> <conn_id> <db_name> <org_id>
+create_tier_roles() {
+  _svc="$1"; _conn="$2"; _dbn="$3"; _org="$4"
+  for _t in $(tiers_for "$_svc"); do
+    write_role_payload "$_svc" "$_t" "$_conn" "$_dbn" "$_org" "/tmp/role-${_conn}-${_t}.json"
+    wget -q -O - --header="Content-Type: application/json" --header="X-Vault-Token: ${ROOT_TOKEN}" \
+      --post-file="/tmp/role-${_conn}-${_t}.json" \
+      "${OPENBAO_BASE_URL}/v1/database/roles/${_conn}-${_t}-role"
+  done
+  # Legacy names: admin == full text, member == readonly text.
+  write_role_payload "$_svc" "full" "$_conn" "$_dbn" "$_org" "/tmp/role-${_conn}-admin.json"
+  wget -q -O - --header="Content-Type: application/json" --header="X-Vault-Token: ${ROOT_TOKEN}" \
+    --post-file="/tmp/role-${_conn}-admin.json" \
+    "${OPENBAO_BASE_URL}/v1/database/roles/${_conn}-admin-role"
+  write_role_payload "$_svc" "readonly" "$_conn" "$_dbn" "$_org" "/tmp/role-${_conn}-member.json"
+  wget -q -O - --header="Content-Type: application/json" --header="X-Vault-Token: ${ROOT_TOKEN}" \
+    --post-file="/tmp/role-${_conn}-member.json" \
+    "${OPENBAO_BASE_URL}/v1/database/roles/${_conn}-member-role"
+}
+
+# register_connection <conn_id> <host> <port> <db_name> <user> <pass> <allowed_roles>
+register_connection() {
+  python3 -c "
+import json, sys
+cid, host, port, dbn, usr, pwd, allowed, outf = sys.argv[1:9]
+json.dump({
+  'plugin_name': 'postgresql-database-plugin',
+  'allowed_roles': allowed,
+  'connection_url': 'postgresql://{{username}}:{{password}}@%s:%s/%s?sslmode=disable' % (host, port, dbn),
+  'username': usr,
+  'password': pwd,
+}, open(outf, 'w'))
+" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "/tmp/conn-$1.json"
+  wget -q -O - --header="Content-Type: application/json" --header="X-Vault-Token: ${ROOT_TOKEN}" \
+    --post-file="/tmp/conn-$1.json" \
+    "${OPENBAO_BASE_URL}/v1/database/config/$1"
+}
+
 
 OPERATOR_ROLES="{\"${VASSAGO_SERVICE_ID}\":[\"VASSAGO_ADMIN\",\"VASSAGO_MEMBER\"],\"${RAUM_SERVICE_ID}\":[\"RAUM_ADMIN\",\"RAUM_ONBOARDING\"],\"${BIME_SERVICE_ID}\":[\"BIME_ADMIN\"]}"
 
@@ -134,52 +218,14 @@ wget -q -O - \
   "${OPENBAO_BASE_URL}/v1/secret/data/credentials/${CREDENTIAL_ID}"
 echo "Credentials stored."
 
-echo "Registering database connection in OpenBao..."
-cat > /tmp/db-config-payload.json << DBCONFIG
-{
-  "plugin_name": "postgresql-database-plugin",
-  "allowed_roles": "${CREDENTIAL_ID}-admin-role,${CREDENTIAL_ID}-member-role",
-  "connection_url": "postgresql://{{username}}:{{password}}@${VASSAGO_DB_HOST}:${VASSAGO_DB_PORT}/${VASSAGO_DB_NAME}?sslmode=disable",
-  "username": "${VASSAGO_DB_USER}",
-  "password": "${VASSAGO_DB_PASSWORD}"
-}
-DBCONFIG
-wget -q -O - \
-  --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${ROOT_TOKEN}" \
-  --post-file=/tmp/db-config-payload.json \
-  "${OPENBAO_BASE_URL}/v1/database/config/${CREDENTIAL_ID}"
-echo "Database connection registered."
+echo "Registering Vassago database connection in OpenBao..."
+register_connection "${CREDENTIAL_ID}" "${VASSAGO_DB_HOST}" "${VASSAGO_DB_PORT}" "${VASSAGO_DB_NAME}" \
+  "${VASSAGO_DB_USER}" "${VASSAGO_DB_PASSWORD}" "$(allowed_roles_for vassago "${CREDENTIAL_ID}")"
+echo "Vassago database connection registered."
 
-echo "Creating database roles in OpenBao..."
-cat > /tmp/role-payload.json << ROLEJSON
-{
-  "db_name": "${CREDENTIAL_ID}",
-  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${VASSAGO_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; ALTER ROLE \"{{name}}\" SET app.org_id = '${PLATFORM_ORG_ID}';",
-  "default_ttl": "1h",
-  "max_ttl": "24h"
-}
-ROLEJSON
-wget -q -O - \
-  --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${ROOT_TOKEN}" \
-  --post-file=/tmp/role-payload.json \
-  "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-admin-role"
-
-cat > /tmp/role-payload-member.json << ROLEJSON
-{
-  "db_name": "${CREDENTIAL_ID}",
-  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${VASSAGO_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; ALTER ROLE \"{{name}}\" SET app.org_id = '${PLATFORM_ORG_ID}';",
-  "default_ttl": "1h",
-  "max_ttl": "24h"
-}
-ROLEJSON
-wget -q -O - \
-  --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${ROOT_TOKEN}" \
-  --post-file=/tmp/role-payload-member.json \
-  "${OPENBAO_BASE_URL}/v1/database/roles/${CREDENTIAL_ID}-member-role"
-echo "Database roles created."
+echo "Creating Vassago per-tier database roles in OpenBao..."
+create_tier_roles vassago "${CREDENTIAL_ID}" "${VASSAGO_DB_NAME}" "${PLATFORM_ORG_ID}"
+echo "Vassago database roles created."
 
 echo "Storing Bime credentials in OpenBao KV..."
 wget -q -O - \
@@ -190,51 +236,13 @@ wget -q -O - \
 echo "Bime credentials stored."
 
 echo "Registering Bime database connection in OpenBao..."
-cat > /tmp/bime-db-config-payload.json << DBCONFIG
-{
-  "plugin_name": "postgresql-database-plugin",
-  "allowed_roles": "${BIME_CREDENTIAL_ID}-admin-role,${BIME_CREDENTIAL_ID}-member-role",
-  "connection_url": "postgresql://{{username}}:{{password}}@${BIME_DB_HOST}:${BIME_DB_PORT}/${BIME_DB_NAME}?sslmode=disable",
-  "username": "${BIME_DB_USER}",
-  "password": "${BIME_DB_PASSWORD}"
-}
-DBCONFIG
-wget -q -O - \
-  --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${ROOT_TOKEN}" \
-  --post-file=/tmp/bime-db-config-payload.json \
-  "${OPENBAO_BASE_URL}/v1/database/config/${BIME_CREDENTIAL_ID}"
+register_connection "${BIME_CREDENTIAL_ID}" "${BIME_DB_HOST}" "${BIME_DB_PORT}" "${BIME_DB_NAME}" \
+  "${BIME_DB_USER}" "${BIME_DB_PASSWORD}" "$(allowed_roles_for bime "${BIME_CREDENTIAL_ID}")"
 echo "Bime database connection registered."
 
-echo "Creating Bime database roles in OpenBao..."
-cat > /tmp/bime-role-payload.json << ROLEJSON
-{
-  "db_name": "${BIME_CREDENTIAL_ID}",
-  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${BIME_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; ALTER ROLE \"{{name}}\" SET app.org_id = '${PLATFORM_ORG_ID}';",
-  "default_ttl": "1h",
-  "max_ttl": "24h"
-}
-ROLEJSON
-wget -q -O - \
-  --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${ROOT_TOKEN}" \
-  --post-file=/tmp/bime-role-payload.json \
-  "${OPENBAO_BASE_URL}/v1/database/roles/${BIME_CREDENTIAL_ID}-admin-role"
-
-cat > /tmp/bime-role-payload-member.json << ROLEJSON
-{
-  "db_name": "${BIME_CREDENTIAL_ID}",
-  "creation_statements": "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE \"${BIME_DB_NAME}\" TO \"{{name}}\"; GRANT USAGE ON SCHEMA public TO \"{{name}}\"; GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; ALTER ROLE \"{{name}}\" SET app.org_id = '${PLATFORM_ORG_ID}';",
-  "default_ttl": "1h",
-  "max_ttl": "24h"
-}
-ROLEJSON
-wget -q -O - \
-  --header="Content-Type: application/json" \
-  --header="X-Vault-Token: ${ROOT_TOKEN}" \
-  --post-file=/tmp/bime-role-payload-member.json \
-  "${OPENBAO_BASE_URL}/v1/database/roles/${BIME_CREDENTIAL_ID}-member-role"
-echo "Bime database role created."
+echo "Creating Bime per-tier database roles in OpenBao..."
+create_tier_roles bime "${BIME_CREDENTIAL_ID}" "${BIME_DB_NAME}" "${PLATFORM_ORG_ID}"
+echo "Bime database roles created."
 
 echo "Marking pre-initialized credentials as initialized..."
 PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
@@ -244,6 +252,44 @@ PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
 echo "Credentials marked as initialized."
 
 fi
+
+# ---------------------------------------------------------------------------
+# Reconcile per-tier OpenBao roles for EVERY existing Bime/Vassago credentials
+# row (all tenants, not just Platform). Back-fills the new <id>-<tier>-role
+# names and widens allowed_roles so raum can issue them immediately after
+# deploy. Idempotent — POST replaces. Runs regardless of KENOMA_INIT_MODE.
+# ---------------------------------------------------------------------------
+echo "Reconciling per-tier OpenBao roles for all existing Bime/Vassago credentials rows..."
+PGPASSWORD="${RAUM_DB_PASSWORD}" psql \
+  -h "${RAUM_DB_HOST}" -p "${RAUM_DB_PORT}" \
+  -U "${RAUM_DB_USER}" -d "${RAUM_DB_NAME}" \
+  -t -A -F '|' -c "
+    SELECT c.id, c.db_host, c.db_port, c.db_name, c.org_id, lower(s.name)
+    FROM credentials c JOIN services s ON s.id = c.service_id
+    WHERE s.name IN ('Bime', 'Vassago');" | while IFS='|' read -r RC_ID RC_HOST RC_PORT RC_DB RC_ORG RC_SVC; do
+  [ -z "$RC_ID" ] && continue
+  RC_KV=$(wget -q -O - --header="X-Vault-Token: ${ROOT_TOKEN}" \
+    "${OPENBAO_BASE_URL}/v1/secret/data/credentials/${RC_ID}" 2>/dev/null || true)
+  RC_USER=$(echo "$RC_KV" | python3 -c "import sys,json;
+try:
+    print(json.load(sys.stdin)['data']['data']['username'])
+except Exception:
+    pass" 2>/dev/null)
+  RC_PASS=$(echo "$RC_KV" | python3 -c "import sys,json;
+try:
+    print(json.load(sys.stdin)['data']['data']['password'])
+except Exception:
+    pass" 2>/dev/null)
+  if [ -z "$RC_USER" ] || [ -z "$RC_PASS" ]; then
+    echo "  skip ${RC_SVC} credential ${RC_ID}: no static credentials in KV"
+    continue
+  fi
+  echo "  reconciling ${RC_SVC} credential ${RC_ID} (db=${RC_DB})"
+  register_connection "$RC_ID" "$RC_HOST" "$RC_PORT" "$RC_DB" "$RC_USER" "$RC_PASS" \
+    "$(allowed_roles_for "$RC_SVC" "$RC_ID")"
+  create_tier_roles "$RC_SVC" "$RC_ID" "$RC_DB" "$RC_ORG"
+done
+echo "Per-tier role reconciliation complete."
 
 mkdir -p "$(dirname "${ENV_OUT}")"
 cat > "${ENV_OUT}" << ENVEOF

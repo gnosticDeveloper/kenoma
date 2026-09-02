@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { raum } from '../api/raum'
 import { useApiCall } from '../hooks/useApiCall'
 import { Feedback } from '../components/Feedback'
-import { CredentialCard } from '../components/CredentialCard'
 import { Combobox } from '../components/Combobox'
 import type { BasicCredential, Credentials, OrgResponse, ServiceResponse } from '../types'
 
@@ -34,9 +33,6 @@ export default function CredentialsPage({ token }: Props) {
     dbName: '',
     dbEngine: 'postgresql',
   })
-
-  const ephemeral = useApiCall<Credentials>()
-  const [ephForm, setEphForm] = useState<BasicCredential>({ orgId: '', serviceId: '' })
 
   return (
     <div className="page">
@@ -103,41 +99,6 @@ export default function CredentialsPage({ token }: Props) {
           </button>
         </div>
         <Feedback state={register.state} successLabel={t('credentialsPage.registered')} />
-      </div>
-
-      <div className="panel">
-        <h2>{t('credentialsPage.ephemeralTitle')}</h2>
-        <div className="fields">
-          <div className="field">
-            <label>{t('credentialsPage.org')}</label>
-            <Combobox
-              items={orgItems}
-              value={ephForm.orgId || null}
-              onChange={id => setEphForm(f => ({ ...f, orgId: id ?? '' }))}
-              placeholder={t('credentialsPage.orgPlaceholder')}
-            />
-          </div>
-          <div className="field">
-            <label>{t('credentialsPage.service')}</label>
-            <Combobox
-              items={serviceItems}
-              value={ephForm.serviceId || null}
-              onChange={id => setEphForm(f => ({ ...f, serviceId: id ?? '' }))}
-              placeholder={t('credentialsPage.servicePlaceholder')}
-            />
-          </div>
-        </div>
-        <div className="actions">
-          <button
-            className="btn btn-primary"
-            disabled={ephemeral.state.status === 'loading' || !ephForm.serviceId || !ephForm.orgId}
-            onClick={() => ephemeral.call(() => raum.credentials.ephemeral(ephForm, token))}
-          >
-            {ephemeral.state.status === 'loading' ? t('credentialsPage.issuing') : t('credentialsPage.issue')}
-          </button>
-        </div>
-        {ephemeral.state.status === 'success' && <CredentialCard cred={ephemeral.state.data} />}
-        {ephemeral.state.status === 'error' && <Feedback state={ephemeral.state} />}
       </div>
     </div>
   )

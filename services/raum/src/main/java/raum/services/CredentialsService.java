@@ -3,12 +3,12 @@ package raum.services;
 import common.exception.BadRequestException;
 import common.exception.ForbiddenException;
 import common.exception.NotFoundException;
+import common.grants.ServiceTier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
 import raum.models.Credentials;
-import raum.openbao.CredentialTier;
 import raum.openbao.OpenBaoService;
 import raum.repository.CredentialsRepository;
 import raum.repository.OrganizationRepository;
@@ -24,6 +24,7 @@ public class CredentialsService {
     private final CredentialsRepository credentialsRepository;
     private final OrganizationRepository organizationRepository;
     private final OpenBaoService openBaoService;
+    private final ServiceNameResolver serviceNameResolver;
     private final UUID serviceId;
 
     public Mono<BasicCredentialDTO> saveNewCredentials(CredentialsDTO dto) {
@@ -44,16 +45,18 @@ public class CredentialsService {
                         .createdAt(Instant.now())
                         .modifiedAt(Instant.now())
                         .build())
-                .flatMap(saved -> openBaoService.storeCredentials(saved.getId(), dto.getUserName(), dto.getPassword())
-                        .then(openBaoService.registerDatabaseConnection(
-                                saved.getId(),
-                                dto.getUserName(),
-                                dto.getPassword(),
-                                dto.getDbHost(),
-                                dto.getDbPort(),
-                                dto.getDbName(),
-                                saved.getOrgId()
-                        ))
+                .flatMap(saved -> serviceNameResolver.nameFor(saved.getServiceId())
+                        .flatMap(serviceName -> openBaoService.storeCredentials(saved.getId(), dto.getUserName(), dto.getPassword())
+                                .then(openBaoService.registerDatabaseConnection(
+                                        saved.getId(),
+                                        dto.getUserName(),
+                                        dto.getPassword(),
+                                        dto.getDbHost(),
+                                        dto.getDbPort(),
+                                        dto.getDbName(),
+                                        saved.getOrgId(),
+                                        serviceName
+                                )))
                         .thenReturn(BasicCredentialDTO.builder()
                                 .orgId(saved.getOrgId())
                                 .serviceId(saved.getServiceId())
@@ -77,7 +80,7 @@ public class CredentialsService {
         return s == null || s.isBlank();
     }
 
-    public Mono<CredentialsDTO> getEphemeralCredentialsByOrgIdAndServiceId(BasicCredentialDTO dto, CredentialTier tier) {
+    public Mono<CredentialsDTO> getEphemeralCredentialsByOrgIdAndServiceId(BasicCredentialDTO dto, ServiceTier tier) {
         return organizationRepository.findById(dto.getOrgId())
                 .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
                 .flatMap(org -> org.getStoppedAt() != null
@@ -85,7 +88,7 @@ public class CredentialsService {
                         : getEphemeralCredentials(dto, tier));
     }
 
-    private Mono<CredentialsDTO> getEphemeralCredentials(BasicCredentialDTO dto, CredentialTier tier) {
+    private Mono<CredentialsDTO> getEphemeralCredentials(BasicCredentialDTO dto, ServiceTier tier) {
         return credentialsRepository.findByOrgIdAndServiceId(dto.getOrgId(), dto.getServiceId())
                 .flatMap(credentials ->
                         openBaoService.issueEphemeralCredentials(credentials.getId(), tier)
@@ -101,6 +104,7 @@ public class CredentialsService {
                                     result.setDbEngine(credentials.getDbEngine());
                                     result.setLeaseId(ephemeral.getLeaseId());
                                     result.setLeaseDuration(ephemeral.getLeaseDuration());
+                                    result.setTier(tier.name());
                                     return result;
                                 })
                 )

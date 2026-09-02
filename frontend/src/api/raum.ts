@@ -139,8 +139,8 @@ export const raum = {
   credentials: {
     register: (dto: Credentials, token: string) =>
       req<BasicCredential>('/credentials', { method: 'POST', ...payload(dto) }, token),
-    ephemeral: (dto: BasicCredential, token: string) =>
-      req<Credentials>('/credentials/ephemeral', { method: 'POST', ...payload(dto) }, token),
+    // /credentials/ephemeral is service-to-service only and is not exposed at the
+    // public gateway — there is no browser client for it.
   },
   onboarding: {
     initiate: (orgId: string, dto: OnboardingRequest, token: string) =>

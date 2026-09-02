@@ -1,6 +1,7 @@
 package bime.clients;
 
 import bime.dto.OrgCurrencyDTO;
+import bime.openbao.OpenBaoService;
 import bime.security.BimeAuthentication;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
@@ -21,19 +22,26 @@ import java.util.UUID;
 public class RaumClient {
 
     private final WebClient webClient;
+    private final OpenBaoService openBaoService;
 
-    public RaumClient(@Value("${raum.base-url}") String raumBaseUrl) {
+    public RaumClient(@Value("${raum.base-url}") String raumBaseUrl, OpenBaoService openBaoService) {
         this.webClient = WebClient.builder()
                 .baseUrl(raumBaseUrl)
                 .build();
+        this.openBaoService = openBaoService;
     }
 
+    /**
+     * Request-path credential fetch: forwards the end-user's JWT (for org + roles → tier) AND
+     * Bime's own service AppRole token (which raum now requires as proof a real service is asking).
+     */
     public Mono<CredentialsDTO> getEphemeralCredentials(BasicCredentialDTO request) {
         return ReactiveSecurityContextHolder.getContext()
                 .map(ctx -> ((BimeAuthentication) ctx.getAuthentication()).getJwtToken())
                 .flatMap(jwt -> webClient.post()
                         .uri("/credentials/ephemeral")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwt)
+                        .header("X-Vault-Token", openBaoService.getToken())
                         .bodyValue(request)
                         .retrieve()
                         .onStatus(HttpStatusCode::is4xxClientError, response ->

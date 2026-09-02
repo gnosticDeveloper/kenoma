@@ -229,9 +229,8 @@
   },
   "credentialsPage": {
     "title": "Credentials",
-    "subtitle": "Register and issue database credentials per organization and service.",
+    "subtitle": "Register database credentials per organization and service.",
     "registerTitle": "Register credentials",
-    "ephemeralTitle": "Issue ephemeral credentials",
     "org": "Organization",
     "orgPlaceholder": "Select an organization…",
     "service": "Service",
@@ -244,18 +243,7 @@
     "dbEngine": "DB engine",
     "register": "Register",
     "registering": "Registering…",
-    "issue": "Issue",
-    "issuing": "Issuing…",
     "registered": "Credentials registered."
-  },
-  "credentialCard": {
-    "host": "Host",
-    "database": "Database",
-    "engine": "Engine",
-    "username": "Username",
-    "password": "Password",
-    "leaseId": "Lease ID",
-    "expiresIn": "Expires in"
   },
   "onboardingPage": {
     "title": "Onboarding",

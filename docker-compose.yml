@@ -211,6 +211,7 @@ services:
       ENV_OUT: /out/.env
     volumes:
       - ./scripts/kenoma-pre-init.sh:/kenoma-pre-init.sh
+      - ./scripts/openbao/generated-role-statements.json:/role-statements.json:ro
       - ./.env-out:/out
       - approle-out:/approle-out
       - openbao-init-out:/init-out

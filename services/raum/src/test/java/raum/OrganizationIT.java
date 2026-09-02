@@ -145,7 +145,11 @@ class OrganizationIT extends BaseIT {
     }
 
     @Test
-    void deleteOrg_blocksFutureEphemeralCredentialIssuance() {
+    void ephemeralCredentials_withoutServiceToken_isRejected() {
+        // /credentials/ephemeral now requires a recognised service AppRole token on every path;
+        // a bare user JWT (no X-Vault-Token) is refused before any org/deactivation check.
+        // The deactivation-blocks-issuance behaviour itself is covered by EphemeralCredentialsIT,
+        // which has real service tokens.
         OrgRequestDTO create = new OrgRequestDTO("Org To Deactivate", "deactivate@org.com", "Deactivate Admin");
         OrgResponseDTO created = client.post().uri("/orgs")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -171,7 +175,7 @@ class OrganizationIT extends BaseIT {
                         .serviceId(UUID.randomUUID())
                         .build())
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isUnauthorized();
     }
 
     @Test
