@@ -155,7 +155,9 @@ server {
     # POST /credentials/ephemeral is service-to-service only (bime/vassago -> raum over the
     # internal network). It must never be reachable from the public edge — 404, don't even
     # confirm the route exists. POST /credentials (register) stays available for the operator UI.
-    location = /credentials/ephemeral {
+    # Regex (not `location =`) so a trailing slash or mixed case can't fall through to the
+    # /credentials proxy below.
+    location ~* ^/credentials/ephemeral(/|$) {
         return 404;
     }
 
