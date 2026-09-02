@@ -8,7 +8,7 @@ public enum BimeRole {
     BIME_ADMIN {
         @Override
         public Set<BimePermission> getPermissions() {
-            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG, BIME_TRANSFER_APPROVE, BIME_RECALL_MANAGE);
+            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG, BIME_TRANSFER_APPROVE, BIME_RECALL_MANAGE, BIME_SALE);
         }
 
         @Override
@@ -24,7 +24,7 @@ public enum BimeRole {
     BIME_STOCK_OPERATOR {
         @Override
         public Set<BimePermission> getPermissions() {
-            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG);
+            return Set.of(BIME_MANAGE, BIME_VIEW, BIME_VIEW_CATALOG, BIME_SALE);
         }
 
         @Override
@@ -34,7 +34,23 @@ public enum BimeRole {
 
         @Override
         public String getDescription() {
-            return "Manages stock movements and transfers day to day. Transfers this user raises need a separate approval before dispatch.";
+            return "Manages stock movements and transfers day to day, and can ring up sales. Transfers this user raises need a separate approval before dispatch.";
+        }
+    },
+    BIME_CASHIER {
+        @Override
+        public Set<BimePermission> getPermissions() {
+            return Set.of(BIME_SALE, BIME_VIEW, BIME_VIEW_CATALOG);
+        }
+
+        @Override
+        public String getDisplayName() {
+            return "Cashier";
+        }
+
+        @Override
+        public String getDescription() {
+            return "Rings up point-of-sale sales and views the catalog and stock. Cannot make other stock changes.";
         }
     },
     BIME_TRANSFER_APPROVER {

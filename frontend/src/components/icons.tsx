@@ -129,6 +129,16 @@ export function StockIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+export function SalesIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M3 4h2l2 9h8l2-6H6" />
+      <circle cx="8" cy="16" r="1.2" />
+      <circle cx="14" cy="16" r="1.2" />
+    </Icon>
+  )
+}
+
 export function DrBackupsIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

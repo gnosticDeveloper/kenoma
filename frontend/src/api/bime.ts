@@ -35,6 +35,8 @@ import type {
   StockTransferReceiveRequest,
   StockTransferRequest,
   StockTransferResponse,
+  SaleRequest,
+  SaleResponse,
   InTransitStock,
   UomConversionRequest,
   UomConversionResponse,
@@ -67,6 +69,12 @@ interface TransferListFilters {
   sourceLocationId?: string
   destLocationId?: string
   variantId?: string
+}
+
+interface SaleListFilters {
+  locationId?: string
+  from?: string
+  to?: string
 }
 
 function stockQuery(filters: StockListFilters): string {
@@ -269,5 +277,17 @@ export const bime = {
       req<StockTransferResponse>(`/stock/transfers/${id}/cancel`, { method: 'POST' }, token),
     receive: (id: string, dto: StockTransferReceiveRequest, token: string) =>
       req<StockTransferResponse>(`/stock/transfers/${id}/receive`, { method: 'POST', ...payload(dto) }, token),
+  },
+  sales: {
+    list: (token: string, filters: SaleListFilters = {}) =>
+      req<SaleResponse[]>(`/sales${query({
+        locationId: filters.locationId,
+        from: filters.from,
+        to: filters.to,
+      })}`, { method: 'GET' }, token),
+    get: (id: string, token: string) =>
+      req<SaleResponse>(`/sales/${id}`, { method: 'GET' }, token),
+    create: (dto: SaleRequest, token: string) =>
+      req<SaleResponse>('/sales', { method: 'POST', ...payload(dto) }, token),
   },
 }

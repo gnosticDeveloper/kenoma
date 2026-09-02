@@ -309,7 +309,7 @@ export interface AssignedMetadata {
   selectedOptions: MetadataOptionResponse[]
 }
 
-export type MovementType = 'INBOUND' | 'OUTBOUND' | 'ADJUSTMENT' | 'TRANSFER_OUT' | 'TRANSFER_IN'
+export type MovementType = 'INBOUND' | 'OUTBOUND' | 'ADJUSTMENT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'SALE'
 
 export type MovementStatus = 'PENDING' | 'POSTED' | 'CANCELLED'
 
@@ -681,6 +681,56 @@ export interface InTransitStock {
   variantId: string
   destLocationId: string
   quantity: number
+}
+
+// ── Sales (point of sale) ──
+
+export type SaleStatus = 'COMPLETED' | 'VOIDED'
+
+export interface SaleLineRequest {
+  // Identify the variant by one of these. A barcode also fixes the unit sold
+  barcode?: string
+  variantId?: string
+  quantity: number
+  // Unit the quantity is in (ignored when barcode is given). Omit for the base unit
+  uom?: string
+  // Till-side price override for one unit sold. Omit to use the variant's effective price
+  unitPrice?: number
+}
+
+export interface SaleRequest {
+  locationId: string
+  reference?: string
+  note?: string
+  lines: SaleLineRequest[]
+}
+
+export interface SaleLineResponse {
+  id: string
+  variantId: string
+  barcode: string | null
+  // Quantity sold, normalized to the variant's base unit
+  qtyBase: number
+  uom: string | null
+  uomQuantity: number | null
+  unitPrice: number
+  lineTotal: number
+}
+
+export interface SaleResponse {
+  id: string
+  orgId: string
+  locationId: string
+  reference: string | null
+  status: SaleStatus
+  subtotal: number
+  currency: string | null
+  note: string | null
+  lines: SaleLineResponse[]
+  soldAt: string
+  soldBy: string | null
+  voidedAt: string | null
+  voidedBy: string | null
 }
 
 // ── DR Backups ──

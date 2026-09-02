@@ -66,6 +66,7 @@
     "bimeUnits": "Units",
     "bimeProducts": "Products",
     "bimeStock": "Stock",
+    "bimeSales": "Point of sale",
     "pricing": "Pricing",
     "noPermissions": "No permissions assigned.",
     "logout": "Log out"
@@ -628,6 +629,50 @@
       }
     }
   },
+  "bimeSalesPage": {
+    "title": "Point of sale",
+    "subtitle": "Ring up sales by scanning items. Stock is depleted immediately.",
+    "hint": "Scan items to ring up a sale. Stock is depleted immediately; batch-tracked items are consumed earliest-expiry-first.",
+    "location": "Register location",
+      "selectLocation": "Select a location",
+      "locationRequired": "Pick a register location to start.",
+      "scanPlaceholder": "Scan or type a barcode, then Enter",
+      "scanHint": "No scanner? Add an item by product below.",
+      "notFound": "No item is linked to \"{{code}}\".",
+      "recalledWarning": "{{name}} is from a recalled batch and was not added.",
+      "expiredWarning": "Heads up: {{name}} is from an expired batch.",
+      "cart": "Cart",
+      "cartEmpty": "Nothing scanned yet.",
+      "item": "Item",
+      "unit": "Unit",
+      "qty": "Qty",
+      "unitPrice": "Unit price",
+      "lineTotal": "Total",
+      "remove": "Remove",
+      "addManual": "Add by product",
+      "product": "Product",
+      "variant": "Variant",
+      "add": "Add",
+      "noPrice": "No price on file for this item. Enter a unit price.",
+      "subtotal": "Subtotal",
+      "itemCount": "{{count}} item",
+      "itemCount_other": "{{count}} items",
+      "reference": "Receipt no.",
+      "referencePlaceholder": "optional",
+      "complete": "Complete sale",
+      "completing": "Completing…",
+      "recorded": "Sale recorded.",
+      "receiptTitle": "Sale {{ref}}",
+      "soldAt": "Sold at",
+      "summary": "Order",
+      "recentSales": "Recent sales",
+      "recentEmpty": "No sales at this location yet.",
+      "colDate": "Date",
+      "colReference": "Receipt",
+      "colItems": "Items",
+      "colTotal": "Total",
+      "viewReceipt": "View"
+  },
   "bimeBatchesTab": {
     "hint": "Production batches of batch-tracked products. Outbound movements consume the earliest expiry first; a recalled batch is skipped and blocked from sale.",
     "filterProduct": "Product",
@@ -756,6 +801,10 @@
     "BIME_TRANSFER_APPROVER": {
       "displayName": "Transfer Approver",
       "description": "Approves or rejects stock transfer orders. Cannot make other stock changes."
+    },
+    "BIME_CASHIER": {
+      "displayName": "Cashier",
+      "description": "Rings up point-of-sale sales and views the catalog and stock. Cannot make other stock changes."
     },
     "BIME_VIEWER": {
       "displayName": "Inventory Viewer",

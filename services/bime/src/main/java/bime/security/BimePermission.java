@@ -5,5 +5,6 @@ public enum BimePermission {
     BIME_VIEW,
     BIME_VIEW_CATALOG,
     BIME_TRANSFER_APPROVE,
-    BIME_RECALL_MANAGE
+    BIME_RECALL_MANAGE,
+    BIME_SALE
 }
