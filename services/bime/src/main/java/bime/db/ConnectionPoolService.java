@@ -1,9 +1,15 @@
 package bime.db;
 
 import bime.clients.RaumClient;
+import bime.security.BimeAuthentication;
 import common.db.DatabaseConnectionService;
 import common.dto.BasicCredentialDTO;
 import common.dto.CredentialsDTO;
+import common.exception.ForbiddenException;
+import common.grants.NoTierForRolesException;
+import common.grants.ServiceGrantProfile;
+import common.grants.ServiceGrantProfiles;
+import common.grants.ServiceTier;
 import common.metrics.ConnectionPoolMetrics;
 import common.pool.ConnectionPoolEntry;
 import common.pool.ConnectionPoolKey;
@@ -31,6 +37,8 @@ import java.util.function.Function;
 @Service
 @RequiredArgsConstructor
 public class ConnectionPoolService {
+
+    private static final ServiceGrantProfile BIME_PROFILE = ServiceGrantProfiles.forServiceName("Bime");
 
     private final RaumClient raumClient;
     private final DatabaseConnectionService dbConnectionService;
@@ -72,19 +80,36 @@ public class ConnectionPoolService {
         pool.clear();
     }
 
-    public Mono<BimeDbHandle> getHandle(UUID orgId) {
-        ConnectionPoolKey key = new ConnectionPoolKey(orgId, UUID.fromString(serviceId));
+    /**
+     * Resolves a pooled DB handle scoped to the caller's Postgres privilege tier, derived from the
+     * Bime roles they hold. The tier is part of the pool key, so a read-only caller warming an
+     * org's pool can never pin a lower-privilege lease onto a later admin write (or vice versa) —
+     * each (org, tier) pair gets its own lease. Raum re-derives the same tier from the JWT this
+     * request forwards, so the two always agree; {@link #buildEntryMono} fails closed if they don't.
+     */
+    public Mono<BimeDbHandle> getHandle(BimeAuthentication caller) {
+        ConnectionPoolKey key = new ConnectionPoolKey(
+                caller.getOrgId(), UUID.fromString(serviceId), resolveTier(caller));
         return getHandleForKey(key, this::fetchCredentialsViaUserJwt);
     }
 
     /**
-     * Same pooled-handle resolution as {@link #getHandle(UUID)}, but fetches fresh credentials
-     * (on a cache miss) using Bime's own OpenBao AppRole token instead of a user's JWT. Used by
-     * scheduled jobs, which have no live user session to pull a JWT from.
+     * Same pooled-handle resolution as {@link #getHandle(BimeAuthentication)}, but fetches fresh
+     * credentials (on a cache miss) using Bime's own OpenBao AppRole token instead of a user's JWT,
+     * always at the {@link ServiceTier#FULL} tier. Used by scheduled jobs and unauthenticated flows,
+     * which have no live user session to pull a JWT or roles from.
      */
     public Mono<BimeDbHandle> getHandleViaVaultToken(UUID orgId, String vaultToken) {
-        ConnectionPoolKey key = new ConnectionPoolKey(orgId, UUID.fromString(serviceId));
+        ConnectionPoolKey key = new ConnectionPoolKey(orgId, UUID.fromString(serviceId), ServiceTier.FULL);
         return getHandleForKey(key, k -> fetchCredentialsViaVaultToken(k, vaultToken));
+    }
+
+    private ServiceTier resolveTier(BimeAuthentication caller) {
+        try {
+            return BIME_PROFILE.resolveTier(caller.getRoles().getOrDefault(serviceId, List.of()));
+        } catch (NoTierForRolesException e) {
+            throw new ForbiddenException("No Bime role held for database access");
+        }
     }
 
     private Mono<BimeDbHandle> getHandleForKey(ConnectionPoolKey key, Function<ConnectionPoolKey, Mono<CredentialsDTO>> credentialsFetcher) {
@@ -120,6 +145,13 @@ public class ConnectionPoolService {
     private Mono<ConnectionPoolEntry> buildEntryMono(ConnectionPoolKey key, Function<ConnectionPoolKey, Mono<CredentialsDTO>> credentialsFetcher) {
         return credentialsFetcher.apply(key)
                 .<ConnectionPoolEntry>handle((credentials, sink) -> {
+                    if (credentials.getTier() != null && !credentials.getTier().equals(key.tier().name())) {
+                        sink.error(new IllegalStateException(String.format(
+                                "Credential tier drift: pool key requested %s but raum issued %s. Refusing to pool.",
+                                key.tier().name(), credentials.getTier())));
+                        return;
+                    }
+
                     long bufferSeconds = (credentials.getLeaseDuration() * expiryBufferPercent) / 100;
                     long effectiveTtl  = credentials.getLeaseDuration() - bufferSeconds;
 
@@ -140,7 +172,8 @@ public class ConnectionPoolService {
                             credentials.getLeaseId()
                     );
 
-                    poolMetrics.put(key, ConnectionPoolMetrics.register(meterRegistry, connectionPool, "bime", key.orgId()));
+                    poolMetrics.put(key, ConnectionPoolMetrics.register(
+                            meterRegistry, connectionPool, "bime", key.orgId(), key.tier().name()));
                     pool.put(key, Mono.just(entry));
                     sink.next(entry);
                 })

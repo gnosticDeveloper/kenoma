@@ -229,9 +229,8 @@
   },
   "credentialsPage": {
     "title": "Credenciales",
-    "subtitle": "Registra y emite credenciales de base de datos por organización y servicio.",
+    "subtitle": "Registra credenciales de base de datos por organización y servicio.",
     "registerTitle": "Registrar credenciales",
-    "ephemeralTitle": "Emitir credenciales efímeras",
     "org": "Organización",
     "orgPlaceholder": "Selecciona una organización…",
     "service": "Servicio",
@@ -244,18 +243,7 @@
     "dbEngine": "Motor de la BD",
     "register": "Registrar",
     "registering": "Registrando…",
-    "issue": "Emitir",
-    "issuing": "Emitiendo…",
     "registered": "Credenciales registradas."
-  },
-  "credentialCard": {
-    "host": "Host",
-    "database": "Base de datos",
-    "engine": "Motor",
-    "username": "Usuario",
-    "password": "Contraseña",
-    "leaseId": "ID de arrendamiento",
-    "expiresIn": "Expira en"
   },
   "onboardingPage": {
     "title": "Incorporación",

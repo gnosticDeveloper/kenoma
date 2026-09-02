@@ -17,13 +17,13 @@ public class BimeContextService {
 
     public <T> Mono<T> withHandle(BiFunction<BimeAuthentication, BimeDbHandle, Mono<T>> fn) {
         return getCaller()
-                .flatMap(caller -> bimeDbService.getHandle(caller.getOrgId())
+                .flatMap(caller -> bimeDbService.getHandle(caller)
                         .flatMap(handle -> fn.apply(caller, handle)));
     }
 
     public <T> Flux<T> withHandleMany(BiFunction<BimeAuthentication, BimeDbHandle, Flux<T>> fn) {
         return getCaller()
-                .flatMapMany(caller -> bimeDbService.getHandle(caller.getOrgId())
+                .flatMapMany(caller -> bimeDbService.getHandle(caller)
                         .flatMapMany(handle -> fn.apply(caller, handle)));
     }
 
