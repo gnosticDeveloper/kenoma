@@ -9,6 +9,8 @@ import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 import common.dto.CredentialsDTO;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -363,7 +365,12 @@ public class OpenBaoService {
                     dto.setLeaseDuration(leaseDuration);
                     dto.setLeaseId(leaseId);
                     return dto;
-                });
+                })
+                .retryWhen(Retry.backoff(4, Duration.ofMillis(200))
+                        .maxBackoff(Duration.ofSeconds(2))
+                        .filter(t -> t.getMessage() != null && t.getMessage().contains("tuple concurrently updated"))
+                        .doBeforeRetry(signal -> log.warn("fetchDatabaseCreds for {} hit OpenBao write race, retry {}",
+                                roleName, signal.totalRetries() + 1)));
     }
 
     private static final String TRANSIT_KEY = "dr-backup";
