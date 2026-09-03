@@ -8,24 +8,42 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 import common.dto.CredentialsDTO;
+import common.exception.UnauthorizedException;
+import common.grants.GrantStatementRenderer;
+import common.grants.ServiceGrantProfile;
+import common.grants.ServiceGrantProfiles;
+import common.grants.ServiceTier;
+import raum.config.ServiceTokenProperties;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Service
 public class OpenBaoService {
+
+    /** Legacy pre-tiering role suffixes, kept issuable during the rollout window (see plan §10). */
+    private static final String LEGACY_ADMIN_ROLE_SUFFIX = "-admin-role";
+    private static final String LEGACY_MEMBER_ROLE_SUFFIX = "-member-role";
+
     private final WebClient webClient;
     private final String kvMount;
     private final String host;
+    private final ServiceTokenProperties serviceTokenProperties;
     private final AtomicReference<String> token = new AtomicReference<>();
 
     public OpenBaoService(
             @Value("${openbao.host}") String host,
-            @Value("${openbao.kv.mount}") String kvMount) {
+            @Value("${openbao.kv.mount}") String kvMount,
+            ServiceTokenProperties serviceTokenProperties) {
         this.host = host;
         this.webClient = WebClient.builder()
                 .baseUrl(host)
@@ -35,6 +53,33 @@ public class OpenBaoService {
                                 .build()))
                 .build();
         this.kvMount = kvMount;
+        this.serviceTokenProperties = serviceTokenProperties;
+    }
+
+    private static String legacyAdminRoleName(String connectionName) {
+        return connectionName + LEGACY_ADMIN_ROLE_SUFFIX;
+    }
+
+    private static String legacyMemberRoleName(String connectionName) {
+        return connectionName + LEGACY_MEMBER_ROLE_SUFFIX;
+    }
+
+    /** All possible ephemeral role names for a connection: one per {@link ServiceTier} plus the two legacy names. */
+    private static Set<String> allTierRoleNames(String connectionName) {
+        Set<String> names = new LinkedHashSet<>();
+        for (ServiceTier tier : ServiceTier.values()) {
+            names.add(tier.roleName(connectionName));
+        }
+        names.add(legacyAdminRoleName(connectionName));
+        names.add(legacyMemberRoleName(connectionName));
+        return names;
+    }
+
+    /** {@link #allTierRoleNames} plus any extra role names (e.g. the DR-backup role), comma-joined. */
+    private static String allowedRolesWith(String connectionName, String... extraRoleNames) {
+        Set<String> names = allTierRoleNames(connectionName);
+        names.addAll(List.of(extraRoleNames));
+        return String.join(",", names);
     }
 
     /** Replaces the token used for subsequent requests, following a (re)provisioning login or renewal. */
@@ -55,6 +100,12 @@ public class OpenBaoService {
                 .bodyToMono(Void.class);
     }
 
+    /**
+     * Weak check — "does OpenBao recognise this token at all". Still used by the low-sensitivity
+     * machine-to-machine endpoints in {@code OrganizationsController} / {@code PricingController}.
+     * The credential-issuance path uses {@link #resolveServiceToken} instead, which additionally
+     * proves the token belongs to a known service AppRole.
+     */
     public Mono<Boolean> validateToken(String token) {
         return WebClient.builder()
                 .baseUrl(host)
@@ -69,6 +120,79 @@ public class OpenBaoService {
                 .bodyToMono(Void.class)
                 .thenReturn(true)
                 .onErrorReturn(false);
+    }
+
+    /**
+     * Vets an inbound {@code X-Vault-Token} for {@code POST /credentials/ephemeral} and resolves
+     * which service it represents. A token is accepted only if OpenBao's {@code lookup-self}
+     * succeeds AND it is not {@code root}, was minted via {@code auth/approle/login}, carries a
+     * policy mapped in {@code raum.credentials.service-tokens}, and reports its AppRole
+     * {@code meta.role_name}. Anything else fails with {@link UnauthorizedException} — a bare user
+     * JWT, a stray/orphan token, or a root token can no longer pull raw database credentials.
+     */
+    public Mono<ServiceIdentity> resolveServiceToken(String presentedToken) {
+        if (presentedToken == null || presentedToken.isBlank()) {
+            return Mono.error(new UnauthorizedException("Service token required"));
+        }
+        return WebClient.builder()
+                .baseUrl(host)
+                .defaultHeader("X-Vault-Token", presentedToken)
+                .build()
+                .get()
+                .uri("/v1/auth/token/lookup-self")
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class).flatMap(body ->
+                                Mono.error(new UnauthorizedException("Not a recognized service token"))))
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .flatMap(this::classifyServiceToken)
+                .onErrorResume(e -> e instanceof UnauthorizedException
+                        ? Mono.error(e)
+                        : Mono.error(new UnauthorizedException("Not a recognized service token")));
+    }
+
+    Mono<ServiceIdentity> classifyServiceToken(Map<String, Object> lookupResponse) {
+        Object rawData = lookupResponse.get("data");
+        if (!(rawData instanceof Map<?, ?> data)) {
+            return Mono.error(new UnauthorizedException("Not a recognized service token"));
+        }
+
+        List<String> policies = new ArrayList<>();
+        if (data.get("policies") instanceof List<?> raw) {
+            for (Object p : raw) {
+                policies.add(String.valueOf(p));
+            }
+        }
+        if (policies.contains("root")) {
+            return Mono.error(new UnauthorizedException("Not a recognized service token"));
+        }
+        if (!"auth/approle/login".equals(data.get("path"))) {
+            return Mono.error(new UnauthorizedException("Not a recognized service token"));
+        }
+
+        ServiceIdentity identity = null;
+        for (String policy : policies) {
+            ServiceIdentity candidate = serviceTokenProperties.getServiceTokens().get(policy);
+            if (candidate != null) {
+                identity = candidate;
+                break;
+            }
+        }
+        if (identity == null) {
+            return Mono.error(new UnauthorizedException("Not a recognized service token"));
+        }
+
+        // An AppRole login token always reports its role under meta.role_name; require it as a
+        // second signal that this really is a service AppRole token, not just any token that
+        // happens to carry a matching policy.
+        boolean hasRoleName = data.get("meta") instanceof Map<?, ?> meta
+                && meta.get("role_name") != null
+                && !String.valueOf(meta.get("role_name")).isBlank();
+        if (!hasRoleName) {
+            return Mono.error(new UnauthorizedException("Not a recognized service token"));
+        }
+
+        return Mono.just(identity);
     }
 
     public Mono<Void> storeCredentials(UUID id, String username, String password) {
@@ -88,20 +212,32 @@ public class OpenBaoService {
                 .bodyToMono(Void.class);
     }
 
+    /**
+     * Registers the database connection and creates one dynamic OpenBao role per
+     * {@link ServiceTier} the service's {@link ServiceGrantProfile} supports, each with a
+     * {@code creation_statements} whose {@code GRANT}s are generated from that profile
+     * ({@link GrantStatementRenderer}). Also creates the two legacy {@code -admin-role} /
+     * {@code -member-role} names (mapped to {@code FULL} / {@code READONLY} text) so leases
+     * in flight from an older deploy keep resolving during the rollout window.
+     *
+     * @param serviceName the {@code services.name} for this credentials row — picks the grant profile
+     */
     public Mono<Void> registerDatabaseConnection(UUID id, String username, String password,
-                                                 String dbHost, int dbPort, String dbName, UUID orgId) {
+                                                 String dbHost, int dbPort, String dbName, UUID orgId,
+                                                 String serviceName) {
         String connectionName = id.toString();
-        String adminRoleName = CredentialTier.ADMIN.roleName(connectionName);
-        String memberRoleName = CredentialTier.MEMBER.roleName(connectionName);
+        ServiceGrantProfile profile = ServiceGrantProfiles.forServiceName(serviceName);
         String connectionUrl = String.format(
                 "postgresql://{{username}}:{{password}}@%s:%d/%s?sslmode=disable",
                 dbHost, dbPort, dbName);
 
-        return webClient.post()
+        String allowedRoles = String.join(",", allTierRoleNames(connectionName));
+
+        Mono<Void> configureConnection = webClient.post()
                 .uri("/v1/database/config/{name}", connectionName)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", adminRoleName + "," + memberRoleName,
+                        "allowed_roles", allowedRoles,
                         "connection_url", connectionUrl,
                         "username", username,
                         "password", password
@@ -113,32 +249,31 @@ public class OpenBaoService {
                             return Mono.error(new RuntimeException("registerDatabaseConnection failed: " + body));
                         })
                 )
-                .bodyToMono(Void.class)
-                .then(createRole(connectionName, adminRoleName, dbName, username, orgId,
-                        "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; "))
-                .then(createRole(connectionName, memberRoleName, dbName, username, orgId,
-                        // Read-only: a caller who only holds a non-admin role for the target service
-                        // (e.g. VASSAGO_MEMBER, BIME_VIEWER) can never write through this connection —
-                        // even a raw psql session, and even to their own row — closing the self-elevation
-                        // path (UPDATE users SET roles = ...) that a blanket-write grant left open. See
-                        // raum.controllers.CredentialsController for tier resolution.
-                        "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; "));
+                .bodyToMono(Void.class);
+
+        Mono<Void> createRoles = configureConnection;
+        for (ServiceTier tier : profile.supportedTiers()) {
+            String creation = GrantStatementRenderer.creationStatements(profile, tier, dbName, orgId.toString());
+            createRoles = createRoles.then(createRole(connectionName, tier.roleName(connectionName), creation, username));
+        }
+        // Legacy names for in-flight callers from the previous deploy.
+        String legacyFull = GrantStatementRenderer.creationStatements(profile, ServiceTier.FULL, dbName, orgId.toString());
+        String legacyReadonly = GrantStatementRenderer.creationStatements(profile, ServiceTier.READONLY, dbName, orgId.toString());
+        createRoles = createRoles
+                .then(createRole(connectionName, legacyAdminRoleName(connectionName), legacyFull, username))
+                .then(createRole(connectionName, legacyMemberRoleName(connectionName), legacyReadonly, username));
+
+        return createRoles;
     }
 
-    private Mono<Void> createRole(String connectionName, String roleName, String dbName, String ownerUsername,
-                                   UUID orgId, String grantStatement) {
+    private Mono<Void> createRole(String connectionName, String roleName, String creationStatements,
+                                  String ownerUsername) {
         return webClient.post()
                 .uri("/v1/database/roles/{role}", roleName)
                 .bodyValue(Map.of(
                         "db_name", connectionName,
-                        "creation_statements", "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; " +
-                                "GRANT CONNECT ON DATABASE \"" + dbName + "\" TO \"{{name}}\"; " +
-                                "GRANT USAGE ON SCHEMA public TO \"{{name}}\"; " +
-                                grantStatement +
-                                "ALTER ROLE \"{{name}}\" SET app.org_id = '" + orgId + "';",
-                        "revocation_statements", "REASSIGN OWNED BY \"{{name}}\" TO \"" + ownerUsername + "\"; " +
-                                "DROP OWNED BY \"{{name}}\"; " +
-                                "DROP ROLE IF EXISTS \"{{name}}\";",
+                        "creation_statements", creationStatements,
+                        "revocation_statements", GrantStatementRenderer.revocationStatements(ownerUsername),
                         "default_ttl", "1h",
                         "max_ttl", "24h"
                 ))
@@ -175,11 +310,17 @@ public class OpenBaoService {
                 });
     }
 
+    /**
+     * Full-CRUD lease for raum's own orchestration (onboarding, DR restore, retry scheduler).
+     * Uses the legacy {@code -admin-role}, which every already-provisioned connection has and
+     * {@link #registerDatabaseConnection} still creates. Flip to {@link ServiceTier#FULL} once
+     * the legacy roles are dropped in the rollout follow-up.
+     */
     public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id) {
-        return issueEphemeralCredentials(id, CredentialTier.ADMIN);
+        return fetchDatabaseCreds(legacyAdminRoleName(id.toString()));
     }
 
-    public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id, CredentialTier tier) {
+    public Mono<CredentialsDTO> issueEphemeralCredentials(UUID id, ServiceTier tier) {
         return fetchDatabaseCreds(tier.roleName(id.toString()));
     }
 
@@ -192,8 +333,11 @@ public class OpenBaoService {
      * out their TTL (default 1h, max 24h).
      */
     public Mono<Void> revokeAllLeasesForCredential(UUID credentialId) {
-        return revokeLeasesForRole(CredentialTier.ADMIN.roleName(credentialId.toString()))
-                .then(revokeLeasesForRole(CredentialTier.MEMBER.roleName(credentialId.toString())));
+        Mono<Void> chain = Mono.empty();
+        for (String roleName : allTierRoleNames(credentialId.toString())) {
+            chain = chain.then(revokeLeasesForRole(roleName));
+        }
+        return chain;
     }
 
     private Mono<Void> revokeLeasesForRole(String roleName) {
@@ -219,13 +363,12 @@ public class OpenBaoService {
      * new one, since the physical instance behind it is shared across every org/service credential
      * row that points at the same (host, port, db_name) — one representative connection is enough.
      *
-     * <p>The connection's {@code allowed_roles} was set at org-onboarding time to only the two
-     * ephemeral tier roles ({@link CredentialTier#ADMIN}/{@link CredentialTier#MEMBER}) — Vault
-     * refuses to issue creds for any role not on that list, so this must widen it to include the
-     * backup role (while preserving both tier roles - re-registering a connection replaces
-     * {@code allowed_roles} wholesale, it doesn't append) before (re)creating it. Re-registering the
-     * connection needs the same admin credentials used originally, fetched back from the static KV
-     * entry.
+     * <p>The connection's {@code allowed_roles} was set at org-onboarding time to the per-tier
+     * ephemeral role names ({@link ServiceTier}, plus the legacy pair) — Vault refuses to issue
+     * creds for any role not on that list, so this must widen it to include the backup role (while
+     * preserving every tier role - re-registering a connection replaces {@code allowed_roles}
+     * wholesale, it doesn't append) before (re)creating it. Re-registering the connection needs the
+     * same admin credentials used originally, fetched back from the static KV entry.
      *
      * <p>Checks Vault for actual current state first (rather than caching "already registered" in app
      * memory) so this stays correct across restarts, multiple raum instances, and anyone changing
@@ -298,8 +441,7 @@ public class OpenBaoService {
                 .uri("/v1/database/config/{name}", connectionName)
                 .bodyValue(Map.of(
                         "plugin_name", "postgresql-database-plugin",
-                        "allowed_roles", CredentialTier.ADMIN.roleName(connectionName) + "," +
-                                CredentialTier.MEMBER.roleName(connectionName) + "," + backupRoleName,
+                        "allowed_roles", allowedRolesWith(connectionName, backupRoleName),
                         "connection_url", connectionUrl,
                         "username", adminCreds.getUserName(),
                         "password", adminCreds.getPassword()
@@ -363,7 +505,12 @@ public class OpenBaoService {
                     dto.setLeaseDuration(leaseDuration);
                     dto.setLeaseId(leaseId);
                     return dto;
-                });
+                })
+                .retryWhen(Retry.backoff(4, Duration.ofMillis(200))
+                        .maxBackoff(Duration.ofSeconds(2))
+                        .filter(t -> t.getMessage() != null && t.getMessage().contains("tuple concurrently updated"))
+                        .doBeforeRetry(signal -> log.warn("fetchDatabaseCreds for {} hit OpenBao write race, retry {}",
+                                roleName, signal.totalRetries() + 1)));
     }
 
     private static final String TRANSIT_KEY = "dr-backup";

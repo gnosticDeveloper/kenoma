@@ -12,6 +12,10 @@ map $request_method $vassago_auth_limit_key {
 }
 limit_req_zone $vassago_auth_limit_key zone=vassago_auth:10m rate=20r/m;
 
+# Every proxied location below also sets `proxy_set_header X-Vault-Token "";` — an
+# OpenBao service AppRole token supplied by a public client must never reach a
+# backend. Backends attach their own token internally where one is required.
+
 server {
     listen 443 ssl;
     server_name api.${BASE_DOMAIN};
@@ -30,6 +34,7 @@ server {
         proxy_pass http://vassago:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     # Exact match so only the public /user/verify endpoint is throttled here —
@@ -39,36 +44,49 @@ server {
         proxy_pass http://vassago:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /user {
         proxy_pass http://vassago:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /products {
         proxy_pass http://bime:8082;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /locations {
         proxy_pass http://bime:8082;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /stock/ {
         proxy_pass http://bime:8082;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /metadata {
         proxy_pass http://bime:8082;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
+    }
+
+    location /units {
+        proxy_pass http://bime:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     # Batch variant pricing (VariantPricingController) lives at a top-level /variants/pricing
@@ -78,54 +96,97 @@ server {
         proxy_pass http://bime:8082;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
+    }
+
+    # Point-of-sale barcode lookup (BarcodeController) and the org's barcode issuance settings.
+    # Variant-scoped barcode CRUD lives under /products and is already covered above.
+    location /barcodes {
+        proxy_pass http://bime:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
+    }
+
+    # Batch (lot) reads, recall/quarantine actions, and near-expiry alert settings (BatchController).
+    location /batches {
+        proxy_pass http://bime:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
+    }
+
+    # Point-of-sale sales (SalesController): ring up scanned items and deplete stock.
+    location /sales {
+        proxy_pass http://bime:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /orgs {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /export-jobs {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /dr-backups {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /onboarding {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
+    }
+
+    # POST /credentials/ephemeral is service-to-service only (bime/vassago -> raum over the
+    # internal network). It must never be reachable from the public edge — 404, don't even
+    # confirm the route exists. POST /credentials (register) stays available for the operator UI.
+    # Regex (not `location =`) so a trailing slash or mixed case can't fall through to the
+    # /credentials proxy below.
+    location ~* ^/credentials/ephemeral(/|$) {
+        return 404;
     }
 
     location /credentials {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /services {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /pricing {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location /migrations {
         proxy_pass http://raum:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     # Each service exposes its own role names at its internal /roles path; exact-match
@@ -135,18 +196,21 @@ server {
         proxy_pass http://vassago:8081/roles;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location = /roles/bime {
         proxy_pass http://bime:8082/roles;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 
     location = /roles/raum {
         proxy_pass http://raum:8080/roles;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
     }
 }
 
@@ -165,6 +229,7 @@ server {
         proxy_pass http://grafana:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Vault-Token "";
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Grafana's live/websocket features (e.g. dashboard live updates) need the

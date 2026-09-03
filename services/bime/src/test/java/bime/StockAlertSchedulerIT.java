@@ -12,13 +12,13 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -49,7 +49,7 @@ class StockAlertSchedulerIT extends BaseIT {
                 .responseTimeout(Duration.ofSeconds(15))
                 .build();
         mockAdminJwt();
-        when(mailgunService.sendStockAlertEmail(anyString(), anyString(), anyString(), anyInt(), anyInt(), isNull()))
+        when(mailgunService.sendStockAlertEmail(anyString(), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), isNull()))
                 .thenReturn(Mono.empty());
     }
 
@@ -63,12 +63,39 @@ class StockAlertSchedulerIT extends BaseIT {
 
         List<StockAlertResponseDTO> active = getActiveAlerts();
         assertThat(active).hasSize(1);
-        assertThat(active.get(0).getQuantity()).isEqualTo(5);
-        assertThat(active.get(0).getThreshold()).isEqualTo(10);
+        assertThat(active.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(5));
+        assertThat(active.get(0).getThreshold()).isEqualByComparingTo(BigDecimal.valueOf(10));
 
         verify(mailgunService, times(1)).sendStockAlertEmail(
                 org.mockito.ArgumentMatchers.eq("alerts-a@example.com"),
-                anyString(), anyString(), anyInt(), anyInt(), isNull());
+                anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), isNull());
+    }
+
+    @Test
+    void getActiveAlerts_filtersByOptionIds() {
+        Fixture f1 = buildFixture("alerts-opt1@example.com");
+        setThreshold(f1.variantId(), f1.locationId(), 10);
+        recordMovement(f1.variantId(), f1.locationId(), 5);
+
+        Fixture f2 = buildFixture("alerts-opt2@example.com");
+        setThreshold(f2.variantId(), f2.locationId(), 10);
+        recordMovement(f2.variantId(), f2.locationId(), 3);
+
+        checkService.checkOrg(ORG_ID, testHandle).block();
+        assertThat(getActiveAlerts()).hasSize(2);
+
+        List<StockAlertResponseDTO> filtered = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/alerts/active")
+                        .queryParam("optionIds", f1.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockAlertResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(filtered).isNotNull();
+        assertThat(filtered).extracting(StockAlertResponseDTO::getVariantId).containsExactly(f1.variantId());
     }
 
     @Test
@@ -83,7 +110,7 @@ class StockAlertSchedulerIT extends BaseIT {
 
         assertThat(getActiveAlerts()).hasSize(1);
         verify(mailgunService, times(1)).sendStockAlertEmail(
-                anyString(), anyString(), anyString(), anyInt(), anyInt(), isNull());
+                anyString(), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), isNull());
     }
 
     @Test
@@ -116,7 +143,7 @@ class StockAlertSchedulerIT extends BaseIT {
 
         assertThat(getActiveAlerts()).hasSize(1);
         verify(mailgunService, times(2)).sendStockAlertEmail(
-                anyString(), anyString(), anyString(), anyInt(), anyInt(), isNull());
+                anyString(), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), isNull());
     }
 
     @Test
@@ -149,7 +176,7 @@ class StockAlertSchedulerIT extends BaseIT {
 
         assertThat(getActiveAlerts()).hasSize(1);
         verify(mailgunService, never()).sendStockAlertEmail(
-                anyString(), anyString(), anyString(), anyInt(), anyInt(), isNull());
+                anyString(), anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), isNull());
     }
 
     // --- Adversarial: quantity exactly at threshold must trigger (boundary is "at or below") ---
@@ -200,12 +227,12 @@ class StockAlertSchedulerIT extends BaseIT {
 
         verify(mailgunService, times(1)).sendStockAlertEmail(
                 org.mockito.ArgumentMatchers.eq("org-a@example.com"),
-                anyString(), anyString(), anyInt(), anyInt(), isNull());
+                anyString(), anyString(), any(BigDecimal.class), any(BigDecimal.class), isNull());
     }
 
     // --- Helpers ---
 
-    private record Fixture(UUID variantId, UUID locationId) {}
+    private record Fixture(UUID variantId, UUID locationId, UUID optionId) {}
 
     private Fixture buildFixture(String notificationEmail) {
         LocationRequestDTO locDto = new LocationRequestDTO();
@@ -289,7 +316,6 @@ class StockAlertSchedulerIT extends BaseIT {
 
         ProductVariantRequestDTO varDto = new ProductVariantRequestDTO();
         varDto.setOptionIds(List.of(option.getId()));
-        varDto.setSku("ALERT-VAR-" + UUID.randomUUID());
         ProductVariantResponseDTO variant = client.post()
                 .uri("/products/{productId}/variants", product.getId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -301,14 +327,14 @@ class StockAlertSchedulerIT extends BaseIT {
                 .returnResult().getResponseBody();
         assertThat(variant).isNotNull();
 
-        return new Fixture(variant.getId(), location.getId());
+        return new Fixture(variant.getId(), location.getId(), option.getId());
     }
 
     private void setThreshold(UUID variantId, UUID locationId, int threshold) {
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
         dto.setVariantId(variantId);
         dto.setLocationId(locationId);
-        dto.setThreshold(threshold);
+        dto.setThreshold(BigDecimal.valueOf(threshold));
         client.put().uri("/stock/alerts/thresholds")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -322,7 +348,7 @@ class StockAlertSchedulerIT extends BaseIT {
         dto.setVariantId(variantId);
         dto.setLocationId(locationId);
         dto.setMovementType(delta >= 0 ? MovementType.INBOUND : MovementType.OUTBOUND);
-        dto.setDelta(delta);
+        dto.setDelta(BigDecimal.valueOf(delta));
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)

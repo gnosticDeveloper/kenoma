@@ -1,5 +1,6 @@
 package common.pool;
 
+import common.grants.ServiceTier;
 import io.r2dbc.pool.ConnectionPool;
 import io.r2dbc.spi.ConnectionFactory;
 import org.junit.jupiter.api.Test;
@@ -13,7 +14,7 @@ import static org.mockito.Mockito.*;
 class ConnectionPoolEntryTest {
 
     private static final ConnectionPoolKey KEY = new ConnectionPoolKey(
-            UUID.randomUUID(), UUID.randomUUID());
+            UUID.randomUUID(), UUID.randomUUID(), ServiceTier.FULL);
 
     @Test
     void isExpired_returnsFalse_whenExpiryIsInFuture() {

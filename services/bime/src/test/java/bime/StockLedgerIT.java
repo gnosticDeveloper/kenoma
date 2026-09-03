@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -47,7 +48,7 @@ class StockLedgerIT extends BaseIT {
         assertThat(movement.getId()).isNotNull();
         assertThat(movement.getVariantId()).isEqualTo(f.variantId);
         assertThat(movement.getLocationId()).isEqualTo(f.locationId);
-        assertThat(movement.getDelta()).isEqualTo(10);
+        assertThat(movement.getDelta()).isEqualByComparingTo(BigDecimal.valueOf(10));
         assertThat(movement.getMovementType()).isEqualTo(MovementType.INBOUND);
 
         List<StockBalanceResponseDTO> balances = client.get()
@@ -59,7 +60,7 @@ class StockLedgerIT extends BaseIT {
                 .returnResult().getResponseBody();
 
         assertThat(balances).hasSize(1);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(10);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(10));
     }
 
     @Test
@@ -77,7 +78,7 @@ class StockLedgerIT extends BaseIT {
 
         assertThat(response).isNotNull();
         assertThat(response.getId()).isEqualTo(created.getId());
-        assertThat(response.getDelta()).isEqualTo(5);
+        assertThat(response.getDelta()).isEqualByComparingTo(BigDecimal.valueOf(5));
     }
 
     @Test
@@ -117,7 +118,7 @@ class StockLedgerIT extends BaseIT {
                 .returnResult().getResponseBody();
 
         assertThat(balances).hasSize(1);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(30);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(30));
     }
 
     @Test
@@ -197,7 +198,7 @@ class StockLedgerIT extends BaseIT {
                 .expectBodyList(StockBalanceResponseDTO.class)
                 .returnResult().getResponseBody();
         assertThat(balances).hasSize(1);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(0);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(0));
     }
 
     @Test
@@ -215,7 +216,7 @@ class StockLedgerIT extends BaseIT {
                 .returnResult().getResponseBody();
 
         assertThat(balances).hasSize(1);
-        assertThat(balances.get(0).getQuantity()).isEqualTo(15);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(15));
     }
 
     @Test
@@ -310,7 +311,7 @@ class StockLedgerIT extends BaseIT {
                 .expectBodyList(StockBalanceResponseDTO.class)
                 .returnResult().getResponseBody();
         assertThat(sourceBalances).hasSize(1);
-        assertThat(sourceBalances.get(0).getQuantity()).isEqualTo(12);
+        assertThat(sourceBalances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(12));
 
         List<StockBalanceResponseDTO> destBalances = client.get()
                 .uri("/stock/balances?variantId={v}&locationId={l}", source.variantId, destination)
@@ -320,7 +321,7 @@ class StockLedgerIT extends BaseIT {
                 .expectBodyList(StockBalanceResponseDTO.class)
                 .returnResult().getResponseBody();
         assertThat(destBalances).hasSize(1);
-        assertThat(destBalances.get(0).getQuantity()).isEqualTo(8);
+        assertThat(destBalances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(8));
     }
 
     @Test
@@ -356,7 +357,234 @@ class StockLedgerIT extends BaseIT {
         assertThat(movements.get(0).getLocationId()).isEqualTo(otherLocation);
     }
 
-    private record StockFixture(UUID productId, UUID variantId, UUID locationId) {}
+    @Test
+    void getMovements_filtersByOptionIds() {
+        StockFixture f1 = buildStockFixture();
+        StockFixture f2 = buildStockFixture();
+        recordMovement(f1.variantId, f1.locationId, MovementType.INBOUND, 3);
+        recordMovement(f2.variantId, f2.locationId, MovementType.INBOUND, 7);
+
+        List<StockMovementResponseDTO> movements = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/movements")
+                        .queryParam("optionIds", f1.optionId)
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockMovementResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(movements).hasSize(1);
+        assertThat(movements.get(0).getVariantId()).isEqualTo(f1.variantId);
+    }
+
+    @Test
+    void getMovements_unknownOptionId_returnsEmptyNotError() {
+        StockFixture f = buildStockFixture();
+        recordMovement(f.variantId, f.locationId, MovementType.INBOUND, 5);
+
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/movements")
+                        .queryParam("optionIds", UUID.randomUUID())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockMovementResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void getBalances_filtersByOptionIds() {
+        StockFixture f1 = buildStockFixture();
+        StockFixture f2 = buildStockFixture();
+        recordMovement(f1.variantId, f1.locationId, MovementType.INBOUND, 20);
+        recordMovement(f2.variantId, f2.locationId, MovementType.INBOUND, 30);
+
+        List<StockBalanceResponseDTO> balances = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/balances")
+                        .queryParam("optionIds", f2.optionId)
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockBalanceResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(balances).hasSize(1);
+        assertThat(balances.get(0).getVariantId()).isEqualTo(f2.variantId);
+        assertThat(balances.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.valueOf(30));
+    }
+
+    @Test
+    void getBalances_matchAllTrue_requiresEveryOption_matchAllFalseMatchesAny() {
+        TwoOptionFixture two = buildTwoOptionVariantFixtures();
+        recordMovement(two.bothVariantId, two.locationId, MovementType.INBOUND, 15);
+        recordMovement(two.colorOnlyVariantId, two.locationId, MovementType.INBOUND, 9);
+
+        List<StockBalanceResponseDTO> anyMatch = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/balances")
+                        .queryParam("optionIds", two.colorOptionId)
+                        .queryParam("optionIds", two.sizeOptionId)
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockBalanceResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(anyMatch).isNotNull();
+        assertThat(anyMatch).extracting(StockBalanceResponseDTO::getVariantId)
+                .contains(two.bothVariantId, two.colorOnlyVariantId);
+
+        List<StockBalanceResponseDTO> allMatch = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/balances")
+                        .queryParam("optionIds", two.colorOptionId)
+                        .queryParam("optionIds", two.sizeOptionId)
+                        .queryParam("matchAll", "true")
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockBalanceResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(allMatch).isNotNull();
+        assertThat(allMatch).extracting(StockBalanceResponseDTO::getVariantId).containsExactly(two.bothVariantId);
+    }
+
+    private record StockFixture(UUID productId, UUID variantId, UUID locationId, UUID optionId) {}
+
+    private record TwoOptionFixture(UUID bothVariantId, UUID colorOnlyVariantId, UUID locationId,
+                                     UUID colorOptionId, UUID sizeOptionId) {}
+
+    // Two products sharing the same Color/Size metadata definitions: one variant selects both
+    // options, the other only Color - lets matchAll (AND) be distinguished from the OR default.
+    private TwoOptionFixture buildTwoOptionVariantFixtures() {
+        LocationRequestDTO locDto = new LocationRequestDTO();
+        locDto.setName("Warehouse-" + UUID.randomUUID());
+        locDto.setCode("WH-" + UUID.randomUUID().toString().substring(0, 8));
+        locDto.setIsActive(true);
+        LocationResponseDTO location = client.post().uri("/locations")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(locDto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(LocationResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(location).isNotNull();
+
+        ProductMetadataResponseDTO colorMeta = createMetadata("Color-" + UUID.randomUUID());
+        MetadataOptionResponseDTO colorOption = addOption(colorMeta.getId(), "Red");
+        ProductMetadataResponseDTO sizeMeta = createMetadata("Size-" + UUID.randomUUID());
+        MetadataOptionResponseDTO sizeOption = addOption(sizeMeta.getId(), "Large");
+
+        UUID bothProductId = createProduct("STOCK-BOTH-" + UUID.randomUUID());
+        assignMetadata(bothProductId, colorMeta.getId(), colorOption.getId());
+        assignMetadata(bothProductId, sizeMeta.getId(), sizeOption.getId());
+        UUID bothVariantId = createVariant(bothProductId, List.of(colorOption.getId(), sizeOption.getId()));
+
+        UUID colorOnlyProductId = createProduct("STOCK-COLORONLY-" + UUID.randomUUID());
+        assignMetadata(colorOnlyProductId, colorMeta.getId(), colorOption.getId());
+        UUID colorOnlyVariantId = createVariant(colorOnlyProductId, List.of(colorOption.getId()));
+
+        return new TwoOptionFixture(bothVariantId, colorOnlyVariantId, location.getId(), colorOption.getId(), sizeOption.getId());
+    }
+
+    private ProductMetadataResponseDTO createMetadata(String name) {
+        ProductMetadataRequestDTO dto = new ProductMetadataRequestDTO();
+        dto.setName(name);
+        ProductMetadataResponseDTO response = client.post().uri("/metadata")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductMetadataResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response;
+    }
+
+    private MetadataOptionResponseDTO addOption(UUID metadataId, String value) {
+        MetadataOptionRequestDTO dto = new MetadataOptionRequestDTO();
+        dto.setValue(value);
+        MetadataOptionResponseDTO response = client.post().uri("/metadata/{id}/options", metadataId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(MetadataOptionResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response;
+    }
+
+    private UUID createProduct(String sku) {
+        ProductRequestDTO dto = new ProductRequestDTO();
+        dto.setSku(sku);
+        dto.setName("Stock Product " + sku);
+        dto.setIsActive(true);
+        ProductResponseDTO response = client.post().uri("/products")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response.getId();
+    }
+
+    private void assignMetadata(UUID productId, UUID metadataId, UUID optionId) {
+        // Fetches any existing assignments first so a second call (assigning a different
+        // metadata dimension) doesn't wipe out the first, since PUT replaces the full set.
+        ProductResponseDTO existing = client.get().uri("/products/{id}", productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(existing).isNotNull();
+
+        List<ProductMetadataAssignmentItemDTO> items = new java.util.ArrayList<>();
+        if (existing.getMetadata() != null) {
+            existing.getMetadata().forEach(m -> {
+                ProductMetadataAssignmentItemDTO item = new ProductMetadataAssignmentItemDTO();
+                item.setMetadataId(m.getMetadataId());
+                item.setOptionIds(m.getSelectedOptions().stream().map(MetadataOptionResponseDTO::getId).toList());
+                items.add(item);
+            });
+        }
+        ProductMetadataAssignmentItemDTO newItem = new ProductMetadataAssignmentItemDTO();
+        newItem.setMetadataId(metadataId);
+        newItem.setOptionIds(List.of(optionId));
+        items.add(newItem);
+
+        client.put().uri("/products/{id}/metadata", productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(items)
+                .exchange()
+                .expectStatus().isNoContent();
+    }
+
+    private UUID createVariant(UUID productId, List<UUID> optionIds) {
+        ProductVariantRequestDTO dto = new ProductVariantRequestDTO();
+        dto.setOptionIds(optionIds);
+        ProductVariantResponseDTO response = client.post()
+                .uri("/products/{productId}/variants", productId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProductVariantResponseDTO.class)
+                .returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response.getId();
+    }
 
     private StockFixture buildStockFixture() {
         LocationRequestDTO locDto = new LocationRequestDTO();
@@ -423,7 +651,6 @@ class StockLedgerIT extends BaseIT {
 
         ProductVariantRequestDTO varDto = new ProductVariantRequestDTO();
         varDto.setOptionIds(List.of(option.getId()));
-        varDto.setSku("VAR-" + UUID.randomUUID());
         ProductVariantResponseDTO variant = client.post()
                 .uri("/products/{productId}/variants", product.getId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -435,7 +662,75 @@ class StockLedgerIT extends BaseIT {
                 .returnResult().getResponseBody();
         assertThat(variant).isNotNull();
 
-        return new StockFixture(product.getId(), variant.getId(), location.getId());
+        return new StockFixture(product.getId(), variant.getId(), location.getId(), option.getId());
+    }
+
+    @Test
+    void pendingMovement_doesNotAffectBalanceUntilPosted() {
+        StockFixture f = buildStockFixture();
+
+        StockMovementRequestDTO dto = movementRequest(f.variantId, f.locationId, MovementType.INBOUND, 15);
+        dto.setStatus(MovementStatus.PENDING);
+        StockMovementResponseDTO pending = client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+        assertThat(pending.getStatus()).isEqualTo(MovementStatus.PENDING);
+        assertThat(balanceQuantity(f.variantId)).isEqualByComparingTo(BigDecimal.ZERO);
+
+        StockMovementResponseDTO posted = client.post().uri("/stock/movements/{id}/post", pending.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+        assertThat(posted.getStatus()).isEqualTo(MovementStatus.POSTED);
+        assertThat(balanceQuantity(f.variantId)).isEqualByComparingTo(BigDecimal.valueOf(15));
+    }
+
+    @Test
+    void pendingMovement_cancelled_neverAffectsBalance() {
+        StockFixture f = buildStockFixture();
+
+        StockMovementRequestDTO dto = movementRequest(f.variantId, f.locationId, MovementType.INBOUND, 15);
+        dto.setStatus(MovementStatus.PENDING);
+        StockMovementResponseDTO pending = client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(dto)
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+
+        StockMovementResponseDTO cancelled = client.post().uri("/stock/movements/{id}/cancel", pending.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk()
+                .expectBody(StockMovementResponseDTO.class).returnResult().getResponseBody();
+        assertThat(cancelled.getStatus()).isEqualTo(MovementStatus.CANCELLED);
+        assertThat(balanceQuantity(f.variantId)).isEqualByComparingTo(BigDecimal.ZERO);
+
+        // a cancelled movement can no longer be posted
+        client.post().uri("/stock/movements/{id}/post", pending.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isNotFound();
+    }
+
+    @Test
+    void recordMovement_rejectsTransferTypesOnManualEndpoint() {
+        StockFixture f = buildStockFixture();
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(movementRequest(f.variantId, f.locationId, MovementType.TRANSFER_OUT, -3))
+                .exchange().expectStatus().isBadRequest();
+    }
+
+    private BigDecimal balanceQuantity(UUID variantId) {
+        List<StockBalanceResponseDTO> balances = client.get()
+                .uri("/stock/balances?variantId={v}", variantId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk()
+                .expectBodyList(StockBalanceResponseDTO.class).returnResult().getResponseBody();
+        return balances.isEmpty() ? BigDecimal.ZERO : balances.get(0).getQuantity();
     }
 
     private StockMovementResponseDTO recordMovement(UUID variantId, UUID locationId, MovementType type, int delta) {
@@ -456,7 +751,7 @@ class StockLedgerIT extends BaseIT {
         dto.setVariantId(variantId);
         dto.setLocationId(locationId);
         dto.setMovementType(type);
-        dto.setDelta(delta);
+        dto.setDelta(BigDecimal.valueOf(delta));
         return dto;
     }
 

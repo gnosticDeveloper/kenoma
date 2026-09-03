@@ -1,6 +1,7 @@
 package vassago.db;
 
 import common.dto.BasicCredentialDTO;
+import common.grants.ServiceTier;
 import common.metrics.ConnectionPoolMetrics;
 import common.pool.ConnectionPoolEntry;
 import common.pool.ConnectionPoolKey;
@@ -118,7 +119,7 @@ public class ConnectionPoolService {
      * security context and this argument removed.
      */
     public Mono<DatabaseClient> getClient(UUID orgId) {
-        ConnectionPoolKey key = new ConnectionPoolKey(orgId, UUID.fromString(serviceId));
+        ConnectionPoolKey key = new ConnectionPoolKey(orgId, UUID.fromString(serviceId), ServiceTier.FULL);
         return getClientForKey(key);
     }
 
@@ -167,7 +168,8 @@ public class ConnectionPoolService {
                             credentials.getLeaseId()
                     );
 
-                    poolMetrics.put(key, ConnectionPoolMetrics.register(meterRegistry, connectionPool, "vassago", key.orgId()));
+                    poolMetrics.put(key, ConnectionPoolMetrics.register(
+                            meterRegistry, connectionPool, "vassago", key.orgId(), key.tier().name()));
                     pool.put(key, Mono.just(entry));
                     sink.next(entry);
                 })

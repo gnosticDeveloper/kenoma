@@ -1,6 +1,7 @@
 package bime.services;
 
 import bime.db.BimeContextService;
+import bime.db.OptionFilterSql;
 import bime.dto.StockAlertResponseDTO;
 import bime.dto.StockAlertThresholdRequestDTO;
 import bime.dto.StockAlertThresholdResponseDTO;
@@ -13,7 +14,9 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -24,8 +27,8 @@ public class StockAlertThresholdService {
     private final BimeContextService ctx;
 
     public Mono<StockAlertThresholdResponseDTO> setThreshold(StockAlertThresholdRequestDTO dto) {
-        if (dto.getThreshold() < 0) {
-            return Mono.error(new BadRequestException("threshold must be zero or a positive integer"));
+        if (dto.getThreshold().compareTo(BigDecimal.ZERO) < 0) {
+            return Mono.error(new BadRequestException("threshold must be zero or a positive number"));
         }
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
                 INSERT INTO variant_stock_alert_thresholds (org_id, variant_id, location_id, threshold)
@@ -48,12 +51,13 @@ public class StockAlertThresholdService {
         );
     }
 
-    public Flux<StockAlertThresholdResponseDTO> getThresholds(UUID variantId, UUID locationId) {
+    public Flux<StockAlertThresholdResponseDTO> getThresholds(UUID variantId, UUID locationId, List<UUID> optionIds, boolean matchAll) {
         return ctx.withHandleMany((caller, handle) -> {
             WhereClause where = WhereClause.of()
                     .eq("org_id", "orgId", caller.getOrgId())
                     .eqIfPresent("variant_id", "variantId", variantId)
-                    .eqIfPresent("location_id", "locationId", locationId);
+                    .eqIfPresent("location_id", "locationId", locationId)
+                    .raw(OptionFilterSql.fragment("variant_id"));
 
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     SELECT org_id, variant_id, location_id, threshold, created_at, modified_at
@@ -63,6 +67,7 @@ public class StockAlertThresholdService {
             for (WhereClause.Binding b : where.bindings()) {
                 spec = spec.bind(b.name(), b.value());
             }
+            spec = OptionFilterSql.bind(spec, optionIds, matchAll);
             return spec.fetch().all().map(this::toThresholdResponseDTO);
         });
     }
@@ -83,12 +88,13 @@ public class StockAlertThresholdService {
         ).then();
     }
 
-    public Flux<StockAlertResponseDTO> getActiveAlerts(UUID variantId, UUID locationId) {
+    public Flux<StockAlertResponseDTO> getActiveAlerts(UUID variantId, UUID locationId, List<UUID> optionIds, boolean matchAll) {
         return ctx.withHandleMany((caller, handle) -> {
             WhereClause where = WhereClause.of()
                     .eq("org_id", "orgId", caller.getOrgId())
                     .eqIfPresent("variant_id", "variantId", variantId)
-                    .eqIfPresent("location_id", "locationId", locationId);
+                    .eqIfPresent("location_id", "locationId", locationId)
+                    .raw(OptionFilterSql.fragment("variant_id"));
 
             DatabaseClient.GenericExecuteSpec spec = handle.client().sql("""
                     SELECT org_id, variant_id, location_id, threshold, quantity, triggered_at
@@ -99,6 +105,7 @@ public class StockAlertThresholdService {
             for (WhereClause.Binding b : where.bindings()) {
                 spec = spec.bind(b.name(), b.value());
             }
+            spec = OptionFilterSql.bind(spec, optionIds, matchAll);
             return spec.fetch().all().map(this::toAlertResponseDTO);
         });
     }
@@ -108,7 +115,7 @@ public class StockAlertThresholdService {
                 .orgId((UUID) row.get("org_id"))
                 .variantId((UUID) row.get("variant_id"))
                 .locationId((UUID) row.get("location_id"))
-                .threshold((Integer) row.get("threshold"))
+                .threshold((BigDecimal) row.get("threshold"))
                 .createdAt((LocalDateTime) row.get("created_at"))
                 .modifiedAt((LocalDateTime) row.get("modified_at"))
                 .build();
@@ -119,8 +126,8 @@ public class StockAlertThresholdService {
                 .orgId((UUID) row.get("org_id"))
                 .variantId((UUID) row.get("variant_id"))
                 .locationId((UUID) row.get("location_id"))
-                .threshold((Integer) row.get("threshold"))
-                .quantity((Integer) row.get("quantity"))
+                .threshold((BigDecimal) row.get("threshold"))
+                .quantity((BigDecimal) row.get("quantity"))
                 .triggeredAt((LocalDateTime) row.get("triggered_at"))
                 .build();
     }

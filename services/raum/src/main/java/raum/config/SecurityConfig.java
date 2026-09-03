@@ -54,6 +54,7 @@ public class SecurityConfig {
                         .pathMatchers("/orgs/active-ids").permitAll()
                         .pathMatchers(HttpMethod.GET, "/orgs/*/currency").permitAll()
                         .pathMatchers(HttpMethod.GET, "/orgs/*/active").permitAll()
+                        .pathMatchers(HttpMethod.GET, "/orgs/*/summary").permitAll()
                         .pathMatchers(HttpMethod.POST, "/orgs/*/billing-email/confirm").permitAll()
                         .pathMatchers(HttpMethod.POST, "/orgs/*/contact-email/confirm").permitAll()
                         .pathMatchers("/pricing/rate").permitAll()

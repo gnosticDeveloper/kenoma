@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { bime } from '../api/bime'
 import { createCache } from '../lib/cache'
+import { formatQuantity } from '../lib/uom'
 import { useApiCall } from '../hooks/useApiCall'
 import { useDebouncedEffect } from '../hooks/useDebouncedEffect'
 import { useToast } from '../components/Toast'
@@ -10,11 +11,20 @@ import { Tabs } from '../components/Tabs'
 import { DataTable, type Column } from '../components/DataTable'
 import { Combobox } from '../components/Combobox'
 import { Feedback } from '../components/Feedback'
+import { FilterChips, FilterDisclosure, toggleOptionId } from '../components/OptionFilter'
+import { SearchIcon } from '../components/icons'
 import type { Permissions } from '../auth'
 import { RowActionsMenu } from '../components/RowActionsMenu'
+import { Gs1Help } from '../components/Gs1Explainer'
+import { InfoTip } from '../components/InfoTip'
+import BimeTransfersTab from './BimeTransfersTab'
+import BimeBatchesTab from './BimeBatchesTab'
 import type {
+  BarcodeLookupResponse,
+  BatchResponse,
   LocationResponse,
   MovementType,
+  ProductMetadataResponse,
   ProductResponse,
   ProductVariantResponse,
   StockAlertResponse,
@@ -22,6 +32,7 @@ import type {
   StockAlertThresholdResponse,
   StockBalanceResponse,
   StockMovementResponse,
+  UomConversionResponse,
 } from '../types'
 
 interface Props {
@@ -38,11 +49,18 @@ const balancesCache = createCache<StockBalanceResponse[]>(CACHE_TTL_MS)
 const thresholdsCache = createCache<StockAlertThresholdResponse[]>(CACHE_TTL_MS)
 const alertsCache = createCache<StockAlertResponse[]>(CACHE_TTL_MS)
 
-function filterCacheKey(variantId: string | null, locationId: string | null): string {
-  return `${variantId ?? ''}|${locationId ?? ''}`
+function filterCacheKey(variantId: string | null, locationId: string | null, optionIds: string[], matchAll: boolean): string {
+  return `${variantId ?? ''}|${locationId ?? ''}|${[...optionIds].sort().join(',')}|${matchAll}`
 }
 
-type VariantInfo = { productId: string; sku: string | null; productName: string; optionsLabel: string }
+type VariantInfo = {
+  productId: string
+  sku: string | null
+  productName: string
+  optionsLabel: string
+  baseUom: string
+  uomConversions: UomConversionResponse[]
+}
 
 export default function BimeStockPage({ token, permissions }: Props) {
   const { t } = useTranslation()
@@ -51,26 +69,37 @@ export default function BimeStockPage({ token, permissions }: Props) {
 
   const locations = useApiCall<LocationResponse[]>()
   const products = useApiCall<ProductResponse[]>()
+  const metadataDefs = useApiCall<ProductMetadataResponse[]>()
   const [variantsByProduct, setVariantsByProduct] = useState<Record<string, ProductVariantResponse[]>>({})
   const [variantLookup, setVariantLookup] = useState<Record<string, VariantInfo>>({})
 
   useEffect(() => {
     locations.call(() => bime.locations.list(token))
     products.call(() => bime.products.list(token))
+    metadataDefs.call(() => bime.metadata.list(token))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  const metadataDefsList = metadataDefs.state.status === 'success' ? metadataDefs.state.data : []
+
+  const [optionFilter, setOptionFilter] = useState<string[]>([])
+  const [optionMatchAll, setOptionMatchAll] = useState(false)
+  function toggleOptionFilter(optionId: string) {
+    setOptionFilter(prev => toggleOptionId(prev, optionId))
+  }
 
   useEffect(() => {
     if (products.state.status !== 'success') return
     let cancelled = false
-    Promise.all(products.state.data.map(p => bime.products.get(p.id, token))).then(full => {
+    Promise.allSettled(products.state.data.map(p => bime.products.get(p.id, token))).then(results => {
       if (cancelled) return
       const byProduct: Record<string, ProductVariantResponse[]> = {}
       const lookup: Record<string, VariantInfo> = {}
-      full.forEach(p => {
+      results.forEach(r => {
+        if (r.status !== 'fulfilled') return
+        const p = r.value
         const vs = p.variants ?? []
         byProduct[p.id] = vs
-        vs.forEach(v => { lookup[v.id] = { productId: p.id, sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', ') } })
+        vs.forEach(v => { lookup[v.id] = { productId: p.id, sku: v.sku, productName: p.name, optionsLabel: v.options.map(o => o.value).join(', '), baseUom: v.baseUom, uomConversions: v.uomConversions } })
       })
       setVariantsByProduct(byProduct)
       setVariantLookup(lookup)
@@ -109,6 +138,20 @@ export default function BimeStockPage({ token, permissions }: Props) {
     return loc ? `${loc.name} (${loc.code})` : locationId.slice(0, 8) + '…'
   }
 
+  function variantQuantityLabel(variantId: string, quantity: number): string {
+    const info = variantLookup[variantId]
+    if (!info) return String(quantity)
+    return formatQuantity(quantity, info.baseUom, info.uomConversions)
+  }
+
+  function variantUnits(variantId: string): { base: string; alts: string[] } {
+    const info = variantLookup[variantId]
+    return {
+      base: info?.baseUom ?? '',
+      alts: (info?.uomConversions ?? []).map(c => c.uomName),
+    }
+  }
+
   // ── Record movement ──
   const [recordOpen, setRecordOpen] = useState(false)
   const [recordProductId, setRecordProductId] = useState<string | null>(null)
@@ -116,8 +159,34 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [locationId, setLocationId] = useState<string | null>(null)
   const [movementType, setMovementType] = useState<MovementType>('INBOUND')
   const [delta, setDelta] = useState(0)
+  const [movementUom, setMovementUom] = useState<string | null>(null)
   const [note, setNote] = useState('')
+  const [batchCode, setBatchCode] = useState('')
+  const [batchExpiry, setBatchExpiry] = useState('')
+  const [batchGs1, setBatchGs1] = useState('')
+  const [outboundBatchId, setOutboundBatchId] = useState<string | null>(null)
   const record = useApiCall<StockMovementResponse>()
+  const outboundBatches = useApiCall<BatchResponse[]>()
+  const movementUomConversions = variantId ? (variantLookup[variantId]?.uomConversions ?? []) : []
+
+  function productTracksBatches(productId: string | null): boolean {
+    if (!productId || products.state.status !== 'success') return false
+    return products.state.data.find(p => p.id === productId)?.tracksBatches ?? false
+  }
+  const recordTracksBatches = productTracksBatches(recordProductId)
+  const recordIsInbound = movementType === 'INBOUND' || (movementType === 'ADJUSTMENT' && delta > 0)
+
+  useEffect(() => {
+    setMovementUom(null)
+  }, [variantId])
+
+  useEffect(() => {
+    setOutboundBatchId(null)
+    if (recordOpen && recordTracksBatches && !recordIsInbound && variantId && locationId) {
+      outboundBatches.call(() => bime.batches.list(token, { variantId, locationId, status: 'ACTIVE' }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordOpen, recordTracksBatches, recordIsInbound, variantId, locationId])
 
   const movements = useApiCall<StockMovementResponse[]>()
   const [movFilterProduct, setMovFilterProduct] = useState<string | null>(null)
@@ -125,12 +194,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [movFilterLocation, setMovFilterLocation] = useState<string | null>(null)
 
   function loadMovements() {
-    movements.call(() => movementsCache.get(filterCacheKey(movFilterVariant, movFilterLocation), () => bime.stock.listMovements(token, {
+    movements.call(() => movementsCache.get(filterCacheKey(movFilterVariant, movFilterLocation, optionFilter, optionMatchAll), () => bime.stock.listMovements(token, {
       variantId: movFilterVariant ?? undefined,
       locationId: movFilterLocation ?? undefined,
+      optionIds: optionFilter.length ? optionFilter : undefined,
+      matchAll: optionMatchAll,
     })))
   }
-  useDebouncedEffect(loadMovements, [movFilterVariant, movFilterLocation], FILTER_DEBOUNCE_MS)
+  useDebouncedEffect(loadMovements, [movFilterVariant, movFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
 
   useEffect(() => {
     if (record.state.status !== 'success') return
@@ -140,6 +211,10 @@ export default function BimeStockPage({ token, permissions }: Props) {
     setLocationId(null)
     setDelta(0)
     setNote('')
+    setBatchCode('')
+    setBatchExpiry('')
+    setBatchGs1('')
+    setOutboundBatchId(null)
     movementsCache.clear()
     balancesCache.clear()
     alertsCache.clear()
@@ -156,12 +231,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [balFilterLocation, setBalFilterLocation] = useState<string | null>(null)
 
   function loadBalances() {
-    balances.call(() => balancesCache.get(filterCacheKey(balFilterVariant, balFilterLocation), () => bime.stock.listBalances(token, {
+    balances.call(() => balancesCache.get(filterCacheKey(balFilterVariant, balFilterLocation, optionFilter, optionMatchAll), () => bime.stock.listBalances(token, {
       variantId: balFilterVariant ?? undefined,
       locationId: balFilterLocation ?? undefined,
+      optionIds: optionFilter.length ? optionFilter : undefined,
+      matchAll: optionMatchAll,
     })))
   }
-  useDebouncedEffect(loadBalances, [balFilterVariant, balFilterLocation], FILTER_DEBOUNCE_MS)
+  useDebouncedEffect(loadBalances, [balFilterVariant, balFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
 
   // ── Alert thresholds ──
   const thresholds = useApiCall<StockAlertThresholdResponse[]>()
@@ -170,12 +247,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [thrFilterLocation, setThrFilterLocation] = useState<string | null>(null)
 
   function loadThresholds() {
-    thresholds.call(() => thresholdsCache.get(filterCacheKey(thrFilterVariant, thrFilterLocation), () => bime.stock.listAlertThresholds(token, {
+    thresholds.call(() => thresholdsCache.get(filterCacheKey(thrFilterVariant, thrFilterLocation, optionFilter, optionMatchAll), () => bime.stock.listAlertThresholds(token, {
       variantId: thrFilterVariant ?? undefined,
       locationId: thrFilterLocation ?? undefined,
+      optionIds: optionFilter.length ? optionFilter : undefined,
+      matchAll: optionMatchAll,
     })))
   }
-  useDebouncedEffect(loadThresholds, [thrFilterVariant, thrFilterLocation], FILTER_DEBOUNCE_MS)
+  useDebouncedEffect(loadThresholds, [thrFilterVariant, thrFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
 
   const [thresholdModalOpen, setThresholdModalOpen] = useState(false)
   const [editingThreshold, setEditingThreshold] = useState<StockAlertThresholdResponse | null>(null)
@@ -228,16 +307,77 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const [alertFilterLocation, setAlertFilterLocation] = useState<string | null>(null)
 
   function loadActiveAlerts() {
-    activeAlerts.call(() => alertsCache.get(filterCacheKey(alertFilterVariant, alertFilterLocation), () => bime.stock.listActiveAlerts(token, {
+    activeAlerts.call(() => alertsCache.get(filterCacheKey(alertFilterVariant, alertFilterLocation, optionFilter, optionMatchAll), () => bime.stock.listActiveAlerts(token, {
       variantId: alertFilterVariant ?? undefined,
       locationId: alertFilterLocation ?? undefined,
+      optionIds: optionFilter.length ? optionFilter : undefined,
+      matchAll: optionMatchAll,
     })))
   }
-  useDebouncedEffect(loadActiveAlerts, [alertFilterVariant, alertFilterLocation], FILTER_DEBOUNCE_MS)
+  useDebouncedEffect(loadActiveAlerts, [alertFilterVariant, alertFilterLocation, optionFilter, optionMatchAll], FILTER_DEBOUNCE_MS)
+
+  // ── Scan to locate: barcode -> which locations hold it ──
+  const [locateValue, setLocateValue] = useState('')
+  const [locateHit, setLocateHit] = useState<BarcodeLookupResponse | null>(null)
+  const locateLookup = useApiCall<BarcodeLookupResponse>()
+  const locateInputRef = useRef<HTMLInputElement>(null)
+
+  function submitLocate(raw?: string) {
+    const value = (raw ?? locateValue).trim()
+    if (!value) return
+    locateLookup.call(() => bime.barcodes.lookup(value, token)).then(r => {
+      if (!r.ok) { setLocateHit(null); toast.show(r.message, 'error') }
+    })
+  }
+
+  useEffect(() => {
+    if (locateLookup.state.status !== 'success') return
+    const hit = locateLookup.state.data
+    setLocateHit(hit)
+    setBalFilterProduct(hit.productId); setBalFilterVariant(hit.variant.id)
+    setMovFilterProduct(hit.productId); setMovFilterVariant(hit.variant.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locateLookup.state])
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (document.querySelector('.modal-overlay')) return
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+      if (e.key === 'Enter') {
+        const cur = locateInputRef.current?.value.trim()
+        if (cur) { e.preventDefault(); submitLocate(cur) }
+        return
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault(); setLocateValue(v => v.slice(0, -1)); locateInputRef.current?.focus(); return
+      }
+      if (e.key.length === 1) {
+        e.preventDefault(); setLocateValue(v => v + e.key); locateInputRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const locateTotal = locateHit ? locateHit.variant.stock.reduce((n, s) => n + s.quantity, 0) : 0
 
   const movementColumns: Column<StockMovementResponse>[] = [
     { key: 'type', header: t('bimeStockPage.type'), render: m => <span className="role-badge">{t(`bimeStockPage.movementTypes.${m.movementType}`)}</span> },
-    { key: 'delta', header: t('bimeStockPage.delta'), render: m => <span className={m.delta < 0 ? 'feedback-error' : 'feedback-success'}>{m.delta > 0 ? `+${m.delta}` : m.delta}</span> },
+    {
+      key: 'delta',
+      header: t('bimeStockPage.delta'),
+      render: m => (
+        <span className={m.delta < 0 ? 'feedback-error' : 'feedback-success'}>
+          {m.uom
+            ? `${m.uomQuantity! > 0 ? '+' : ''}${m.uomQuantity} ${m.uom}`
+            : `${m.delta > 0 ? '+' : ''}${variantQuantityLabel(m.variantId, m.delta)}`}
+          {m.uom && <span className="td-muted"> ({variantQuantityLabel(m.variantId, m.delta)})</span>}
+        </span>
+      ),
+    },
     { key: 'variant', header: t('bimeStockPage.variant'), render: m => variantLabel(m.variantId) },
     { key: 'location', header: t('bimeStockPage.location'), render: m => locationLabel(m.locationId) },
     { key: 'note', header: t('bimeStockPage.note'), render: m => <span className="td-muted">{m.note ?? '—'}</span> },
@@ -247,14 +387,14 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const balanceColumns: Column<StockBalanceResponse>[] = [
     { key: 'variant', header: t('bimeStockPage.variant'), render: b => variantLabel(b.variantId) },
     { key: 'location', header: t('bimeStockPage.location'), render: b => locationLabel(b.locationId) },
-    { key: 'quantity', header: t('bimeStockPage.quantity'), render: b => b.quantity },
+    { key: 'quantity', header: t('bimeStockPage.quantity'), render: b => variantQuantityLabel(b.variantId, b.quantity) },
     { key: 'modified', header: t('bimeStockPage.modified'), render: b => <span className="td-muted">{new Date(b.modifiedAt).toLocaleString()}</span> },
   ]
 
   const thresholdColumns: Column<StockAlertThresholdResponse>[] = [
     { key: 'variant', header: t('bimeStockPage.variant'), render: th => variantLabel(th.variantId) },
     { key: 'location', header: t('bimeStockPage.location'), render: th => locationLabel(th.locationId) },
-    { key: 'threshold', header: t('bimeStockPage.threshold'), render: th => th.threshold },
+    { key: 'threshold', header: t('bimeStockPage.threshold'), render: th => variantQuantityLabel(th.variantId, th.threshold) },
     { key: 'modified', header: t('bimeStockPage.modified'), render: th => <span className="td-muted">{new Date(th.modifiedAt).toLocaleString()}</span> },
     ...(permissions.canManageBime ? [{
       key: 'actions',
@@ -271,8 +411,8 @@ export default function BimeStockPage({ token, permissions }: Props) {
   const activeAlertColumns: Column<StockAlertResponse>[] = [
     { key: 'variant', header: t('bimeStockPage.variant'), render: a => variantLabel(a.variantId) },
     { key: 'location', header: t('bimeStockPage.location'), render: a => locationLabel(a.locationId) },
-    { key: 'quantity', header: t('bimeStockPage.quantity'), render: a => <span className="feedback-error">{a.quantity}</span> },
-    { key: 'threshold', header: t('bimeStockPage.threshold'), render: a => a.threshold },
+    { key: 'quantity', header: t('bimeStockPage.quantity'), render: a => <span className="feedback-error">{variantQuantityLabel(a.variantId, a.quantity)}</span> },
+    { key: 'threshold', header: t('bimeStockPage.threshold'), render: a => variantQuantityLabel(a.variantId, a.threshold) },
     { key: 'triggeredAt', header: t('bimeStockPage.triggeredAt'), render: a => <span className="td-muted">{new Date(a.triggeredAt).toLocaleString()}</span> },
   ]
 
@@ -285,10 +425,97 @@ export default function BimeStockPage({ token, permissions }: Props) {
         </div>
       </div>
 
+      <FilterDisclosure activeCount={optionFilter.length}>
+        <FilterChips
+          metadataDefs={metadataDefsList}
+          selectedOptionIds={optionFilter}
+          onToggle={toggleOptionFilter}
+          onClear={() => setOptionFilter([])}
+          matchAll={optionMatchAll}
+          onMatchAllChange={setOptionMatchAll}
+        />
+      </FilterDisclosure>
+
+      <div className="barcode-lookup">
+        <div className="barcode-lookup-head">
+          <span>{t('bimeStockPage.locateLabel')}</span>
+        </div>
+        <div className="barcode-lookup-bar">
+          <div className="barcode-lookup-field">
+            <SearchIcon className="barcode-lookup-icon" />
+            <input
+              ref={locateInputRef}
+              value={locateValue}
+              onChange={e => setLocateValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitLocate() } }}
+              placeholder={t('bimeStockPage.locatePlaceholder')}
+            />
+            {locateValue && (
+              <button
+                type="button"
+                className="barcode-lookup-clear"
+                aria-label={t('common.actions.clear')}
+                onClick={() => { setLocateValue(''); setLocateHit(null) }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <button className="btn btn-primary btn-sm" type="button" onClick={() => submitLocate()} disabled={!locateValue.trim()}>
+            {t('bimeStockPage.locateAction')}
+          </button>
+        </div>
+        {locateHit && (() => {
+          const factor = locateHit.factor && locateHit.factor > 1 ? locateHit.factor : 1
+          const isPack = factor > 1
+          const unit = isPack ? locateHit.uom : locateHit.variant.baseUom
+          const inUnit = (q: number) => `${(q / factor).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`
+          const inBase = (q: number) => `${q.toLocaleString()} ${locateHit.variant.baseUom}`
+          const stock = [...locateHit.variant.stock].sort((a, b) => b.quantity - a.quantity)
+          return (
+            <div className="stock-locate-result">
+              <div className="stock-locate-head">
+                <span className="stock-locate-name">
+                  {locateHit.productName}
+                  {!locateHit.variant.isActive && (
+                    <span className="barcode-lookup-retired">{t('bimeStockPage.locateRetired')}</span>
+                  )}
+                </span>
+                <span className="stock-locate-sub">
+                  {locateHit.variant.sku ?? locateHit.productSku}
+                  {isPack && ` · ${locateHit.uom} ×${locateHit.factor}`}
+                </span>
+              </div>
+              {stock.length === 0
+                ? <p className="td-muted stock-locate-empty">{t('bimeStockPage.locateNoStock')}</p>
+                : (
+                  <ul className="stock-locate-list">
+                    {stock.map(s => (
+                      <li key={s.locationId}>
+                        <span className="stock-locate-loc">{locationLabel(s.locationId)}</span>
+                        <span className="stock-locate-qty">
+                          {inUnit(s.quantity)}
+                          {isPack && <span className="td-muted"> ({inBase(s.quantity)})</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              <div className="stock-locate-total">
+                {t('bimeStockPage.locateTotal', { qty: inUnit(locateTotal) })}
+                {isPack && ` (${inBase(locateTotal)})`}
+              </div>
+            </div>
+          )
+        })()}
+      </div>
+
       <Tabs
         tabs={[
           { id: 'movements', label: t('bimeStockPage.tabMovements') },
           { id: 'balances', label: t('bimeStockPage.tabBalances') },
+          { id: 'transfers', label: t('bimeStockPage.tabTransfers') },
+          { id: 'batches', label: t('bimeStockPage.tabBatches') },
           { id: 'thresholds', label: t('bimeStockPage.tabThresholds') },
           { id: 'alerts', label: t('bimeStockPage.tabAlerts') },
         ]}
@@ -354,6 +581,35 @@ export default function BimeStockPage({ token, permissions }: Props) {
               headerAction={<button className="btn btn-outline" onClick={loadBalances} type="button">{t('common.actions.refresh')}</button>}
             />
           </div>
+        )}
+
+        {activeTab === 'transfers' && (
+          <BimeTransfersTab
+            token={token}
+            canManage={permissions.canManageBime}
+            canApprove={permissions.canApproveBimeTransfers}
+            locationItems={locationItems}
+            productItems={productItems}
+            variantItemsFor={variantItemsFor}
+            variantLabel={variantLabel}
+            locationLabel={locationLabel}
+            variantQuantityLabel={variantQuantityLabel}
+            variantUnits={variantUnits}
+            productForVariant={vid => variantLookup[vid]?.productId ?? null}
+          />
+        )}
+
+        {activeTab === 'batches' && (
+          <BimeBatchesTab
+            token={token}
+            canManage={permissions.canManageBime}
+            canRecall={permissions.canRecallBimeBatches}
+            productItems={productItems}
+            locationItems={locationItems}
+            variantItemsFor={variantItemsFor}
+            variantLabel={variantLabel}
+            locationLabel={locationLabel}
+          />
         )}
 
         {activeTab === 'thresholds' && (
@@ -443,8 +699,49 @@ export default function BimeStockPage({ token, permissions }: Props) {
           </div>
           <div className="field">
             <label>{t('bimeStockPage.delta')}</label>
-            <input type="number" value={delta} onChange={e => setDelta(parseInt(e.target.value, 10) || 0)} />
+            <input type="number" step="any" value={delta} onChange={e => setDelta(parseFloat(e.target.value) || 0)} />
           </div>
+          {movementUomConversions.length > 0 && (
+            <div className="field">
+              <label>{t('bimeStockPage.unit')}</label>
+              <select value={movementUom ?? ''} onChange={e => setMovementUom(e.target.value || null)}>
+                <option value="">{variantId ? variantLookup[variantId]?.baseUom : t('bimeStockPage.unit')}</option>
+                {movementUomConversions.map(c => <option key={c.uomName} value={c.uomName}>{c.uomName}</option>)}
+              </select>
+            </div>
+          )}
+          {recordTracksBatches && recordIsInbound && (
+            <>
+              <div className="field">
+                <label>
+                  {t('bimeStockPage.batchGs1')}
+                  <InfoTip label={t('bimeStockPage.batchGs1Explain')}><Gs1Help /></InfoTip>
+                </label>
+                <input value={batchGs1} onChange={e => setBatchGs1(e.target.value)} placeholder={t('bimeStockPage.batchGs1Placeholder')} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.batchCode')}</label>
+                <input value={batchCode} onChange={e => setBatchCode(e.target.value)} placeholder="LOT-2026-08-A" disabled={!!batchGs1.trim()} />
+              </div>
+              <div className="field">
+                <label>{t('bimeStockPage.batchExpiry')}</label>
+                <input type="date" value={batchExpiry} onChange={e => setBatchExpiry(e.target.value)} disabled={!!batchGs1.trim()} />
+              </div>
+            </>
+          )}
+          {recordTracksBatches && !recordIsInbound && (
+            <div className="field">
+              <label>{t('bimeStockPage.batchOutbound')}</label>
+              <select value={outboundBatchId ?? ''} onChange={e => setOutboundBatchId(e.target.value || null)} disabled={!variantId || !locationId}>
+                <option value="">{t('bimeStockPage.batchFefo')}</option>
+                {(outboundBatches.state.status === 'success' ? outboundBatches.state.data : []).map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.batchCode}{b.expiryDate ? ` · ${b.expiryDate}` : ''} · {b.totalQuantity}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="field">
             <label>{t('bimeStockPage.note')}</label>
             <input value={note} onChange={e => setNote(e.target.value)} placeholder={t('bimeStockPage.notePlaceholder')} />
@@ -453,9 +750,24 @@ export default function BimeStockPage({ token, permissions }: Props) {
         <div className="actions">
           <button
             className="btn btn-primary"
-            disabled={record.state.status === 'loading' || !variantId || !locationId || delta === 0}
+            disabled={
+              record.state.status === 'loading' || !variantId || !locationId || delta === 0
+              || (recordTracksBatches && recordIsInbound && !batchGs1.trim() && !batchCode.trim())
+            }
             onClick={() => variantId && locationId && record.call(() => bime.stock.recordMovement(
-              { variantId, locationId, movementType, delta, note: note.trim() || undefined }, token,
+              {
+                variantId, locationId, movementType, delta,
+                uom: movementUom ?? undefined,
+                note: note.trim() || undefined,
+                ...(recordTracksBatches && recordIsInbound
+                  ? {
+                      gs1: batchGs1.trim() || undefined,
+                      batchCode: batchGs1.trim() ? undefined : (batchCode.trim() || undefined),
+                      expiryDate: batchGs1.trim() ? undefined : (batchExpiry || undefined),
+                    }
+                  : {}),
+                ...(recordTracksBatches && !recordIsInbound && outboundBatchId ? { batchId: outboundBatchId } : {}),
+              }, token,
             ))}
           >
             {record.state.status === 'loading' ? t('common.actions.loading') : t('common.actions.create')}
@@ -502,8 +814,9 @@ export default function BimeStockPage({ token, permissions }: Props) {
             <input
               type="number"
               min={0}
+              step="any"
               value={thresholdForm.threshold}
-              onChange={e => setThresholdForm(f => ({ ...f, threshold: parseInt(e.target.value, 10) || 0 }))}
+              onChange={e => setThresholdForm(f => ({ ...f, threshold: parseFloat(e.target.value) || 0 }))}
             />
           </div>
         </div>

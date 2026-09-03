@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -17,7 +18,7 @@ import java.util.UUID;
 public class VariantStockDTO {
     private UUID locationId;
     @Schema(description = "Net on-hand quantity. The sum of all recorded movements (inbound minus outbound) at this location")
-    private int quantity;
+    private BigDecimal quantity;
     @Schema(description = "Timestamp of the last stock movement that affected this balance")
     private LocalDateTime modifiedAt;
 }

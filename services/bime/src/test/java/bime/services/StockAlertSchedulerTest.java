@@ -35,6 +35,8 @@ class StockAlertSchedulerTest {
     @Mock
     private StockAlertCheckService stockAlertCheckService;
     @Mock
+    private BatchExpiryCheckService batchExpiryCheckService;
+    @Mock
     private BimeDbHandle handle;
 
     private StockAlertScheduler scheduler;
@@ -45,7 +47,7 @@ class StockAlertSchedulerTest {
 
     @BeforeEach
     void setUp() {
-        scheduler = new StockAlertScheduler(raumClient, bimeDbService, openBaoService, stockAlertCheckService);
+        scheduler = new StockAlertScheduler(raumClient, bimeDbService, openBaoService, stockAlertCheckService, batchExpiryCheckService);
         when(openBaoService.getToken()).thenReturn(VAULT_TOKEN);
     }
 

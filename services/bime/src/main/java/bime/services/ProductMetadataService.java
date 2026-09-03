@@ -3,8 +3,11 @@ package bime.services;
 import bime.db.BimeContextService;
 import bime.db.BimeDbHandle;
 import bime.dto.*;
+import common.exception.BadRequestException;
+import common.exception.ConflictException;
 import common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -42,12 +45,12 @@ public class ProductMetadataService {
     public Flux<ProductMetadataResponseDTO> getAllMetadata() {
         return ctx.withHandleMany((caller, handle) -> handle.client().sql("""
                 SELECT pm.id, pm.org_id, pm.name, pm.created_at,
-                       pmo.id AS option_id, pmo.value AS option_value,
+                       pmo.id AS option_id, pmo.value AS option_value, pmo.code AS option_code,
                        pmo.created_at AS option_created_at
                 FROM product_metadata pm
                 LEFT JOIN product_metadata_option pmo ON pmo.metadata_id = pm.id
                 WHERE pm.org_id = :orgId
-                ORDER BY pm.name, pmo.value
+                ORDER BY pm.name, pmo.code
                 """)
                 .bind("orgId", caller.getOrgId())
                 .fetch()
@@ -60,12 +63,12 @@ public class ProductMetadataService {
     public Mono<ProductMetadataResponseDTO> getMetadataById(UUID id) {
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
                 SELECT pm.id, pm.org_id, pm.name, pm.created_at,
-                       pmo.id AS option_id, pmo.value AS option_value,
+                       pmo.id AS option_id, pmo.value AS option_value, pmo.code AS option_code,
                        pmo.created_at AS option_created_at
                 FROM product_metadata pm
                 LEFT JOIN product_metadata_option pmo ON pmo.metadata_id = pm.id
                 WHERE pm.id = :id AND pm.org_id = :orgId
-                ORDER BY pmo.value
+                ORDER BY pmo.code
                 """)
                 .bind("id", id)
                 .bind("orgId", caller.getOrgId())
@@ -96,20 +99,46 @@ public class ProductMetadataService {
     }
 
     public Mono<MetadataOptionResponseDTO> addOption(UUID metadataId, MetadataOptionRequestDTO dto) {
+        String code;
+        if (dto.getCode() != null && !dto.getCode().isBlank()) {
+            code = dto.getCode();
+        } else {
+            if (hasUnrepresentableCharacters(dto.getValue())) {
+                return Mono.error(new BadRequestException(
+                        "value contains characters that cannot be auto-derived into a code (e.g. accented letters, " +
+                                "Cyrillic, CJK); please provide an explicit code"));
+            }
+            code = deriveCode(dto.getValue());
+        }
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
-                INSERT INTO product_metadata_option (metadata_id, value)
-                SELECT id, :value FROM product_metadata
+                INSERT INTO product_metadata_option (metadata_id, value, code)
+                SELECT id, :value, :code FROM product_metadata
                 WHERE id = :metadataId AND org_id = :orgId
-                RETURNING id, metadata_id, value, created_at
+                RETURNING id, metadata_id, value, code, created_at
                 """)
                 .bind("value", dto.getValue())
+                .bind("code", code)
                 .bind("metadataId", metadataId)
                 .bind("orgId", caller.getOrgId())
                 .fetch()
                 .one()
                 .map(this::toOptionResponseDTO)
                 .switchIfEmpty(Mono.error(new NotFoundException("Metadata not found")))
+                .onErrorMap(DataIntegrityViolationException.class, e ->
+                        new ConflictException("An option with the same value or code already exists in this definition"))
         );
+    }
+
+    static String deriveCode(String value) {
+        String stripped = value == null ? "" : value.toUpperCase().replaceAll("[^A-Z0-9]", "");
+        return stripped.isEmpty() ? "OPT" : stripped.substring(0, Math.min(stripped.length(), 50));
+    }
+
+
+    static boolean hasUnrepresentableCharacters(String value) {
+        if (value == null) return false;
+        return value.toUpperCase().codePoints()
+                .anyMatch(cp -> Character.isLetterOrDigit(cp) && cp > 127);
     }
 
     public Mono<Void> removeOption(UUID metadataId, UUID optionId) {
@@ -293,6 +322,7 @@ public class ProductMetadataService {
                         .id(optionId)
                         .metadataId(metaId)
                         .value((String) row.get("option_value"))
+                        .code((String) row.get("option_code"))
                         .createdAt((LocalDateTime) row.get("option_created_at"))
                         .build()
                 );
@@ -306,6 +336,7 @@ public class ProductMetadataService {
                 .id((UUID) row.get("id"))
                 .metadataId((UUID) row.get("metadata_id"))
                 .value((String) row.get("value"))
+                .code((String) row.get("code"))
                 .createdAt((LocalDateTime) row.get("created_at"))
                 .build();
     }

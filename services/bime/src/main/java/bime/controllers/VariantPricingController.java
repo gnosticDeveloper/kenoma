@@ -1,5 +1,6 @@
 package bime.controllers;
 
+import bime.dto.VariantBatchCostRequestDTO;
 import bime.dto.VariantBatchPriceRequestDTO;
 import bime.services.ProductVariantService;
 import common.exception.ErrorResponse;
@@ -47,5 +48,25 @@ public class VariantPricingController {
     @PreAuthorize("hasAuthority('BIME_MANAGE')")
     public Mono<List<UUID>> batchUpdatePrices(@RequestBody VariantBatchPriceRequestDTO dto) {
         return productVariantService.batchUpdatePrices(dto);
+    }
+
+    @Operation(
+            summary = "Batch-update variant costs",
+            description = "Sets cost (COGS) on many variants (possibly spanning multiple products) in one call - " +
+                    "the workflow before this was opening each variant's edit modal individually. All costs are " +
+                    "stored in the organization's current base currency, regardless of the caller's own currency " +
+                    "preferences. Requires BIME_MANAGE."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "IDs of the variants that were updated"),
+            @ApiResponse(responseCode = "400", description = "Empty batch, missing variantId/cost, or org has no base currency configured", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "One or more variant IDs do not exist in this org", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PatchMapping("/cost-batch")
+    @PreAuthorize("hasAuthority('BIME_MANAGE')")
+    public Mono<List<UUID>> batchUpdateCosts(@RequestBody VariantBatchCostRequestDTO dto) {
+        return productVariantService.batchUpdateCosts(dto);
     }
 }

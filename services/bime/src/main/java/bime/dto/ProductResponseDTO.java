@@ -24,6 +24,8 @@ public class ProductResponseDTO {
     @Schema(description = "Optional description of the product")
     private String description;
     private Boolean isActive;
+    @Schema(description = "Whether this product's stock is tracked by production batch (lot) and expiry date")
+    private Boolean tracksBatches;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
     @Schema(description = "Metadata attributes assigned to this product, each with the options that are selected for it")

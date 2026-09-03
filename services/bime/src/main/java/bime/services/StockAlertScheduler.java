@@ -22,6 +22,7 @@ public class StockAlertScheduler {
     private final BimeDbService bimeDbService;
     private final OpenBaoService openBaoService;
     private final StockAlertCheckService stockAlertCheckService;
+    private final BatchExpiryCheckService batchExpiryCheckService;
 
     @Scheduled(cron = "${bime.stock-alerts.check-cron:0 0 4 * * *}")
     public void checkStockLevels() {
@@ -39,6 +40,21 @@ public class StockAlertScheduler {
                         }))
                 .then()
                 .subscribe(null, e -> log.error("Stock alert check failed", e));
+    }
+
+    @Scheduled(cron = "${bime.batch-expiry.check-cron:0 30 4 * * *}")
+    public void checkBatchExpiry() {
+        String vaultToken = openBaoService.getToken();
+        raumClient.getActiveOrgIds(vaultToken)
+                .retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(2)))
+                .concatMap(orgId -> bimeDbService.getHandleViaVaultToken(orgId, vaultToken)
+                        .flatMap(handle -> batchExpiryCheckService.checkOrg(orgId, handle))
+                        .onErrorResume(e -> {
+                            log.error("Batch expiry check failed for org {}", orgId, e);
+                            return Mono.empty();
+                        }))
+                .then()
+                .subscribe(null, e -> log.error("Batch expiry check failed", e));
     }
 
     private Mono<Void> processOrg(UUID orgId, String vaultToken) {

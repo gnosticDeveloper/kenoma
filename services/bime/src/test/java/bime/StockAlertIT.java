@@ -8,6 +8,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -38,7 +39,7 @@ class StockAlertIT extends BaseIT {
 
         assertThat(response.getVariantId()).isEqualTo(fixture.variantId());
         assertThat(response.getLocationId()).isEqualTo(fixture.locationId());
-        assertThat(response.getThreshold()).isEqualTo(5);
+        assertThat(response.getThreshold()).isEqualByComparingTo(BigDecimal.valueOf(5));
         assertThat(response.getOrgId()).isEqualTo(ORG_ID);
     }
 
@@ -49,7 +50,7 @@ class StockAlertIT extends BaseIT {
 
         StockAlertThresholdResponseDTO updated = putThreshold(fixture.variantId(), fixture.locationId(), 20);
 
-        assertThat(updated.getThreshold()).isEqualTo(20);
+        assertThat(updated.getThreshold()).isEqualByComparingTo(BigDecimal.valueOf(20));
         client.get().uri("/stock/alerts/thresholds?variantId={v}&locationId={l}", fixture.variantId(), fixture.locationId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .exchange()
@@ -64,7 +65,7 @@ class StockAlertIT extends BaseIT {
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
         dto.setVariantId(fixture.variantId());
         dto.setLocationId(fixture.locationId());
-        dto.setThreshold(-1);
+        dto.setThreshold(BigDecimal.valueOf(-1));
 
         client.put().uri("/stock/alerts/thresholds")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -80,7 +81,7 @@ class StockAlertIT extends BaseIT {
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
         dto.setVariantId(UUID.randomUUID());
         dto.setLocationId(location.getId());
-        dto.setThreshold(5);
+        dto.setThreshold(BigDecimal.valueOf(5));
 
         client.put().uri("/stock/alerts/thresholds")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -96,7 +97,7 @@ class StockAlertIT extends BaseIT {
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
         dto.setVariantId(fixture.variantId());
         dto.setLocationId(UUID.randomUUID());
-        dto.setThreshold(5);
+        dto.setThreshold(BigDecimal.valueOf(5));
 
         client.put().uri("/stock/alerts/thresholds")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -117,6 +118,43 @@ class StockAlertIT extends BaseIT {
                 .expectStatus().isNoContent();
 
         client.get().uri("/stock/alerts/thresholds?variantId={v}&locationId={l}", fixture.variantId(), fixture.locationId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockAlertThresholdResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void getThresholds_filtersByOptionIds() {
+        VariantFixture f1 = buildVariantFixture();
+        VariantFixture f2 = buildVariantFixture();
+        putThreshold(f1.variantId(), f1.locationId(), 5);
+        putThreshold(f2.variantId(), f2.locationId(), 10);
+
+        List<StockAlertThresholdResponseDTO> thresholds = client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/alerts/thresholds")
+                        .queryParam("optionIds", f1.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockAlertThresholdResponseDTO.class)
+                .returnResult().getResponseBody();
+
+        assertThat(thresholds).isNotNull();
+        assertThat(thresholds).extracting(StockAlertThresholdResponseDTO::getVariantId).containsExactly(f1.variantId());
+    }
+
+    @Test
+    void getThresholds_unknownOptionId_returnsEmptyNotError() {
+        VariantFixture fixture = buildVariantFixture();
+        putThreshold(fixture.variantId(), fixture.locationId(), 5);
+
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/alerts/thresholds")
+                        .queryParam("optionIds", UUID.randomUUID())
+                        .build())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .exchange()
                 .expectStatus().isOk()
@@ -183,7 +221,7 @@ class StockAlertIT extends BaseIT {
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
         dto.setVariantId(fixture.variantId());
         dto.setLocationId(fixture.locationId());
-        dto.setThreshold(5);
+        dto.setThreshold(BigDecimal.valueOf(5));
 
         client.put().uri("/stock/alerts/thresholds")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -233,7 +271,7 @@ class StockAlertIT extends BaseIT {
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
         dto.setVariantId(orgAFixture.variantId());
         dto.setLocationId(orgAFixture.locationId());
-        dto.setThreshold(1);
+        dto.setThreshold(BigDecimal.valueOf(1));
 
         client.put().uri("/stock/alerts/thresholds")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -254,7 +292,7 @@ class StockAlertIT extends BaseIT {
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
         dto.setVariantId(orgAFixture.variantId());
         dto.setLocationId(orgBLocation.getId());
-        dto.setThreshold(1);
+        dto.setThreshold(BigDecimal.valueOf(1));
 
         client.put().uri("/stock/alerts/thresholds")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -306,7 +344,7 @@ class StockAlertIT extends BaseIT {
         StockAlertThresholdRequestDTO dto = new StockAlertThresholdRequestDTO();
         dto.setVariantId(variantId);
         dto.setLocationId(locationId);
-        dto.setThreshold(threshold);
+        dto.setThreshold(BigDecimal.valueOf(threshold));
 
         StockAlertThresholdResponseDTO response = client.put().uri("/stock/alerts/thresholds")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -320,7 +358,7 @@ class StockAlertIT extends BaseIT {
         return response;
     }
 
-    private record VariantFixture(UUID variantId, UUID locationId, UUID productId) {}
+    private record VariantFixture(UUID variantId, UUID locationId, UUID productId, UUID optionId) {}
 
     private VariantFixture buildVariantFixture() {
         LocationResponseDTO location = postLocation("Loc-" + UUID.randomUUID().toString().substring(0, 6), "LOC-" + UUID.randomUUID().toString().substring(0, 6));
@@ -351,7 +389,6 @@ class StockAlertIT extends BaseIT {
 
         ProductVariantRequestDTO varDto = new ProductVariantRequestDTO();
         varDto.setOptionIds(List.of(option.getId()));
-        varDto.setSku("VAR-" + UUID.randomUUID());
         ProductVariantResponseDTO variant = client.post()
                 .uri("/products/{productId}/variants", product.getId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -363,7 +400,7 @@ class StockAlertIT extends BaseIT {
                 .returnResult().getResponseBody();
         assertThat(variant).isNotNull();
 
-        return new VariantFixture(variant.getId(), location.getId(), product.getId());
+        return new VariantFixture(variant.getId(), location.getId(), product.getId(), option.getId());
     }
 
     private LocationResponseDTO postLocation(String name, String code) {

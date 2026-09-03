@@ -6,7 +6,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>studio.gnosticdeveloper</groupId>
     <artifactId>kenoma</artifactId>
-    <version>0.1.1-BETA</version>
+    <version>0.2.0-BETA</version>
     <packaging>pom</packaging>
     <name>kenoma</name>
     <description>Kenoma — Privacy-First B2B SaaS Infrastructure</description>

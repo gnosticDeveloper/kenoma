@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.text.MessageFormat;
 import java.util.Locale;
 import java.util.MissingResourceException;
@@ -86,7 +87,7 @@ public class MailgunService {
     }
 
     public Mono<Void> sendStockAlertEmail(String toEmail, String productLabel, String locationName,
-                                           int quantity, int threshold, String locale) {
+                                           BigDecimal quantity, BigDecimal threshold, String locale) {
         ResourceBundle messages = messagesFor(locale);
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
@@ -95,6 +96,26 @@ public class MailgunService {
         form.add("subject", MessageFormat.format(messages.getString("stock_alert.subject"), productLabel, locationName));
         form.add("text", MessageFormat.format(messages.getString("stock_alert.body"),
                 productLabel, locationName, quantity, threshold));
+
+        return webClient.post()
+                .uri("/{domain}/messages", domain)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(BodyInserters.fromFormData(form))
+                .retrieve()
+                .toBodilessEntity()
+                .then();
+    }
+
+    public Mono<Void> sendBatchExpiryEmail(String toEmail, String productLabel, String locationName,
+                                           String batchCode, String expiryDate, BigDecimal quantity, String locale) {
+        ResourceBundle messages = messagesFor(locale);
+
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("from", stockAlertFrom);
+        form.add("to", toEmail);
+        form.add("subject", MessageFormat.format(messages.getString("batch_expiry.subject"), productLabel, locationName));
+        form.add("text", MessageFormat.format(messages.getString("batch_expiry.body"),
+                productLabel, locationName, batchCode, expiryDate, quantity));
 
         return webClient.post()
                 .uri("/{domain}/messages", domain)

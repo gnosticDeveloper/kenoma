@@ -27,14 +27,15 @@ public class ProductService {
 
     public Mono<ProductResponseDTO> createProduct(ProductRequestDTO dto) {
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
-                INSERT INTO products (org_id, sku, name, description)
-                VALUES (:orgId, :sku, :name, :description)
-                RETURNING id, org_id, sku, name, description, is_active, created_at, modified_at
+                INSERT INTO products (org_id, sku, name, description, tracks_batches)
+                VALUES (:orgId, :sku, :name, :description, :tracksBatches)
+                RETURNING id, org_id, sku, name, description, is_active, tracks_batches, created_at, modified_at
                 """)
                 .bind("orgId", caller.getOrgId())
                 .bind("sku", dto.getSku())
                 .bind("name", dto.getName())
                 .bind("description", dto.getDescription() != null ? dto.getDescription() : "")
+                .bind("tracksBatches", Boolean.TRUE.equals(dto.getTracksBatches()))
                 .fetch()
                 .one()
                 .map(this::toResponseDTO)
@@ -63,17 +64,26 @@ public class ProductService {
         );
     }
 
-    public Flux<ProductResponseDTO> getProducts() {
+    public Flux<ProductResponseDTO> getProducts(List<UUID> optionIds, boolean matchAll) {
+        boolean hasFilter = optionIds != null && !optionIds.isEmpty();
         return ctx.withHandleMany((caller, handle) -> handle.client().sql("""
-                SELECT p.id, p.org_id, p.sku, p.name, p.description, p.is_active, p.created_at, p.modified_at,
+                SELECT p.id, p.org_id, p.sku, p.name, p.description, p.is_active, p.tracks_batches, p.created_at, p.modified_at,
                        COUNT(pv.id) AS variant_count
                 FROM products p
                 LEFT JOIN product_variants pv ON pv.product_id = p.id
                 WHERE p.org_id = :orgId
+                  AND (:hasFilter = false OR (
+                      SELECT COUNT(DISTINCT pos.option_id) FROM product_metadata_assignments pma
+                      JOIN product_option_selections pos ON pos.assignment_id = pma.id
+                      WHERE pma.product_id = p.id AND pos.option_id = ANY(:optionIds)
+                  ) >= CASE WHEN :matchAll THEN cardinality(:optionIds) ELSE 1 END)
                 GROUP BY p.id
                 ORDER BY p.name
                 """)
                 .bind("orgId", caller.getOrgId())
+                .bind("hasFilter", hasFilter)
+                .bind("matchAll", matchAll)
+                .bind("optionIds", (hasFilter ? optionIds : List.<UUID>of()).toArray(new UUID[0]))
                 .fetch()
                 .all()
                 .map(row -> ProductResponseDTO.builder()
@@ -83,6 +93,7 @@ public class ProductService {
                         .name((String) row.get("name"))
                         .description((String) row.get("description"))
                         .isActive((Boolean) row.get("is_active"))
+                        .tracksBatches((Boolean) row.get("tracks_batches"))
                         .createdAt((LocalDateTime) row.get("created_at"))
                         .modifiedAt((LocalDateTime) row.get("modified_at"))
                         .variantCount(((Long) row.get("variant_count")).intValue())
@@ -94,14 +105,15 @@ public class ProductService {
         return ctx.withHandle((caller, handle) -> handle.client().sql("""
                 UPDATE products
                 SET sku = :sku, name = :name, description = :description,
-                    is_active = :isActive, modified_at = :modifiedAt
+                    is_active = :isActive, tracks_batches = :tracksBatches, modified_at = :modifiedAt
                 WHERE id = :id AND org_id = :orgId
-                RETURNING id, org_id, sku, name, description, is_active, created_at, modified_at
+                RETURNING id, org_id, sku, name, description, is_active, tracks_batches, created_at, modified_at
                 """)
                 .bind("sku", dto.getSku())
                 .bind("name", dto.getName())
                 .bind("description", dto.getDescription() != null ? dto.getDescription() : "")
                 .bind("isActive", dto.getIsActive() != null ? dto.getIsActive() : Boolean.TRUE)
+                .bind("tracksBatches", Boolean.TRUE.equals(dto.getTracksBatches()))
                 .bind("modifiedAt", LocalDateTime.now())
                 .bind("id", id)
                 .bind("orgId", caller.getOrgId())
@@ -132,7 +144,7 @@ public class ProductService {
 
     private Mono<ProductResponseDTO> fetchProductRow(BimeDbHandle handle, UUID id, UUID orgId) {
         return handle.client().sql("""
-                SELECT id, org_id, sku, name, description, is_active, created_at, modified_at
+                SELECT id, org_id, sku, name, description, is_active, tracks_batches, created_at, modified_at
                 FROM products
                 WHERE id = :id AND org_id = :orgId
                 """)
@@ -147,13 +159,13 @@ public class ProductService {
     private Mono<List<AssignedMetadataDTO>> loadProductMetadata(BimeDbHandle handle, UUID productId) {
         return handle.client().sql("""
                 SELECT pm.id AS metadata_id, pm.name AS metadata_name,
-                       pmo.id AS option_id, pmo.value AS option_value
+                       pmo.id AS option_id, pmo.value AS option_value, pmo.code AS option_code
                 FROM product_metadata_assignments pma
                 JOIN product_metadata pm ON pm.id = pma.metadata_id
                 LEFT JOIN product_option_selections pos ON pos.assignment_id = pma.id
                 LEFT JOIN product_metadata_option pmo ON pmo.id = pos.option_id
                 WHERE pma.product_id = :productId
-                ORDER BY pm.name, pmo.value
+                ORDER BY pm.name, pmo.code
                 """)
                 .bind("productId", productId)
                 .fetch()
@@ -178,6 +190,7 @@ public class ProductService {
                         .id(optionId)
                         .metadataId(metaId)
                         .value((String) row.get("option_value"))
+                        .code((String) row.get("option_code"))
                         .build()
                 );
             }
@@ -193,6 +206,7 @@ public class ProductService {
                 .name((String) row.get("name"))
                 .description((String) row.get("description"))
                 .isActive((Boolean) row.get("is_active"))
+                .tracksBatches((Boolean) row.get("tracks_batches"))
                 .createdAt((LocalDateTime) row.get("created_at"))
                 .modifiedAt((LocalDateTime) row.get("modified_at"))
                 .build();

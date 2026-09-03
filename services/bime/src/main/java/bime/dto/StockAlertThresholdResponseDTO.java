@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -18,7 +19,7 @@ public class StockAlertThresholdResponseDTO {
     private UUID orgId;
     private UUID variantId;
     private UUID locationId;
-    private int threshold;
+    private BigDecimal threshold;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
 }

@@ -29,10 +29,34 @@ class BimeAuthenticationTest {
     }
 
     @Test
-    void bimeAdmin_hasAllThreePermissions() {
+    void bimeAdmin_hasAllPermissions() {
         List<String> authorities = authorityNames(auth("BIME_ADMIN"));
         assertThat(authorities).containsExactlyInAnyOrder(
-                "BIME_MANAGE", "BIME_VIEW", "BIME_VIEW_CATALOG");
+                "BIME_MANAGE", "BIME_VIEW", "BIME_VIEW_CATALOG", "BIME_TRANSFER_APPROVE", "BIME_RECALL_MANAGE", "BIME_SALE");
+    }
+
+    @Test
+    void bimeStockOperator_hasManageButNotTransferApprove() {
+        List<String> authorities = authorityNames(auth("BIME_STOCK_OPERATOR"));
+        assertThat(authorities).containsExactlyInAnyOrder(
+                "BIME_MANAGE", "BIME_VIEW", "BIME_VIEW_CATALOG", "BIME_SALE");
+        assertThat(authorities).doesNotContain("BIME_TRANSFER_APPROVE");
+    }
+
+    @Test
+    void bimeCashier_hasSaleAndViewOnly() {
+        List<String> authorities = authorityNames(auth("BIME_CASHIER"));
+        assertThat(authorities).containsExactlyInAnyOrder(
+                "BIME_SALE", "BIME_VIEW", "BIME_VIEW_CATALOG");
+        assertThat(authorities).doesNotContain("BIME_MANAGE");
+    }
+
+    @Test
+    void bimeTransferApprover_canApproveButNotManage() {
+        List<String> authorities = authorityNames(auth("BIME_TRANSFER_APPROVER"));
+        assertThat(authorities).containsExactlyInAnyOrder(
+                "BIME_VIEW", "BIME_VIEW_CATALOG", "BIME_TRANSFER_APPROVE");
+        assertThat(authorities).doesNotContain("BIME_MANAGE");
     }
 
     @Test

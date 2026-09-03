@@ -8,6 +8,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -220,7 +221,7 @@ class MultiOrgIsolationIT extends BaseIT {
         movement.setVariantId(fixture.variantId());
         movement.setLocationId(orgBLocation.getId());
         movement.setMovementType(MovementType.INBOUND);
-        movement.setDelta(10);
+        movement.setDelta(BigDecimal.valueOf(10));
 
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -254,7 +255,7 @@ class MultiOrgIsolationIT extends BaseIT {
         movement.setVariantId(fixture.variantId());
         movement.setLocationId(orgBLocation.getId());
         movement.setMovementType(MovementType.INBOUND);
-        movement.setDelta(10);
+        movement.setDelta(BigDecimal.valueOf(10));
 
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -272,7 +273,7 @@ class MultiOrgIsolationIT extends BaseIT {
         movement.setVariantId(fixture.variantId());
         movement.setLocationId(fixture.locationId());
         movement.setMovementType(MovementType.INBOUND);
-        movement.setDelta(5);
+        movement.setDelta(BigDecimal.valueOf(5));
         client.post().uri("/stock/movements")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -289,9 +290,127 @@ class MultiOrgIsolationIT extends BaseIT {
                 .hasSize(0);
     }
 
+    // --- SKU generation / filtering isolation (adversarial: cross-org option IDs) ---
+
+    @Test
+    void orgB_cannotUseOrgA_optionId_toFilterProducts() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        // Org B guesses/reuses Org A's real option ID as a filter value. Even though the ID is
+        // valid and resolves to a real row, it must not leak Org A's product into Org B's results,
+        // nor let Org B use it to find its own (non-existent) matches by ID collision.
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products")
+                        .queryParam("optionIds", fixture.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void orgB_cannotUseOrgA_optionId_toFilterVariants() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/{productId}/variants")
+                        .queryParam("optionIds", fixture.optionId())
+                        .build(fixture.productId()))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void orgB_cannotUseOrgA_optionId_toSearchVariantsAcrossProducts() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/variants/search")
+                        .queryParam("optionIds", fixture.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void orgB_cannotUseOrgA_sku_toSearchVariantsAcrossProducts() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/variants/search")
+                        .queryParam("sku", fixture.sku())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(ProductVariantResponseDTO.class)
+                .hasSize(0);
+    }
+
+    @Test
+    void orgB_cannotUseOrgA_sku_toFilterVariants() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/products/{productId}/variants")
+                        .queryParam("sku", fixture.sku())
+                        .build(fixture.productId()))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void orgB_cannotUseOrgA_optionId_toFilterStockBalances() {
+        mockAdminJwt();
+        VariantFixture fixture = buildVariantFixture();
+        client.post().uri("/stock/movements")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(movementRequest(fixture.variantId(), fixture.locationId(), 10))
+                .exchange()
+                .expectStatus().isOk();
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri(uriBuilder -> uriBuilder
+                        .path("/stock/balances")
+                        .queryParam("optionIds", fixture.optionId())
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBodyList(StockBalanceResponseDTO.class)
+                .hasSize(0);
+    }
+
+    private static StockMovementRequestDTO movementRequest(UUID variantId, UUID locationId, int delta) {
+        StockMovementRequestDTO dto = new StockMovementRequestDTO();
+        dto.setVariantId(variantId);
+        dto.setLocationId(locationId);
+        dto.setMovementType(MovementType.INBOUND);
+        dto.setDelta(BigDecimal.valueOf(delta));
+        return dto;
+    }
+
     // --- Helpers ---
 
-    private record VariantFixture(UUID variantId, UUID locationId) {}
+    private record VariantFixture(UUID variantId, UUID locationId, UUID productId, UUID optionId, String sku) {}
 
     private VariantFixture buildVariantFixture() {
         LocationResponseDTO location = postLocation("Org A Loc", "OA-FIX-" + UUID.randomUUID().toString().substring(0, 6));
@@ -322,7 +441,6 @@ class MultiOrgIsolationIT extends BaseIT {
 
         ProductVariantRequestDTO varDto = new ProductVariantRequestDTO();
         varDto.setOptionIds(List.of(option.getId()));
-        varDto.setSku("OA-VAR-" + UUID.randomUUID());
         ProductVariantResponseDTO variant = client.post()
                 .uri("/products/{productId}/variants", product.getId())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
@@ -334,7 +452,7 @@ class MultiOrgIsolationIT extends BaseIT {
                 .returnResult().getResponseBody();
         assertThat(variant).isNotNull();
 
-        return new VariantFixture(variant.getId(), location.getId());
+        return new VariantFixture(variant.getId(), location.getId(), product.getId(), option.getId(), variant.getSku());
     }
 
     private LocationResponseDTO postLocation(String name, String code) {

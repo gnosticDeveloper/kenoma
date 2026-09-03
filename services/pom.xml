@@ -8,7 +8,7 @@
     <parent>
         <groupId>studio.gnosticdeveloper</groupId>
         <artifactId>kenoma</artifactId>
-        <version>0.1.1-BETA</version>
+        <version>0.2.0-BETA</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
