@@ -5,7 +5,7 @@
 [![CI](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/ci.yml/badge.svg)](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/codeql.yml/badge.svg)](https://github.com/gnosticDeveloper/Kenoma/actions/workflows/codeql.yml)
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.1--BETA-informational.svg)](pom.xml)
+[![Version](https://img.shields.io/badge/version-0.2.0--BETA-informational.svg)](pom.xml)
 
 **API docs:** [docs.kenoma.cloud](https://docs.kenoma.cloud)
 
@@ -17,11 +17,11 @@
 |---|---|---|
 | **Raum** | `8080` | Organization registry. Manages tenants, registered services, ephemeral database credentials via OpenBao, and billing/invoicing |
 | **Vassago** | `8081` | Authentication and identity. JWT issuance, session management, user lifecycle, and password recovery |
-| **Bime** | `8082` | Inventory management. Products, variants, metadata, stock ledger, and warehouse locations |
-| **Common** | No port | Shared library: DTOs, exception handling, JWT validation, R2DBC connection pooling, the Mailgun email client, and the AppRole self-provisioning client each service uses to set up its own OpenBao policy/role at boot |
+| **Bime** | `8082` | Inventory management. Products, variants, metadata, decimal-quantity stock ledger with multi-unit-of-measure, warehouse locations, barcodes, batch/expiry tracking with recalls, stock transfer orders, and point-of-sale |
+| **Common** | No port | Shared library: DTOs, exception handling, JWT validation, R2DBC connection pooling, the Mailgun email client, the AppRole self-provisioning client each service uses to set up its own OpenBao policy/role at boot, and the tiered database-grant profiles that back Raum's ephemeral-credential leases |
 | **Frontend** | `5173` (dev) | React/Vite admin UI. EN/ES i18n |
 
-All backend traffic is fronted by **nginx** (config templated from `gateway/nginx.conf.template`), which terminates TLS, applies per-IP rate limiting in front of Vassago's public endpoints, and reverse-proxies `api.<BASE_DOMAIN>` to the three services by path (including `/dr-backups`, `/export-jobs`, and `/migrations`, which route to Raum, and `/roles/vassago`, `/roles/bime`, `/roles/raum`, which each route to that service's own `/roles`), plus `grafana.<BASE_DOMAIN>` to the observability stack.
+All backend traffic is fronted by **nginx** (config templated from `gateway/nginx.conf.template`), which terminates TLS, applies per-IP rate limiting in front of Vassago's public endpoints, and reverse-proxies `api.<BASE_DOMAIN>` to the three services by path, plus `grafana.<BASE_DOMAIN>` to the observability stack. Path routing includes `/dr-backups`, `/export-jobs`, and `/migrations` to Raum; `/products`, `/locations`, `/metadata`, `/variants`, `/stock/`, `/units`, `/barcodes`, `/batches`, and `/sales` to Bime; and `/roles/vassago`, `/roles/bime`, `/roles/raum`, which each route to that service's own `/roles`. `POST /credentials/ephemeral` is service-to-service only and is answered with a flat `404` at the edge so it can never be reached from outside the internal network.
 
 ### Raum: Organization & Credential Registry
 
@@ -37,6 +37,7 @@ Raum is the platform's administrative backbone. It provisions tenant organizatio
 | `GET` | `/orgs/{id}` | Get an organization |
 | `GET` | `/orgs/{id}/active` | Check whether an organization is active |
 | `GET` | `/orgs/{id}/currency` | Get an organization's configured currency |
+| `GET` | `/orgs/{id}/summary` | Get an organization's id and display name |
 | `PUT` | `/orgs/{id}` | Update an organization |
 | `DELETE` | `/orgs/{id}` | Delete an organization |
 | `PUT` | `/orgs/{id}/billing-info` | Update an organization's billing details |
@@ -101,7 +102,7 @@ Login also rejects credentials for a deactivated organization, even if the passw
 
 ### Bime: Inventory Management
 
-Bime is a multi-tenant inventory service with tenant data isolated at the data layer. It supports a rich product model with configurable metadata, multi-option variants, and an append-only stock ledger.
+Bime is a multi-tenant inventory service with tenant data isolated at the data layer (Postgres row-level security keyed on the lease's `app.org_id`). It supports a rich product model with configurable metadata and multi-option variants, an append-only stock ledger that records decimal quantities in any of the org's configured units of measure, per-variant barcodes (including per-pack barcodes that ring up a case as its unit factor), batch/expiry tracking with first-expired-first-out consumption and recalls, multi-step stock transfer orders between locations, and a point-of-sale flow that consumes stock by batch and prints an 80&nbsp;mm ticket.
 
 **API surface:**
 
@@ -114,25 +115,44 @@ Bime is a multi-tenant inventory service with tenant data isolated at the data l
 | `DELETE` | `/locations/{id}` | Delete a location |
 | `POST` | `/locations/notification-email/confirm` | Confirm a stock-alert notification email change |
 | `POST` | `/products` | Create a product |
-| `GET` | `/products` | List products |
-| `GET` | `/products/{id}` | Get a product |
+| `GET` | `/products` | List products with their variant counts |
+| `GET` | `/products/variants/search` | Search variants across all products by shared option values and/or SKU |
+| `GET` | `/products/{id}` | Get a product with its metadata and variants |
 | `PUT` | `/products/{id}` | Update a product |
-| `DELETE` | `/products/{id}` | Delete a product |
+| `DELETE` | `/products/{id}` | Deactivate a product |
 | `PUT` | `/products/{id}/metadata` | Assign metadata definitions to a product |
 | `PATCH` | `/products/{id}/metadata/{metadataId}/options` | Update selected options for a metadata assignment |
+| `GET` | `/products/{id}/barcode-labels` | Download a printable barcode label sheet (PDF) |
 | `POST` | `/products/{productId}/variants` | Create a product variant |
 | `GET` | `/products/{productId}/variants` | List variants for a product |
 | `GET` | `/products/{productId}/variants/{variantId}` | Get a variant |
 | `PATCH` | `/products/{productId}/variants/{variantId}` | Update a variant |
 | `DELETE` | `/products/{productId}/variants/{variantId}` | Delete a variant |
-| `PATCH` | `/variants/pricing/batch` | Batch-update variant pricing |
+| `GET` | `/products/{productId}/variants/{variantId}/barcodes` | List a variant's barcodes |
+| `POST` | `/products/{productId}/variants/{variantId}/barcodes` | Link an existing barcode to a variant |
+| `POST` | `/products/{productId}/variants/{variantId}/barcodes/issue` | Issue a new internal barcode |
+| `PATCH` | `/products/{productId}/variants/{variantId}/barcodes` | Set or clear a barcode as the variant's primary |
+| `DELETE` | `/products/{productId}/variants/{variantId}/barcodes` | Unlink a barcode |
+| `PATCH` | `/variants/pricing/batch` | Batch-update variant prices |
+| `PATCH` | `/variants/pricing/cost-batch` | Batch-update variant costs |
+| `PUT` | `/variants/{variantId}/uom-conversions` | Set a unit-of-measure conversion for a variant |
+| `GET` | `/variants/{variantId}/uom-conversions` | List a variant's unit-of-measure conversions |
+| `DELETE` | `/variants/{variantId}/uom-conversions/{uomName}` | Remove a unit-of-measure conversion |
+| `GET` | `/barcodes/lookup` | Resolve a scanned barcode to a variant |
+| `GET` | `/barcodes/settings` | Get the org's barcode issuance settings |
+| `PUT` | `/barcodes/settings` | Update the org's barcode issuance settings |
 | `POST` | `/metadata` | Create a metadata definition |
 | `GET` | `/metadata` | List metadata definitions |
 | `GET` | `/metadata/{id}` | Get a metadata definition |
 | `DELETE` | `/metadata/{id}` | Delete a metadata definition |
 | `POST` | `/metadata/{id}/options` | Add an option to a metadata definition |
 | `DELETE` | `/metadata/{id}/options/{optionId}` | Remove an option |
+| `GET` | `/units` | List the org's unit-of-measure catalog |
+| `POST` | `/units` | Add a custom unit |
+| `DELETE` | `/units/{id}` | Remove a custom unit |
 | `POST` | `/stock/movements` | Record a stock movement |
+| `POST` | `/stock/movements/{id}/post` | Post a pending movement |
+| `POST` | `/stock/movements/{id}/cancel` | Cancel a pending movement |
 | `GET` | `/stock/movements` | List stock movements |
 | `GET` | `/stock/movements/{id}` | Get a stock movement |
 | `GET` | `/stock/balances` | Get current stock balances per variant/location |
@@ -140,11 +160,34 @@ Bime is a multi-tenant inventory service with tenant data isolated at the data l
 | `GET` | `/stock/alerts/thresholds` | List configured alert thresholds |
 | `DELETE` | `/stock/alerts/thresholds` | Remove an alert threshold |
 | `GET` | `/stock/alerts/active` | List currently active (triggered) alerts |
+| `POST` | `/stock/transfers` | Create a draft transfer order |
+| `GET` | `/stock/transfers` | List transfer orders |
+| `GET` | `/stock/transfers/in-transit` | List stock currently in transit |
+| `GET` | `/stock/transfers/{id}` | Get a transfer order with its lines |
+| `PATCH` | `/stock/transfers/{id}` | Edit a draft transfer order |
+| `DELETE` | `/stock/transfers/{id}` | Delete a draft transfer order |
+| `POST` | `/stock/transfers/{id}/submit` | Submit a transfer for approval |
+| `POST` | `/stock/transfers/{id}/approve` | Approve a pending transfer |
+| `POST` | `/stock/transfers/{id}/reject` | Reject a pending transfer |
+| `POST` | `/stock/transfers/{id}/dispatch` | Dispatch an approved transfer, moving stock into transit |
+| `POST` | `/stock/transfers/{id}/receive` | Receive a transfer, in full or short |
+| `POST` | `/stock/transfers/{id}/cancel` | Cancel a transfer |
+| `GET` | `/batches` | List batches with per-location on-hand quantities |
+| `GET` | `/batches/{id}` | Get a batch with per-location on-hand quantities |
+| `GET` | `/batches/{id}/recall-report` | Recall traceability report for a batch |
+| `POST` | `/batches/{id}/recall` | Recall a batch |
+| `POST` | `/batches/{id}/lift-recall` | Lift a batch recall |
+| `GET` | `/batches/settings` | Get the org's batch expiry-alert settings |
+| `PUT` | `/batches/settings` | Update the org's batch expiry-alert settings |
+| `POST` | `/sales` | Ring up a point-of-sale sale |
+| `GET` | `/sales` | List sales |
+| `GET` | `/sales/{id}` | Get a sale with its lines |
+| `GET` | `/sales/{id}/ticket` | Download an 80&nbsp;mm sale ticket (PDF) |
 | `GET` | `/roles` | List Bime's role definitions and their permissions |
 
-**Scheduled jobs:** daily stock-threshold check that emails alerts for any variant/location below its configured threshold.
+**Scheduled jobs:** two daily sweeps — a stock-threshold check that emails alerts for any variant/location below its configured threshold, and a batch-expiry check that emails near-expiry alerts for batches falling inside the org's configured alert window.
 
-**Roles:** `BIME_ADMIN` (full control over products, stock, and locations), `BIME_VIEWER` (view products, stock, and locations), `BIME_CATALOG_VIEWER` (browse the product catalog only, no stock or location visibility).
+**Roles:** `BIME_ADMIN` (full control over products, stock, and locations, including approving transfers and recalling batches), `BIME_STOCK_OPERATOR` (day-to-day stock movements and transfers plus ringing up sales; transfers this user raises still need a separate approval before dispatch), `BIME_CASHIER` (point-of-sale sales plus catalog and stock visibility, no other stock changes), `BIME_TRANSFER_APPROVER` (approve or reject transfer orders, no other stock changes), `BIME_VIEWER` (view products, stock, and locations), `BIME_CATALOG_VIEWER` (browse the product catalog only, no stock or location visibility).
 
 ---
 
@@ -205,10 +248,10 @@ Rounded nodes (Mailgun, FX rate provider) and the dashed-border style mark third
 
 - All services are **reactive** (Spring WebFlux + R2DBC).
 - JWT signing keys live in **OpenBao**'s transit engine, managed by Vassago. Vassago and Raum read the public key directly from OpenBao; Bime fetches it from Vassago's public key endpoint.
-- Database credentials are short-lived and issued through Raum. Vassago and Bime call Raum to obtain ephemeral credentials, which Raum provisions via OpenBao. No service holds a static database password.
+- Database credentials are short-lived and issued through Raum. Vassago and Bime call Raum to obtain ephemeral credentials, which Raum provisions via OpenBao. No service holds a static database password. `POST /credentials/ephemeral` is reachable only from the internal network (nginx returns `404` at the edge) and requires a caller AppRole token belonging to a known service. Each lease is issued at one of five Postgres privilege tiers (`catalog`, `readonly`, `sales`, `operations`, `full`); the caller's roles for the target service resolve to exactly one tier — highest wins — and the lease physically cannot exceed that tier's grants even from a raw database client. Tier grant definitions live in `common`'s grant profiles.
 - **Redis** is shared between Vassago (refresh tokens, and a second, application-level per-IP rate limiter on top of nginx's gateway-level one, covering `/auth/login`, `/auth/recover`, `/auth/refresh`, `/auth/public-key`, and `/user/verify`) and Raum (onboarding preset config for retry).
 - During onboarding, Raum calls Vassago and Bime over HTTP to seed the new tenant. A scheduled retry recovers any credential that failed mid-flow using the preset config stored in Redis.
-- The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, a unified exception hierarchy, the Mailgun email client (used by Raum, Vassago, and Bime for transactional emails), and the AppRole provisioning client each service's own `OpenBaoProvisioner` uses to self-provision its policy/role at boot.
+- The `common` module provides shared `WhereClause` query building, R2DBC connection pool management, JWT validation, a unified exception hierarchy, the Mailgun email client (used by Raum, Vassago, and Bime for transactional emails), the AppRole provisioning client each service's own `OpenBaoProvisioner` uses to self-provision its policy/role at boot, and the per-service database grant profiles (`common.grants`) that define the five ephemeral-lease privilege tiers and render their `GRANT` statements.
 - **nginx** terminates TLS and reverse-proxies `api.<BASE_DOMAIN>` (path-routed to Raum/Vassago/Bime) and `grafana.<BASE_DOMAIN>`. No service publishes its app port directly to the host, including in local development: Raum, Vassago, and Bime are reachable only through nginx at `api.<BASE_DOMAIN>`, not on `localhost:8080`/`8081`/`8082`.
 - **OpenBao runs in production mode**: Raft integrated storage, Shamir secret sharing (5 key shares, 3-share unseal threshold), and per-service AppRole auth (Vassago, Raum, a Raum-service role, and Bime). Services fetch and renew their own AppRole tokens at runtime and retry indefinitely rather than failing at boot.
 - **Observability**: Promtail ships container logs to Loki; each service exposes metrics that Prometheus scrapes; Grafana ships with a default "Kenoma overview" dashboard covering both, plus provisioned alert rules that notify by email through Mailgun's SMTP relay, all set up automatically.
