@@ -25,6 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
+import raum.dto.OrgSummaryResponseDTO;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -791,6 +792,72 @@ class EphemeralCredentialsIT {
                 .retrieve()
                 .bodyToFlux(UUID.class)
                 .collectList()
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
+    }
+
+    @Test
+    void orgSummary_returnsIdAndName_forValidVaultToken() throws Exception {
+        String expectedName = raumDb.execInContainer("psql", "-U", "postgres", "-d", "raum",
+                        "-t", "-A", "-c", "SELECT name FROM organizations WHERE id = '" + orgId + "';")
+                .getStdout().trim();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        OrgSummaryResponseDTO summary = client.get()
+                .uri("/orgs/{id}/summary", orgId)
+                .header("X-Vault-Token", vassagoToken)
+                .retrieve()
+                .bodyToMono(OrgSummaryResponseDTO.class)
+                .block();
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.id()).isEqualTo(orgId);
+        assertThat(summary.name()).isEqualTo(expectedName);
+    }
+
+    @Test
+    void orgSummary_unknownOrg_returns404() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/{id}/summary", UUID.randomUUID())
+                .header("X-Vault-Token", vassagoToken)
+                .retrieve()
+                .bodyToMono(OrgSummaryResponseDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.NotFound.class);
+    }
+
+    @Test
+    void orgSummary_rejectsMissingVaultToken() {
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/{id}/summary", orgId)
+                .retrieve()
+                .bodyToMono(OrgSummaryResponseDTO.class)
+                .block())
+                .isInstanceOf(WebClientResponseException.Unauthorized.class);
+    }
+
+    @Test
+    void orgSummary_rejectsUserJwt_vaultTokenOnly() {
+        mockAdminJwt();
+        WebClient client = WebClient.builder()
+                .baseUrl("http://localhost:%d".formatted(port))
+                .build();
+
+        assertThatThrownBy(() -> client.get()
+                .uri("/orgs/{id}/summary", orgId)
+                .header(HttpHeaders.AUTHORIZATION.toString(), "Bearer test-token")
+                .retrieve()
+                .bodyToMono(OrgSummaryResponseDTO.class)
                 .block())
                 .isInstanceOf(WebClientResponseException.Unauthorized.class);
     }

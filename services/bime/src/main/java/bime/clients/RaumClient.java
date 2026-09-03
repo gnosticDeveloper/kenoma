@@ -1,6 +1,7 @@
 package bime.clients;
 
 import bime.dto.OrgCurrencyDTO;
+import bime.dto.OrgSummaryDTO;
 import bime.openbao.OpenBaoService;
 import bime.security.BimeAuthentication;
 import common.dto.BasicCredentialDTO;
@@ -72,6 +73,17 @@ public class RaumClient {
                 .header("X-Vault-Token", vaultToken)
                 .retrieve()
                 .bodyToFlux(UUID.class);
+    }
+
+    /** An org's id and display name, for rendering it (e.g. a sale ticket header). Vault-token authenticated. */
+    public Mono<OrgSummaryDTO> getOrgSummary(UUID orgId, String vaultToken) {
+        return webClient.get()
+                .uri("/orgs/{orgId}/summary", orgId)
+                .header("X-Vault-Token", vaultToken)
+                .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, response ->
+                        Mono.error(new NotFoundException("Organization not found")))
+                .bodyToMono(OrgSummaryDTO.class);
     }
 
     /** Org's base currency and refresh mode, needed to stamp variant prices at write time. Vault-token authenticated. */

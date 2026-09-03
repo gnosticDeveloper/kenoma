@@ -289,5 +289,16 @@ export const bime = {
       req<SaleResponse>(`/sales/${id}`, { method: 'GET' }, token),
     create: (dto: SaleRequest, token: string) =>
       req<SaleResponse>('/sales', { method: 'POST', ...payload(dto) }, token),
+    ticketPdf: async (id: string, token: string, lang?: string): Promise<Blob> => {
+      const res = await fetch(`${API_BASE_URL}/sales/${id}/ticket${query({ lang })}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new ApiError(res.status, res.statusText, text)
+      }
+      return res.blob()
+    },
   },
 }

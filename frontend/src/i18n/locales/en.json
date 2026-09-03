@@ -659,7 +659,9 @@
       "colReference": "Receipt",
       "colItems": "Items",
       "colTotal": "Total",
-      "viewReceipt": "View"
+      "viewReceipt": "View",
+      "printTicket": "Print ticket",
+      "printingTicket": "Preparing…"
   },
   "bimeBatchesTab": {
     "hint": "Production batches of batch-tracked products. Outbound movements consume the earliest expiry first; a recalled batch is skipped and blocked from sale.",

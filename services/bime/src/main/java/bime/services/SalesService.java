@@ -18,6 +18,7 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -25,6 +26,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -44,6 +46,8 @@ public class SalesService {
 
     private final BimeContextService ctx;
     private final StockLedgerService stockLedgerService;
+    private final SaleTicketDocumentService ticketDocumentService;
+    private final OrgDirectoryService orgDirectoryService;
 
     private static final String SALE_COLUMNS = """
             id, org_id, location_id, reference, status, subtotal, currency, note,
@@ -106,6 +110,86 @@ public class SalesService {
 
     public Mono<SaleResponseDTO> getById(UUID id) {
         return ctx.withHandle((caller, handle) -> loadSale(handle, caller.getOrgId(), id));
+    }
+
+    /** Builds a narrow, receipt-style PDF ticket for one completed sale, with labels and money
+      * localized to {@code locale}. The header shows the organization's name (resolved from raum,
+      * cached); if that can't be resolved the ticket still renders with a generic heading. Not a
+      * tax document; the caller prints the returned PDF. */
+    public Mono<byte[]> generateTicket(UUID id, Locale locale) {
+        return ctx.withHandle((caller, handle) -> orgDirectoryService.nameOf(caller.getOrgId())
+                .defaultIfEmpty("")
+                .flatMap(companyName -> loadTicketData(handle, caller.getOrgId(), id, nullable(companyName))
+                        .flatMap(data -> Mono.fromCallable(() -> ticketDocumentService.render(data, locale))
+                                .subscribeOn(Schedulers.boundedElastic()))));
+    }
+
+    private Mono<SaleTicketDocumentService.TicketData> loadTicketData(BimeDbHandle handle, UUID orgId, UUID id,
+                                                                     String companyName) {
+        return handle.client().sql("""
+                SELECT s.reference, s.subtotal, s.currency, s.note, s.sold_at,
+                       l.name AS location_name, l.code AS location_code
+                FROM sales s
+                JOIN locations l ON l.id = s.location_id
+                WHERE s.id = :id AND s.org_id = :orgId
+                """)
+                .bind("id", id)
+                .bind("orgId", orgId)
+                .fetch()
+                .one()
+                .switchIfEmpty(Mono.error(new NotFoundException("Sale not found")))
+                .flatMap(head -> loadTicketLines(handle, orgId, id)
+                        .map(lines -> new SaleTicketDocumentService.TicketData(
+                                companyName,
+                                (String) head.get("location_name"),
+                                (String) head.get("location_code"),
+                                (String) head.get("reference"),
+                                id.toString(),
+                                (LocalDateTime) head.get("sold_at"),
+                                (String) head.get("currency"),
+                                (BigDecimal) head.get("subtotal"),
+                                (String) head.get("note"),
+                                lines)));
+    }
+
+    private Mono<List<SaleTicketDocumentService.TicketLine>> loadTicketLines(BimeDbHandle handle, UUID orgId, UUID saleId) {
+        return handle.client().sql("""
+                SELECT sl.qty_base, sl.uom, sl.uom_quantity, sl.unit_price, sl.line_total,
+                       p.name AS product_name, bu.name AS base_uom,
+                       (SELECT string_agg(pmo.value, ' / ' ORDER BY pmo.value)
+                        FROM product_variant_options pvo
+                        JOIN product_metadata_option pmo ON pmo.id = pvo.option_id
+                        WHERE pvo.variant_id = pv.id) AS option_summary
+                FROM sale_lines sl
+                JOIN product_variants pv ON pv.id = sl.variant_id
+                JOIN products p ON p.id = pv.product_id
+                JOIN org_units bu ON bu.id = pv.base_uom_id
+                WHERE sl.sale_id = :saleId AND sl.org_id = :orgId
+                ORDER BY sl.created_at, sl.id
+                """)
+                .bind("saleId", saleId)
+                .bind("orgId", orgId)
+                .fetch()
+                .all()
+                .map(SalesService::toTicketLine)
+                .collectList();
+    }
+
+    private static SaleTicketDocumentService.TicketLine toTicketLine(Map<String, Object> row) {
+        // Consumer-facing: product name plus the option summary ("Red / XL"), no SKU / internal codes.
+        String product = (String) row.get("product_name");
+        String options = (String) row.get("option_summary");
+        StringBuilder desc = new StringBuilder(product == null ? "" : product);
+        if (options != null && !options.isBlank()) {
+            desc.append(' ').append(options);
+        }
+        String packUom = (String) row.get("uom");
+        BigDecimal uomQty = (BigDecimal) row.get("uom_quantity");
+        boolean pack = packUom != null && uomQty != null;
+        BigDecimal quantity = pack ? uomQty : (BigDecimal) row.get("qty_base");
+        String displayUnit = pack ? packUom : (String) row.get("base_uom");
+        return new SaleTicketDocumentService.TicketLine(desc.toString(), quantity, displayUnit,
+                (BigDecimal) row.get("unit_price"), (BigDecimal) row.get("line_total"));
     }
 
     public Flux<SaleResponseDTO> list(UUID locationId, LocalDate from, LocalDate to) {
