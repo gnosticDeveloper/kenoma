@@ -1,6 +1,7 @@
 package bime.services;
 
 import common.exception.BadRequestException;
+import lombok.extern.slf4j.Slf4j;
 import org.openpdf.text.Chunk;
 import org.openpdf.text.Document;
 import org.openpdf.text.Element;
@@ -35,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * document - tax compliance is out of scope (issue #172) and the footer says so. There is no
  * printer integration; the caller prints the returned PDF through their own operating system.
  */
+@Slf4j
 @Service
 public class SaleTicketDocumentService {
 
@@ -141,7 +143,8 @@ public class SaleTicketDocumentService {
         } catch (BadRequestException e) {
             throw e;
         } catch (Exception e) {
-            throw new BadRequestException("Failed to generate the sale ticket: " + e.getMessage());
+            log.error("Failed to render sale ticket for sale {}", ticket.saleId(), e);
+            throw new BadRequestException("Could not generate the sale ticket.");
         }
         return out.toByteArray();
     }
