@@ -22,6 +22,12 @@ interface Props {
   permissions: Permissions
 }
 
+interface UomOption {
+  name: string
+  factor: number
+  price: number | null
+}
+
 interface VariantInfo {
   productId: string
   productName: string
@@ -30,6 +36,8 @@ interface VariantInfo {
   baseUom: string
   price: number | null
   priceCurrency: string | null
+  // [0] is always the base unit (factor 1); the rest are this variant's configured pack conversions.
+  uomOptions: UomOption[]
 }
 
 interface CartLine {
@@ -43,10 +51,23 @@ interface CartLine {
   unitPrice: number | null
   // false only when the item had no catalog/pack price, so the till must key one in
   priceLocked: boolean
+  // true when the unit is fixed by the scanned barcode; false when the cashier may change it
+  unitLocked: boolean
   expired: boolean
 }
 
 let lineKeySeq = 1
+
+function triggerDownload(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
 
 export default function BimeSalesPage({ token, permissions }: Props) {
   const { t, i18n } = useTranslation()
@@ -87,6 +108,12 @@ export default function BimeSalesPage({ token, permissions }: Props) {
             baseUom: v.baseUom,
             price: v.price ?? null,
             priceCurrency: v.priceCurrency ?? null,
+            uomOptions: [
+              { name: v.baseUom, factor: 1, price: v.price ?? null },
+              ...(v.uomConversions ?? []).map(c => ({
+                name: c.uomName, factor: c.factor, price: c.effectivePrice,
+              })),
+            ],
           }
         })
       })
@@ -131,6 +158,7 @@ export default function BimeSalesPage({ token, permissions }: Props) {
 
   const recent = useApiCall<SaleResponse[]>()
   const [receipt, setReceipt] = useState<SaleResponse | null>(null)
+  const [printing, setPrinting] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
 
@@ -185,6 +213,7 @@ export default function BimeSalesPage({ token, permissions }: Props) {
         qty: 1,
         unitPrice: r.packPrice,
         priceLocked: r.packPrice != null,
+        unitLocked: true,
         expired: r.expired,
       })
       if (r.expired) toast.show(t('bimeSalesPage.expiredWarning', { name: r.productName }))
@@ -242,6 +271,7 @@ export default function BimeSalesPage({ token, permissions }: Props) {
       qty: 1,
       unitPrice: info?.price ?? null,
       priceLocked: (info?.price ?? null) != null,
+      unitLocked: false,
       expired: false,
     })
     setMVariant(null)
@@ -252,6 +282,17 @@ export default function BimeSalesPage({ token, permissions }: Props) {
   }
   function setPrice(key: number, price: number) {
     setCart(prev => prev.map(l => (l.key === key ? { ...l, unitPrice: Number.isFinite(price) ? price : null } : l)))
+  }
+  // Manually-added lines only: switch the unit and re-derive its price from the catalogue.
+  function setUom(key: number, name: string) {
+    setCart(prev => prev.map(l => {
+      if (l.key !== key) return l
+      const opts = variantLookup[l.variantId]?.uomOptions ?? []
+      const opt = opts.find(o => o.name === name)
+      if (!opt) return l
+      const isBase = opts[0]?.name === name
+      return { ...l, uom: isBase ? null : opt.name, unitPrice: opt.price, priceLocked: opt.price != null }
+    }))
   }
   function removeLine(key: number) {
     setCart(prev => prev.filter(l => l.key !== key))
@@ -295,8 +336,41 @@ export default function BimeSalesPage({ token, permissions }: Props) {
     }
   }
 
+  async function printTicket(sale: SaleResponse) {
+    setPrinting(true)
+    try {
+      const blob = await bime.sales.ticketPdf(sale.id, token, locale.slice(0, 2))
+      triggerDownload(blob, `sale-ticket-${sale.reference || sale.id.slice(0, 8)}.pdf`)
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   const cartColumns: Column<CartLine>[] = [
     { key: 'item', header: t('bimeSalesPage.item'), render: l => l.label },
+    {
+      key: 'unit', header: t('bimeSalesPage.unit'),
+      render: l => {
+        const info = variantLookup[l.variantId]
+        const opts = info?.uomOptions ?? []
+        // Barcode-scanned lines carry the unit from the barcode; nothing to choose when the variant
+        // has no configured pack units either.
+        if (l.unitLocked || opts.length <= 1) {
+          return <span className="pos-price">{l.uom ?? opts[0]?.name ?? info?.baseUom ?? '—'}</span>
+        }
+        return (
+          <select value={l.uom ?? opts[0].name} onChange={e => setUom(l.key, e.target.value)}>
+            {opts.map(o => (
+              <option key={o.name} value={o.name}>
+                {o.name}{o.factor !== 1 ? ` (×${o.factor})` : ''}
+              </option>
+            ))}
+          </select>
+        )
+      },
+    },
     {
       key: 'qty', header: t('bimeSalesPage.qty'),
       render: l => (
@@ -337,9 +411,15 @@ export default function BimeSalesPage({ token, permissions }: Props) {
     {
       key: 'view', header: '',
       render: s => (
-        <button className="btn btn-outline btn-sm" type="button" onClick={() => setReceipt(s)}>
-          {t('bimeSalesPage.viewReceipt')}
-        </button>
+        <div className="actions">
+          <button className="btn btn-outline btn-sm" type="button" onClick={() => setReceipt(s)}>
+            {t('bimeSalesPage.viewReceipt')}
+          </button>
+          <button className="btn btn-outline btn-sm" type="button" disabled={printing}
+            onClick={() => printTicket(s)}>
+            {t('bimeSalesPage.printTicket')}
+          </button>
+        </div>
       ),
     },
   ]
@@ -489,6 +569,12 @@ export default function BimeSalesPage({ token, permissions }: Props) {
                 </tr>
               </tfoot>
             </table>
+            <div className="actions" style={{ marginTop: 14 }}>
+              <button className="btn btn-primary" type="button" disabled={printing}
+                onClick={() => receipt && printTicket(receipt)}>
+                {printing ? t('bimeSalesPage.printingTicket') : t('bimeSalesPage.printTicket')}
+              </button>
+            </div>
           </>
         )}
       </Modal>

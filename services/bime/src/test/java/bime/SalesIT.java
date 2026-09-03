@@ -18,12 +18,16 @@ import bime.dto.StockMovementRequestDTO;
 import bime.dto.StockMovementResponseDTO;
 import bime.dto.UomConversionRequestDTO;
 import bime.dto.VariantBarcodeRequestDTO;
+import bime.clients.RaumClient;
+import bime.dto.OrgSummaryDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -32,11 +36,16 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 class SalesIT extends BaseIT {
 
     @LocalServerPort
     int port;
+
+    @MockitoBean
+    RaumClient raumClient;
 
     private WebTestClient client;
 
@@ -47,6 +56,8 @@ class SalesIT extends BaseIT {
                 .responseTimeout(Duration.ofSeconds(15))
                 .build();
         mockAdminJwt();
+        when(raumClient.getOrgSummary(any(), any()))
+                .thenReturn(Mono.just(new OrgSummaryDTO(ORG_ID, "Test Org")));
     }
 
     @Test
@@ -254,6 +265,42 @@ class SalesIT extends BaseIT {
 
         mockAdminJwtForOrg(ORG_ID_B);
         client.get().uri("/sales/{id}", created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isNotFound();
+    }
+
+    @Test
+    void ticket_returnsPdf_andIsOrgScoped() {
+        Fixture f = fixture(false, "4.00");
+        stockIn(f.variantId, f.locationId, 10, null, null);
+        SaleResponseDTO created = ringUp(sale(f.locationId, line(f.variantId, "2")));
+
+        byte[] pdf = client.get().uri("/sales/{id}/ticket", created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_PDF)
+                .expectBody(byte[].class).returnResult().getResponseBody();
+        assertThat(pdf).isNotNull();
+        assertThat(new String(pdf, 0, 5)).isEqualTo("%PDF-");
+
+        // the localized variant renders too
+        byte[] spanishPdf = client.get().uri("/sales/{id}/ticket?lang=es", created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_PDF)
+                .expectBody(byte[].class).returnResult().getResponseBody();
+        assertThat(spanishPdf).isNotNull();
+        assertThat(new String(spanishPdf, 0, 5)).isEqualTo("%PDF-");
+
+        mockAdminJwtForOrg(ORG_ID_B);
+        client.get().uri("/sales/{id}/ticket", created.getId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
+                .exchange().expectStatus().isNotFound();
+    }
+
+    @Test
+    void ticket_unknownSale_returns404() {
+        client.get().uri("/sales/{id}/ticket", UUID.randomUUID())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token")
                 .exchange().expectStatus().isNotFound();
     }

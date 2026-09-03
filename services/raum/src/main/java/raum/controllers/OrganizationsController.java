@@ -30,6 +30,7 @@ import raum.dto.ExportDownloadResponseDTO;
 import raum.dto.ExportJobResponseDTO;
 import raum.dto.OrgRequestDTO;
 import raum.dto.OrgResponseDTO;
+import raum.dto.OrgSummaryResponseDTO;
 import raum.openbao.OpenBaoService;
 import raum.security.RaumAuthentication;
 import raum.security.RaumPermission;
@@ -163,6 +164,34 @@ public class OrganizationsController {
         return openBaoService.validateToken(vaultToken)
                 .flatMap(valid -> valid
                         ? service.isOrgActive(id)
+                        : Mono.error(new UnauthorizedException("Invalid token")));
+    }
+
+    @Operation(
+            summary = "Get an organization's id and display name",
+            description = "Returns just {id, name} for an organization, with no other detail. " +
+                    "For machine-to-machine callers only — authenticates via X-Vault-Token (OpenBao AppRole), " +
+                    "not a user JWT. Intended for other services (e.g. Bime) that need an org's name to render " +
+                    "it, such as on a printed sale ticket."
+    )
+    @SecurityRequirements({@SecurityRequirement(name = "vaultToken")})
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Org summary found"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid X-Vault-Token", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Organization not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/{id}/summary")
+    Mono<OrgSummaryResponseDTO> getOrgSummary(
+            @PathVariable("id") UUID id,
+            @Parameter(description = "OpenBao AppRole token") @RequestHeader(value = "X-Vault-Token", required = false) String vaultToken) {
+        if (vaultToken == null) {
+            return Mono.error(new UnauthorizedException("X-Vault-Token required"));
+        }
+        return openBaoService.validateToken(vaultToken)
+                .flatMap(valid -> valid
+                        ? service.getOrgDataById(id)
+                                .switchIfEmpty(Mono.error(new NotFoundException("Organization not found")))
+                                .map(org -> new OrgSummaryResponseDTO(org.getId(), org.getName()))
                         : Mono.error(new UnauthorizedException("Invalid token")));
     }
 

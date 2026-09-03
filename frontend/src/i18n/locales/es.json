@@ -659,7 +659,9 @@
       "colReference": "Recibo",
       "colItems": "Artículos",
       "colTotal": "Total",
-      "viewReceipt": "Ver"
+      "viewReceipt": "Ver",
+      "printTicket": "Imprimir ticket",
+      "printingTicket": "Preparando…"
   },
   "bimeBatchesTab": {
     "hint": "Lotes de producción de productos con seguimiento por lote. Los movimientos de salida consumen primero el vencimiento más próximo; un lote retirado se omite y no puede venderse.",

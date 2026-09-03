@@ -14,12 +14,16 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
+import java.util.Locale;
 import java.util.UUID;
 
 @RestController
@@ -77,5 +81,30 @@ public class SalesController {
     @PreAuthorize("hasAuthority('BIME_VIEW')")
     public Mono<SaleResponseDTO> getById(@PathVariable UUID id) {
         return salesService.getById(id);
+    }
+
+    @Operation(summary = "Print a sale ticket",
+            description = "Returns a narrow, receipt-style PDF ticket for one completed sale: location, reference, " +
+                    "timestamp, the priced lines and the subtotal as they stood at the moment of sale. Labels and " +
+                    "money are localized via lang (en or es; anything else falls back to en). This is not a tax " +
+                    "document (tax compliance is out of scope) and there is no printer integration - print the " +
+                    "returned PDF yourself. Requires BIME_VIEW.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "PDF document"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient permissions", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Sale not found", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping(value = "/{id}/ticket", produces = MediaType.APPLICATION_PDF_VALUE)
+    @PreAuthorize("hasAuthority('BIME_VIEW')")
+    public Mono<ResponseEntity<byte[]>> ticket(
+            @PathVariable UUID id,
+            @Parameter(description = "Language for the ticket's labels and money formatting: en or es") @RequestParam(defaultValue = "en") String lang) {
+        Locale locale = "es".equalsIgnoreCase(lang) ? Locale.forLanguageTag("es") : Locale.US;
+        return salesService.generateTicket(id, locale)
+                .map(pdf -> ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_PDF)
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=sale-ticket-" + id + ".pdf")
+                        .body(pdf));
     }
 }
